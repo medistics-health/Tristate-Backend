@@ -83,29 +83,10 @@ export async function signUp(req: Request, res: Response) {
       },
     });
 
-    const token = jwt.sign(
-      {
-        sub: user.id,
-        userName: user.userName,
-        email: user.email,
-        role: user.role,
-      },
-      getJwtSecret(),
-      { expiresIn: "7d" },
-    );
-
-    return res
-      .cookie("token", token, {
-        httpOnly: true, // prevents JS access
-        secure: false, // only over HTTPS (use false in local dev)
-        sameSite: "lax", // CSRF protection
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      })
-      .status(201)
-      .json({
-        message: "User created successfully.",
-        user: sanitizeUser(user),
-      });
+    return res.status(201).json({
+      message: "User created successfully.",
+      user: sanitizeUser(user),
+    });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to sign up user.",
@@ -117,14 +98,6 @@ export async function signUp(req: Request, res: Response) {
 export async function login(req: Request, res: Response) {
   try {
     const { userName, password } = req.body as AuthBody;
-
-    // const { token } = req.cookies;
-
-    // if (!token) {
-    //   return res.status(401).json({
-    //     message: "Unauthorized",
-    //   });
-    // }
 
     if (!userName || !password) {
       return res.status(400).json({
@@ -155,21 +128,72 @@ export async function login(req: Request, res: Response) {
       });
     }
 
-    // const token = jwt.sign(
-    //   {
-    //     sub: existingUser.id,
-    //     userName: existingUser.userName,
-    //     email: existingUser.email,
-    //     role: existingUser.role,
-    //   },
-    //   getJwtSecret(),
-    //   { expiresIn: "7d" },
-    // );
+    const token = jwt.sign(
+      {
+        sub: existingUser.id,
+        userName: existingUser.userName,
+        email: existingUser.email,
+        role: existingUser.role,
+      },
+      getJwtSecret(),
+      { expiresIn: "7d" },
+    );
+
+    return res
+      .cookie("token", token, {
+        httpOnly: true, // prevents JS access
+        secure: false, // only over HTTPS (use false in local dev)
+        sameSite: "lax", // CSRF protection
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      })
+      .status(200)
+      .json({
+        message: "Login successful.",
+        user: sanitizeUser(existingUser),
+      });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to login user.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function authenticateMe(req: any, res: Response) {
+  try {
+    const username = req.user.userName;
+
+    const user = await prisma.user.findUnique({
+      where: { userName: username },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
 
     return res.status(200).json({
-      message: "Login successful.",
-      user: sanitizeUser(existingUser),
+      id: user.id,
+      email: user.email,
     });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to authenticate",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function logout(req: Request, res: Response) {
+  try {
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+    });
+
+    return res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to login user.",
