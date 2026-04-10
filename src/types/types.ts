@@ -1,4 +1,5 @@
 export type AuthBody = {
+  identifier?: string;
   userName?: string;
   firstName?: string;
   lastName?: string;

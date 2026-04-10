@@ -97,17 +97,17 @@ export async function signUp(req: Request, res: Response) {
 
 export async function login(req: Request, res: Response) {
   try {
-    const { userName, password } = req.body as AuthBody;
+    const { identifier, password } = req.body;
 
-    if (!userName || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({
-        message: "userName and password are required.",
+        message: "userName/email and password are required.",
       });
     }
 
-    const existingUser = await prisma.user.findUnique({
+    const existingUser = await prisma.user.findFirst({
       where: {
-        userName,
+        OR: [{ userName: identifier }, { email: identifier }],
       },
     });
 

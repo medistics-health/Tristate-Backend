@@ -9,7 +9,7 @@ This project now includes Prisma ORM configured for PostgreSQL with the requeste
 - A reusable Prisma client bootstrap for the app
 - A full relational schema for:
   - Practice
-  - Contact
+  - Person
   - Deal
   - Agreement
   - Service
@@ -150,7 +150,7 @@ npm.cmd run build
 
 ## Relationships Implemented
 
-- `Practice -> Contacts`
+- `Practice -> Persons`
 - `Practice -> Deals`
 - `Practice -> Agreements`
 - `Practice -> Invoices`

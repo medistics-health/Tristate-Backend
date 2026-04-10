@@ -1,9 +1,9 @@
-import { ContactRole, InfluenceLevel } from "../../../generated/prisma/client";
+import { PersonRole, InfluenceLevel } from "../../../generated/prisma/client";
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
-type ContactBody = {
+type PersonBody = {
   practiceId?: string;
   firstName?: string;
   lastName?: string;
@@ -13,18 +13,51 @@ type ContactBody = {
   phone?: string;
 };
 
-function isContactRole(role: string): role is ContactRole {
-  return Object.values(ContactRole).includes(role as ContactRole);
+function isPersonRole(role: string): role is PersonRole {
+  console.log(role, PersonRole);
+  console.log(Object.values(PersonRole).includes(role as PersonRole));
+  return Object.values(PersonRole).includes(role as PersonRole);
 }
 
 function isInfluenceLevel(influence: string): influence is InfluenceLevel {
   return Object.values(InfluenceLevel).includes(influence as InfluenceLevel);
 }
 
-export async function createContact(req: AuthenticatedRequest, res: Response) {
+export async function getPersons(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({
+        message: "Unauthorized.",
+      });
+    }
+
+    const persons = await prisma.person.findMany({
+      where: {
+        practice: {
+          ownerId: req.user.sub,
+        },
+      },
+      include: {
+        practice: true,
+      },
+    });
+
+    return res.status(200).json({
+      message: "Persons fetched successfully.",
+      persons,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch persons.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function createPerson(req: AuthenticatedRequest, res: Response) {
   try {
     const { practiceId, firstName, lastName, role, influence, email, phone } =
-      req.body as ContactBody;
+      req.body as PersonBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({
@@ -39,10 +72,10 @@ export async function createContact(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (!isContactRole(role)) {
+    if (!isPersonRole(role)) {
       return res.status(400).json({
-        message: "Invalid contact role.",
-        allowedRoles: Object.values(ContactRole),
+        message: "Invalid person role.",
+        allowedRoles: Object.values(PersonRole),
       });
     }
 
@@ -66,7 +99,7 @@ export async function createContact(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const contact = await prisma.contact.create({
+    const person = await prisma.person.create({
       data: {
         practiceId,
         firstName,
@@ -79,18 +112,18 @@ export async function createContact(req: AuthenticatedRequest, res: Response) {
     });
 
     return res.status(201).json({
-      message: "Contact created successfully.",
-      contact,
+      message: "Person created successfully.",
+      person,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to create contact.",
+      message: "Unable to create person.",
       error: error instanceof Error ? error.message : error,
     });
   }
 }
 
-export async function getContact(req: AuthenticatedRequest, res: Response) {
+export async function getPerson(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
@@ -102,11 +135,11 @@ export async function getContact(req: AuthenticatedRequest, res: Response) {
 
     if (!id) {
       return res.status(400).json({
-        message: "Contact id is required.",
+        message: "Person id is required.",
       });
     }
 
-    const contact = await prisma.contact.findFirst({
+    const person = await prisma.person.findFirst({
       where: {
         id,
         practice: {
@@ -118,29 +151,29 @@ export async function getContact(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    if (!contact) {
+    if (!person) {
       return res.status(404).json({
-        message: "Contact not found.",
+        message: "Person not found.",
       });
     }
 
     return res.status(200).json({
-      message: "Contact fetched successfully.",
-      contact,
+      message: "Person fetched successfully.",
+      person,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to fetch contact.",
+      message: "Unable to fetch person.",
       error: error instanceof Error ? error.message : error,
     });
   }
 }
 
-export async function updateContact(req: AuthenticatedRequest, res: Response) {
+export async function updatePerson(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { firstName, lastName, role, influence, email, phone } =
-      req.body as ContactBody;
+      req.body as PersonBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({
@@ -150,14 +183,14 @@ export async function updateContact(req: AuthenticatedRequest, res: Response) {
 
     if (!id) {
       return res.status(400).json({
-        message: "Contact id is required.",
+        message: "Person id is required.",
       });
     }
 
-    if (role && !isContactRole(role)) {
+    if (role && !isPersonRole(role)) {
       return res.status(400).json({
-        message: "Invalid contact role.",
-        allowedRoles: Object.values(ContactRole),
+        message: "Invalid person role.",
+        allowedRoles: Object.values(PersonRole),
       });
     }
 
@@ -168,7 +201,7 @@ export async function updateContact(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const existingContact = await prisma.contact.findFirst({
+    const existingPerson = await prisma.person.findFirst({
       where: {
         id,
         practice: {
@@ -177,16 +210,16 @@ export async function updateContact(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    if (!existingContact) {
+    if (!existingPerson) {
       return res.status(404).json({
-        message: "Contact not found.",
+        message: "Person not found.",
       });
     }
 
     const updateData: {
       firstName?: string;
       lastName?: string;
-      role?: ContactRole;
+      role?: PersonRole;
       influence?: InfluenceLevel;
       email?: string | null;
       phone?: string | null;
@@ -201,7 +234,7 @@ export async function updateContact(req: AuthenticatedRequest, res: Response) {
     }
 
     if (role !== undefined) {
-      updateData.role = role as ContactRole;
+      updateData.role = role as PersonRole;
     }
 
     if (influence !== undefined) {
@@ -216,7 +249,7 @@ export async function updateContact(req: AuthenticatedRequest, res: Response) {
       updateData.phone = phone;
     }
 
-    const contact = await prisma.contact.update({
+    const person = await prisma.person.update({
       where: {
         id,
       },
@@ -224,12 +257,60 @@ export async function updateContact(req: AuthenticatedRequest, res: Response) {
     });
 
     return res.status(200).json({
-      message: "Contact updated successfully.",
-      contact,
+      message: "Person updated successfully.",
+      person,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to update contact.",
+      message: "Unable to update person.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function deletePerson(req: AuthenticatedRequest, res: Response) {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    if (!req.user?.sub) {
+      return res.status(401).json({
+        message: "Unauthorized.",
+      });
+    }
+
+    if (!id) {
+      return res.status(400).json({
+        message: "Person id is required.",
+      });
+    }
+
+    const existingPerson = await prisma.person.findFirst({
+      where: {
+        id,
+        practice: {
+          ownerId: req.user.sub,
+        },
+      },
+    });
+
+    if (!existingPerson) {
+      return res.status(404).json({
+        message: "Person not found.",
+      });
+    }
+
+    await prisma.person.delete({
+      where: {
+        id,
+      },
+    });
+
+    return res.status(200).json({
+      message: "Person deleted successfully.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to delete person.",
       error: error instanceof Error ? error.message : error,
     });
   }
