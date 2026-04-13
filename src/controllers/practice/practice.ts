@@ -1,7 +1,11 @@
-import { PracticeSource, PracticeStatus } from "../../../generated/prisma/client";
+import {
+  PracticeSource,
+  PracticeStatus,
+} from "../../../generated/prisma/client";
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { sendOutlookEmail } from "../../utils/outlook";
 
 type PracticeBody = {
   name?: string;
@@ -11,6 +15,76 @@ type PracticeBody = {
   bucket?: string[];
   companyId?: string;
 };
+
+type SendOnboardingEmailBody = {
+  practiceId: string;
+  personId: string;
+  subject?: string;
+  message?: string;
+  formLink?: string;
+};
+
+export async function sendOnboardingEmail(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const { practiceId, personId, subject, message, formLink } =
+      req.body as SendOnboardingEmailBody;
+
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    if (!practiceId || !personId) {
+      return res.status(400).json({
+        message: "practiceId and personId are required.",
+      });
+    }
+
+    const practice = await prisma.practice.findFirst({
+      where: { id: practiceId, ownerId: req.user.sub },
+    });
+
+    if (!practice) {
+      return res.status(404).json({ message: "Practice not found." });
+    }
+
+    const person = await prisma.person.findFirst({
+      where: {
+        id: personId,
+        practiceId: practiceId,
+      },
+    });
+
+    if (!person || !person.email) {
+      return res.status(404).json({
+        message: "Person not found for this practice or has no email address.",
+      });
+    }
+
+    const emailSubject = subject || `Onboarding: Welcome ${practice.name}`;
+    const emailBody = `
+      <p>Hello ${person.firstName},</p>
+      <p>Welcome to our platform! We are excited to start the onboarding process for <strong>${practice.name}</strong>.</p>
+      ${message ? `<p>${message}</p>` : ""}
+      ${formLink ? `<p>Please fill out the onboarding form here: <a href="${formLink}">${formLink}</a></p>` : ""}
+      <p>If you have any questions, feel free to reach out.</p>
+      <p>Best regards,<br/>The Team</p>
+    `;
+
+    await sendOutlookEmail(person.email, emailSubject, emailBody);
+
+    return res.status(200).json({
+      message: "Onboarding email sent successfully.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to send onboarding email.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
 
 function isPracticeStatus(status: string): status is PracticeStatus {
   return Object.values(PracticeStatus).includes(status as PracticeStatus);
@@ -28,21 +102,65 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const practices = await prisma.practice.findMany({
-      where: {
-        ownerId: req.user.sub,
-      },
-      include: {
-        company: true,
-        _count: {
-          select: { persons: true, deals: true },
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { search, status, region, source, companyId } = req.query;
+
+    const where: any = {
+      ownerId: req.user.sub,
+    };
+
+    if (search) {
+      where.name = { contains: search as string, mode: "insensitive" };
+    }
+
+    if (status) {
+      where.status = status as PracticeStatus;
+    }
+
+    if (region) {
+      where.region = { contains: region as string, mode: "insensitive" };
+    }
+
+    if (source) {
+      where.source = source as PracticeSource;
+    }
+
+    if (companyId) {
+      where.companyId = companyId as string;
+    }
+
+    const [practices, totalRecords] = await Promise.all([
+      prisma.practice.findMany({
+        where,
+        include: {
+          company: true,
+          _count: {
+            select: { persons: true, deals: true, agreements: true },
+          },
         },
-      },
-    });
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
+      prisma.practice.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / limit);
 
     return res.status(200).json({
       message: "Practices fetched successfully.",
       practices,
+      pagination: {
+        totalRecords,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
     });
   } catch (error) {
     return res.status(500).json({
@@ -52,12 +170,10 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export async function createPractice(
-  req: AuthenticatedRequest,
-  res: Response,
-) {
+export async function createPractice(req: AuthenticatedRequest, res: Response) {
   try {
-    const { name, status, region, source, bucket, companyId } = req.body as PracticeBody;
+    const { name, status, region, source, bucket, companyId } =
+      req.body as PracticeBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({

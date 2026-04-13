@@ -1,7 +1,11 @@
-import { AgreementStatus, AgreementType } from "../../../generated/prisma/client";
+import {
+  AgreementStatus,
+  AgreementType,
+} from "../../../generated/prisma/client";
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { sendOutlookEmail } from "../../utils/outlook";
 
 type AgreementBody = {
   practiceId?: string;
@@ -11,6 +15,76 @@ type AgreementBody = {
   effectiveDate?: string;
   renewalDate?: string;
 };
+
+type SendAgreementEmailBody = {
+  agreementId: string;
+  personId: string;
+  subject?: string;
+  message?: string;
+};
+
+export async function sendAgreementEmail(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const { agreementId, personId, subject, message } =
+      req.body as SendAgreementEmailBody;
+
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    if (!agreementId || !personId) {
+      return res.status(400).json({
+        message: "agreementId and personId are required.",
+      });
+    }
+
+    const agreement = await prisma.agreement.findFirst({
+      where: { id: agreementId, practice: { ownerId: req.user.sub } },
+      include: { practice: true },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ message: "Agreement not found." });
+    }
+
+    const person = await prisma.person.findFirst({
+      where: {
+        id: personId,
+        practiceId: agreement.practiceId,
+      },
+    });
+
+    if (!person || !person.email) {
+      return res.status(404).json({
+        message: "Person not found for this practice or has no email address.",
+      });
+    }
+
+    const emailSubject =
+      subject || `Agreement: ${agreement.type} - ${agreement.practice.name}`;
+    const emailBody = `
+      <p>Hello ${person.firstName},</p>
+      <p>Please find the agreement details for <strong>${agreement.practice.name}</strong>.</p>
+      <p>Type: ${agreement.type}</p>
+      ${message ? `<p>${message}</p>` : ""}
+      <p>Best regards,<br/>The Team</p>
+    `;
+
+    await sendOutlookEmail(person.email, emailSubject, emailBody);
+
+    return res.status(200).json({
+      message: "Agreement email sent successfully.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to send agreement email.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
 
 function isAgreementType(type: string): type is AgreementType {
   return Object.values(AgreementType).includes(type as AgreementType);
@@ -66,7 +140,9 @@ export async function createAgreement(
       });
 
       if (!deal) {
-        return res.status(404).json({ message: "Deal not found for practice." });
+        return res
+          .status(404)
+          .json({ message: "Deal not found for practice." });
       }
     }
 
@@ -93,9 +169,62 @@ export async function createAgreement(
   }
 }
 
+export async function getAgreements(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const where = {
+      practice: {
+        ownerId: req.user.sub,
+      },
+    };
+
+    const [agreements, totalRecords] = await Promise.all([
+      prisma.agreement.findMany({
+        where,
+        include: {
+          practice: true,
+          deal: true,
+          channelPartners: true,
+        },
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
+      prisma.agreement.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return res.status(200).json({
+      message: "Agreements fetched successfully.",
+      agreements,
+      pagination: {
+        totalRecords,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch agreements.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function getAgreement(req: AuthenticatedRequest, res: Response) {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { id } = req.params;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -107,7 +236,12 @@ export async function getAgreement(req: AuthenticatedRequest, res: Response) {
 
     const agreement = await prisma.agreement.findFirst({
       where: { id, practice: { ownerId: req.user.sub } },
-      include: { practice: true, deal: true, invoices: true, channelPartners: true },
+      include: {
+        practice: true,
+        deal: true,
+        invoices: true,
+        channelPartners: true,
+      },
     });
 
     if (!agreement) {
@@ -131,7 +265,7 @@ export async function updateAgreement(
   res: Response,
 ) {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { id } = req.params;
     const { dealId, type, status, effectiveDate, renewalDate } =
       req.body as AgreementBody;
 
@@ -175,7 +309,9 @@ export async function updateAgreement(
       });
 
       if (!deal) {
-        return res.status(404).json({ message: "Deal not found for agreement." });
+        return res
+          .status(404)
+          .json({ message: "Deal not found for agreement." });
       }
     }
 
@@ -211,7 +347,7 @@ export async function deleteAgreement(
   res: Response,
 ) {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const { id } = req.params;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });

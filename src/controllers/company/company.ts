@@ -102,22 +102,63 @@ export async function getCompanies(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const companies = await prisma.company.findMany({
-      where: {
-        ownerId: req.user.sub,
-      },
-      include: {
-        _count: {
-          select: { practices: true },
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { search, status, industry } = req.query;
+
+    const where: any = {
+      ownerId: req.user.sub,
+    };
+
+    if (search) {
+      where.OR = [
+        { name: { contains: search as string, mode: "insensitive" } },
+        { domain: { contains: search as string, mode: "insensitive" } },
+        { email: { contains: search as string, mode: "insensitive" } },
+      ];
+    }
+
+    if (status && (status as string) in CompanyStatus) {
+      where.status = status as CompanyStatus;
+    }
+
+    if (industry) {
+      where.industry = { contains: industry as string, mode: "insensitive" };
+    }
+
+    const [companies, totalRecords] = await Promise.all([
+      prisma.company.findMany({
+        where,
+        include: {
+          _count: {
+            select: { practices: true },
+          },
         },
-      },
-    });
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
+      prisma.company.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / limit);
 
     return res.status(200).json({
       message: "Companies fetched successfully.",
       companies,
+      pagination: {
+        totalRecords,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to fetch companies.",
       error: error instanceof Error ? error.message : error,

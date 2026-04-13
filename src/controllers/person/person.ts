@@ -14,8 +14,6 @@ type PersonBody = {
 };
 
 function isPersonRole(role: string): role is PersonRole {
-  console.log(role, PersonRole);
-  console.log(Object.values(PersonRole).includes(role as PersonRole));
   return Object.values(PersonRole).includes(role as PersonRole);
 }
 
@@ -31,20 +29,64 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const persons = await prisma.person.findMany({
-      where: {
-        practice: {
-          ownerId: req.user.sub,
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { search, role, influence, practiceId } = req.query;
+
+    const where: any = {
+      practice: {
+        ownerId: req.user.sub,
+      },
+    };
+
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search as string, mode: "insensitive" } },
+        { lastName: { contains: search as string, mode: "insensitive" } },
+        { email: { contains: search as string, mode: "insensitive" } },
+      ];
+    }
+
+    if (role) {
+      where.role = role as PersonRole;
+    }
+
+    if (influence) {
+      where.influence = influence as InfluenceLevel;
+    }
+
+    if (practiceId) {
+      where.practiceId = practiceId as string;
+    }
+
+    const [persons, totalRecords] = await Promise.all([
+      prisma.person.findMany({
+        where,
+        include: {
+          practice: true,
         },
-      },
-      include: {
-        practice: true,
-      },
-    });
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+      }),
+      prisma.person.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / limit);
 
     return res.status(200).json({
       message: "Persons fetched successfully.",
       persons,
+      pagination: {
+        totalRecords,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
     });
   } catch (error) {
     return res.status(500).json({

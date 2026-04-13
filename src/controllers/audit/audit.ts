@@ -201,6 +201,27 @@ export async function updateAudit(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+export async function getAllAudits(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const audits = await prisma.audit.findMany({
+      where: { practice: { ownerId: req.user.sub } },
+      include: { practice: true, deal: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return res.status(200).json({ message: "Audits fetched successfully.", audits });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch audits.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function deleteAudit(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

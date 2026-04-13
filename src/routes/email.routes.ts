@@ -4,7 +4,9 @@ import { sendEmail, getEmailHistory } from "../controllers/email/email";
 
 const emailRouter = Router();
 
-emailRouter.post("/send", verifyAuthToken, sendEmail);
-emailRouter.get("/history/:personId", verifyAuthToken, getEmailHistory);
+emailRouter.use(verifyAuthToken);
+
+emailRouter.post("/send", sendEmail);
+emailRouter.get("/history/:personId", getEmailHistory);
 
 export default emailRouter;

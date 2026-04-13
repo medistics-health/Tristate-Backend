@@ -10,10 +10,12 @@ import {
 
 const personRouter = Router();
 
-personRouter.get("/", verifyAuthToken, getPersons);
-personRouter.post("/", verifyAuthToken, createPerson);
-personRouter.get("/:id", verifyAuthToken, getPerson);
-personRouter.patch("/:id", verifyAuthToken, updatePerson);
-personRouter.delete("/:id", verifyAuthToken, deletePerson);
+personRouter.use(verifyAuthToken);
+
+personRouter.get("/", getPersons);
+personRouter.post("/", createPerson);
+personRouter.get("/:id", getPerson);
+personRouter.patch("/:id", updatePerson);
+personRouter.delete("/:id", deletePerson);
 
 export default personRouter;

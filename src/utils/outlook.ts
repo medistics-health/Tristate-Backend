@@ -5,22 +5,43 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const msalConfig = {
-  auth: {
-    clientId: process.env.MS_CLIENT_ID || "",
-    authority: `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}`,
-    clientSecret: process.env.MS_CLIENT_SECRET || "",
-  },
+const getMsalConfig = () => {
+  const clientId = process.env.MS_CLIENT_ID;
+  const tenantId = process.env.MS_TENANT_ID;
+  const clientSecret = process.env.MS_CLIENT_SECRET;
+
+  if (!clientId || !tenantId || !clientSecret) {
+    throw new Error(
+      `Missing Microsoft Graph configuration. Ensure MS_CLIENT_ID, MS_TENANT_ID, and MS_CLIENT_SECRET are set in .env. ` +
+      `(Found: clientId=${!!clientId}, tenantId=${!!tenantId}, clientSecret=${!!clientSecret})`
+    );
+  }
+
+  return {
+    auth: {
+      clientId,
+      authority: `https://login.microsoftonline.com/${tenantId}`,
+      clientSecret,
+    },
+  };
 };
 
 const tokenRequest = {
   scopes: ["https://graph.microsoft.com/.default"],
 };
 
-const cca = new ConfidentialClientApplication(msalConfig);
+let cca: ConfidentialClientApplication | null = null;
+
+function getCCA() {
+  if (!cca) {
+    cca = new ConfidentialClientApplication(getMsalConfig());
+  }
+  return cca;
+}
 
 async function getAccessToken() {
-  const authResponse = await cca.acquireTokenByClientCredential(tokenRequest);
+  const clientApp = getCCA();
+  const authResponse = await clientApp.acquireTokenByClientCredential(tokenRequest);
   return authResponse?.accessToken;
 }
 

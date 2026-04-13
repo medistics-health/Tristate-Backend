@@ -10,7 +10,7 @@ import { verifyAuthToken } from "../middleware/auth.middleware";
 
 authRouter.post("/signup", signUp);
 authRouter.post("/login", login);
-authRouter.post("/auth/me", verifyAuthToken, authenticateMe);
+authRouter.get("/me", verifyAuthToken, authenticateMe);
 authRouter.post("/logout", verifyAuthToken, logout);
 
 export default authRouter;

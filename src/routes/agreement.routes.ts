@@ -1,16 +1,23 @@
 import { Router } from "express";
-const agreementRouter = Router();
 import {
   createAgreement,
+  getAgreements,
   getAgreement,
   updateAgreement,
   deleteAgreement,
+  sendAgreementEmail,
 } from "../controllers/agreement/agreement";
 import { verifyAuthToken } from "../middleware/auth.middleware";
 
-agreementRouter.post("/create/agreement", verifyAuthToken, createAgreement);
-agreementRouter.get("/get/agreements", verifyAuthToken, getAgreement);
-agreementRouter.patch("/update/agreement", verifyAuthToken, updateAgreement);
-agreementRouter.delete("/delete/agreement", verifyAuthToken, deleteAgreement);
+const agreementRouter = Router();
+
+agreementRouter.use(verifyAuthToken);
+
+agreementRouter.post("/", createAgreement);
+agreementRouter.post("/send-email", sendAgreementEmail);
+agreementRouter.get("/", getAgreements);
+agreementRouter.get("/:id", getAgreement);
+agreementRouter.patch("/:id", updateAgreement);
+agreementRouter.delete("/:id", deleteAgreement);
 
 export default agreementRouter;
