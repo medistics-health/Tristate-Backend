@@ -176,3 +176,63 @@ export async function deletePurchaseOrder(
     });
   }
 }
+
+export async function getAllPurchaseOrders(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+    const invoiceId = req.query.invoiceId as string;
+
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      invoice: { practice: { ownerId: req.user.sub } },
+    };
+
+    if (search) {
+      where.vendor = {
+        name: { contains: search, mode: "insensitive" },
+      };
+    }
+
+    if (invoiceId) {
+      where.invoiceId = invoiceId;
+    }
+
+    const [purchaseOrders, total] = await Promise.all([
+      prisma.purchaseOrder.findMany({
+        where,
+        include: { vendor: true, invoice: true },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.purchaseOrder.count({ where }),
+    ]);
+
+    return res.status(200).json({
+      message: "Purchase orders fetched successfully.",
+      purchaseOrders,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch purchase orders.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+

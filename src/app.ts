@@ -8,6 +8,9 @@ import practiceRouter from "./routes/practice.routes";
 import agreementRouter from "./routes/agreement.routes";
 import auditRouter from "./routes/audit.routes";
 import emailRouter from "./routes/email.routes";
+import serviceRouter from "./routes/service.routes";
+import invoiceRouter from "./routes/invoice.routes";
+import purchaseOrderRouter from "./routes/purchaseOrder.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
@@ -31,5 +34,8 @@ app.use("/api/v1/practices", practiceRouter);
 app.use("/api/v1/agreements", agreementRouter);
 app.use("/api/v1/emails", emailRouter);
 app.use("/api/v1/audits", auditRouter);
+app.use("/api/v1/services", serviceRouter);
+app.use("/api/v1/invoices", invoiceRouter);
+app.use("/api/v1/purchase-orders", purchaseOrderRouter);
 
 export default app;

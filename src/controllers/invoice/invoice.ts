@@ -47,11 +47,17 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
 
     if (agreementId) {
       const agreement = await prisma.agreement.findFirst({
-        where: { id: agreementId, practiceId, practice: { ownerId: req.user.sub } },
+        where: {
+          id: agreementId,
+          practiceId,
+          practice: { ownerId: req.user.sub },
+        },
       });
 
       if (!agreement) {
-        return res.status(404).json({ message: "Agreement not found for practice." });
+        return res
+          .status(404)
+          .json({ message: "Agreement not found for practice." });
       }
     }
 
@@ -118,7 +124,8 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
 export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { agreementId, totalAmount, status, dueDate } = req.body as InvoiceBody;
+    const { agreementId, totalAmount, status, dueDate } =
+      req.body as InvoiceBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -153,17 +160,23 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
       });
 
       if (!agreement) {
-        return res.status(404).json({ message: "Agreement not found for invoice." });
+        return res
+          .status(404)
+          .json({ message: "Agreement not found for invoice." });
       }
     }
 
     const invoice = await prisma.invoice.update({
       where: { id },
       data: {
-        ...(agreementId !== undefined ? { agreementId: agreementId || null } : {}),
+        ...(agreementId !== undefined
+          ? { agreementId: agreementId || null }
+          : {}),
         ...(totalAmount !== undefined ? { totalAmount } : {}),
         ...(status !== undefined ? { status: status as InvoiceStatus } : {}),
-        ...(dueDate !== undefined ? { dueDate: dueDate ? new Date(dueDate) : null } : {}),
+        ...(dueDate !== undefined
+          ? { dueDate: dueDate ? new Date(dueDate) : null }
+          : {}),
       },
     });
 
@@ -205,6 +218,69 @@ export async function deleteInvoice(req: AuthenticatedRequest, res: Response) {
   } catch (error) {
     return res.status(500).json({
       message: "Unable to delete invoice.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+    const status = (req.query.status as string) || "";
+
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      practice: { ownerId: req.user.sub },
+    };
+
+    if (search) {
+      where.practice = {
+        ...where.practice,
+        name: { contains: search, mode: "insensitive" },
+      };
+    }
+
+    if (status) {
+      if (!isInvoiceStatus(status)) {
+        return res.status(400).json({
+          message: "Invalid invoice status.",
+          allowedStatuses: Object.values(InvoiceStatus),
+        });
+      }
+      where.status = status as InvoiceStatus;
+    }
+
+    const [invoices, total] = await Promise.all([
+      prisma.invoice.findMany({
+        where,
+        include: { practice: true, agreement: true },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.invoice.count({ where }),
+    ]);
+
+    return res.status(200).json({
+      message: "Invoices fetched successfully.",
+      invoices,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch invoices.",
       error: error instanceof Error ? error.message : error,
     });
   }

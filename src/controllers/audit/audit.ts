@@ -59,7 +59,9 @@ export async function createAudit(req: AuthenticatedRequest, res: Response) {
         where: { id: dealId, practiceId, practice: { ownerId: req.user.sub } },
       });
       if (!deal) {
-        return res.status(404).json({ message: "Deal not found for practice." });
+        return res
+          .status(404)
+          .json({ message: "Deal not found for practice." });
       }
     }
 
@@ -74,7 +76,9 @@ export async function createAudit(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    return res.status(201).json({ message: "Audit created successfully.", audit });
+    return res
+      .status(201)
+      .json({ message: "Audit created successfully.", audit });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to create audit.",
@@ -104,7 +108,9 @@ export async function getAudit(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ message: "Audit not found." });
     }
 
-    return res.status(200).json({ message: "Audit fetched successfully.", audit });
+    return res
+      .status(200)
+      .json({ message: "Audit fetched successfully.", audit });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to fetch audit.",
@@ -116,7 +122,8 @@ export async function getAudit(req: AuthenticatedRequest, res: Response) {
 export async function updateAudit(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { dealId, type, score, findings, recommendations } = req.body as AuditBody;
+    const { dealId, type, score, findings, recommendations } =
+      req.body as AuditBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -183,8 +190,7 @@ export async function updateAudit(req: AuthenticatedRequest, res: Response) {
         });
       }
 
-      updateData.recommendations =
-        recommendations as Prisma.InputJsonValue;
+      updateData.recommendations = recommendations as Prisma.InputJsonValue;
     }
 
     const audit = await prisma.audit.update({
@@ -192,7 +198,9 @@ export async function updateAudit(req: AuthenticatedRequest, res: Response) {
       data: updateData,
     });
 
-    return res.status(200).json({ message: "Audit updated successfully.", audit });
+    return res
+      .status(200)
+      .json({ message: "Audit updated successfully.", audit });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to update audit.",
@@ -206,14 +214,55 @@ export async function getAllAudits(req: AuthenticatedRequest, res: Response) {
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
     }
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    // const search = (req.query.search as string) || "";
+    const type = (req.query.type as string) || "";
 
-    const audits = await prisma.audit.findMany({
-      where: { practice: { ownerId: req.user.sub } },
-      include: { practice: true, deal: true },
-      orderBy: { createdAt: "desc" },
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      practice: { ownerId: req.user.sub },
+    };
+
+    // if (search) {
+    //   where.practice = {
+    //     ...where.practice,
+    //     name: { contains: search, mode: "insensitive" },
+    //   };
+    // }
+
+    if (type) {
+      if (!isAuditType(type)) {
+        return res.status(400).json({
+          message: "Invalid audit type.",
+          allowedTypes: Object.values(AuditType),
+        });
+      }
+      where.type = type as AuditType;
+    }
+
+    const [audits, total] = await Promise.all([
+      prisma.audit.findMany({
+        where,
+        include: { practice: true, deal: true },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.audit.count({ where }),
+    ]);
+
+    return res.status(200).json({
+      message: "Audits fetched successfully.",
+      audits,
+      pagination: {
+        totalRecords: total,
+        currentPage: page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     });
-
-    return res.status(200).json({ message: "Audits fetched successfully.", audits });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to fetch audits.",

@@ -43,7 +43,9 @@ export async function createInvoiceLineItem(
       return res.status(404).json({ message: "Invoice not found." });
     }
 
-    const service = await prisma.service.findUnique({ where: { id: serviceId } });
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId },
+    });
 
     if (!service) {
       return res.status(404).json({ message: "Service not found." });
@@ -77,7 +79,9 @@ export async function getInvoiceLineItem(
     }
 
     if (!id) {
-      return res.status(400).json({ message: "Invoice line item id is required." });
+      return res
+        .status(400)
+        .json({ message: "Invoice line item id is required." });
     }
 
     const invoiceLineItem = await prisma.invoiceLineItem.findFirst({
@@ -115,7 +119,9 @@ export async function updateInvoiceLineItem(
     }
 
     if (!id) {
-      return res.status(400).json({ message: "Invoice line item id is required." });
+      return res
+        .status(400)
+        .json({ message: "Invoice line item id is required." });
     }
 
     const existingInvoiceLineItem = await prisma.invoiceLineItem.findFirst({
@@ -127,7 +133,9 @@ export async function updateInvoiceLineItem(
     }
 
     if (serviceId) {
-      const service = await prisma.service.findUnique({ where: { id: serviceId } });
+      const service = await prisma.service.findUnique({
+        where: { id: serviceId },
+      });
       if (!service) {
         return res.status(404).json({ message: "Service not found." });
       }
@@ -167,7 +175,9 @@ export async function deleteInvoiceLineItem(
     }
 
     if (!id) {
-      return res.status(400).json({ message: "Invoice line item id is required." });
+      return res
+        .status(400)
+        .json({ message: "Invoice line item id is required." });
     }
 
     const existingInvoiceLineItem = await prisma.invoiceLineItem.findFirst({
@@ -186,6 +196,60 @@ export async function deleteInvoiceLineItem(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to delete invoice line item.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getAllInvoiceLineItems(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const invoiceId = req.query.invoiceId as string;
+
+    console.log(page, limit);
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      invoice: { practice: { ownerId: req.user.sub } },
+    };
+
+    if (invoiceId) {
+      where.invoiceId = invoiceId;
+    }
+
+    const [lineItems, total] = await Promise.all([
+      prisma.invoiceLineItem.findMany({
+        where,
+        include: { invoice: true, service: true },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.invoiceLineItem.count({ where }),
+    ]);
+
+    return res.status(200).json({
+      message: "Invoice line items fetched successfully.",
+      lineItems,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      message: "Unable to fetch invoice line items.",
       error: error instanceof Error ? error.message : error,
     });
   }
