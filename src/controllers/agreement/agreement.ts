@@ -177,13 +177,44 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+    const type = (req.query.type as string) || "";
+    const status = (req.query.status as string) || "";
+
     const skip = (page - 1) * limit;
 
-    const where = {
+    const where: any = {
       practice: {
         ownerId: req.user.sub,
       },
     };
+
+    if (search) {
+      where.practice = {
+        ...where.practice,
+        name: { contains: search, mode: "insensitive" },
+      };
+    }
+
+    if (type) {
+      if (!isAgreementType(type)) {
+        return res.status(400).json({
+          message: "Invalid agreement type.",
+          allowedTypes: Object.values(AgreementType),
+        });
+      }
+      where.type = type as AgreementType;
+    }
+
+    if (status) {
+      if (!isAgreementStatus(status)) {
+        return res.status(400).json({
+          message: "Invalid agreement status.",
+          allowedStatuses: Object.values(AgreementStatus),
+        });
+      }
+      where.status = status as AgreementStatus;
+    }
 
     const [agreements, totalRecords] = await Promise.all([
       prisma.agreement.findMany({

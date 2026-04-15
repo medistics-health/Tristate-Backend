@@ -175,3 +175,60 @@ export async function deleteAssessment(
     });
   }
 }
+
+export async function getAllAssessments(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = (req.query.search as string) || "";
+    const sortOrder = req.query.sortOrder === "asc" ? "asc" : "desc";
+
+    const skip = (page - 1) * limit;
+
+    const where: any = {
+      practice: { ownerId: req.user.sub },
+    };
+
+    if (search) {
+      where.practice = {
+        ...where.practice,
+        name: { contains: search, mode: "insensitive" },
+      };
+    }
+
+    const [assessments, total] = await Promise.all([
+      prisma.assessment.findMany({
+        where,
+        include: { practice: true },
+        orderBy: { createdAt: sortOrder },
+        skip,
+        take: limit,
+      }),
+      prisma.assessment.count({ where }),
+    ]);
+
+    return res.status(200).json({
+      message: "Assessments fetched successfully.",
+      assessments,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch assessments.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+

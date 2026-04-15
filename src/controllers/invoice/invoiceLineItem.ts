@@ -214,7 +214,6 @@ export async function getAllInvoiceLineItems(
     const limit = parseInt(req.query.limit as string) || 10;
     const invoiceId = req.query.invoiceId as string;
 
-    console.log(page, limit);
     const skip = (page - 1) * limit;
 
     const where: any = {
@@ -247,7 +246,6 @@ export async function getAllInvoiceLineItems(
       },
     });
   } catch (error) {
-    console.log(error);
     return res.status(500).json({
       message: "Unable to fetch invoice line items.",
       error: error instanceof Error ? error.message : error,
