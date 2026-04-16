@@ -212,8 +212,14 @@ export async function sendAgreementEmail(
     }
 
     const agreement = await prisma.agreement.findFirst({
-      where: { id: agreementId, practice: { ownerId: req.user.sub } },
-      include: { practice: true },
+      where: {
+        id: agreementId,
+        practice: { ownerId: req.user.sub },
+      },
+      include: {
+        practice: true,
+        docusealSubmissions: true,
+      },
     });
 
     if (!agreement) {
@@ -226,7 +232,6 @@ export async function sendAgreementEmail(
         practiceId: agreement.practiceId,
       },
     });
-    console.log(person);
 
     if (!person || !person.email) {
       return res.status(404).json({
@@ -236,11 +241,33 @@ export async function sendAgreementEmail(
 
     const emailSubject =
       subject || `Agreement: ${agreement.type} - ${agreement.practice.name}`;
+
+    const submissionLinks = agreement.docusealSubmissions
+      .map(
+        (doc, index) => `
+          <p>
+            Document ${index + 1}:
+            <a href="${doc.url}" target="_blank">
+              View Document
+            </a>
+          </p>
+        `,
+      )
+      .join("");
+
     const emailBody = `
       <p>Hello ${person.firstName},</p>
-      <p>Please find the agreement details for <strong>${agreement.practice.name}</strong>.</p>
-      <p>Type: ${agreement.type}</p>
+
+      <p>Please find the agreement details for
+      <strong>${agreement.practice.name}</strong>.</p>
+
+      <p><strong>Agreement Type:</strong> ${agreement.type}</p>
+
+      <p><strong>Documents:</strong></p>
+      ${submissionLinks}
+
       ${message ? `<p>${message}</p>` : ""}
+
       <p>Best regards,<br/>The Team</p>
     `;
 
@@ -250,6 +277,7 @@ export async function sendAgreementEmail(
       message: "Agreement email sent successfully.",
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to send agreement email.",
       error: error instanceof Error ? error.message : error,
