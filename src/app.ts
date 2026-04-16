@@ -22,7 +22,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(
   cors({
-    origin: "https://tristate-frontend.onrender.com/",
+    origin: "https://tristate-frontend.onrender.com",
     credentials: true,
   }),
 );
