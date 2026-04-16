@@ -137,6 +137,8 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
         where,
         include: {
           company: true,
+          agreements: true,
+          persons: true,
           _count: {
             select: { persons: true, deals: true, agreements: true },
           },

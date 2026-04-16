@@ -210,23 +210,39 @@ model Deal {
 }
 
 model Agreement {
-  id            String           @id @default(uuid()) @db.Uuid
-  practiceId    String           @map("practice_id") @db.Uuid
-  dealId        String?          @map("deal_id") @db.Uuid
-  type          AgreementType
-  status        AgreementStatus
-  effectiveDate DateTime?        @map("effective_date")
-  renewalDate   DateTime?        @map("renewal_date")
-  createdAt     DateTime         @default(now()) @map("created_at")
-  updatedAt     DateTime         @default(now()) @updatedAt @map("updated_at")
-  practice      Practice         @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  deal          Deal?            @relation(fields: [dealId], references: [id], onDelete: SetNull)
-  invoices      Invoice[]
-  channelPartners ChannelPartner[]
+  id                    String           @id @default(uuid()) @db.Uuid
+  practiceId            String           @map("practice_id") @db.Uuid
+  dealId                String?          @map("deal_id") @db.Uuid
+  type                  AgreementType
+  status                AgreementStatus
+  effectiveDate         DateTime?        @map("effective_date")
+  renewalDate           DateTime?        @map("renewal_date")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @default(now()) @updatedAt @map("updated_at")
+  practice              Practice         @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  deal                  Deal?            @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  invoices              Invoice[]
+  channelPartners       ChannelPartner[]
+  docusealSubmissions   DocusealSubmission[]
 
   @@index([practiceId])
   @@index([dealId])
   @@map("agreements")
+}
+
+model DocusealSubmission {
+  id            String    @id @default(uuid()) @db.Uuid
+  agreementId   String    @map("agreement_id") @db.Uuid
+  externalId    Int       @unique @map("external_id")
+  status        String
+  url           String?
+  templateId    Int?      @map("template_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  agreement     Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@map("docuseal_submissions")
 }
 
 model Service {

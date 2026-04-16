@@ -2,10 +2,18 @@ import {
   AgreementStatus,
   AgreementType,
 } from "../../../generated/prisma/client";
-import { Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
+import { docuseal } from "../../utils/docuseal";
+
+type DocusealSubmissionInput = {
+  externalId: number;
+  status: string;
+  url?: string;
+  templateId?: number;
+};
 
 type AgreementBody = {
   practiceId?: string;
@@ -14,6 +22,7 @@ type AgreementBody = {
   status?: string;
   effectiveDate?: string;
   renewalDate?: string;
+  docusealSubmissions?: DocusealSubmissionInput[];
 };
 
 type SendAgreementEmailBody = {
@@ -22,6 +31,167 @@ type SendAgreementEmailBody = {
   subject?: string;
   message?: string;
 };
+
+export async function handleDocusealWebhook(req: Request, res: Response) {
+  try {
+    const { event, data } = req.body;
+
+    if (
+      event === "form.completed" ||
+      event === "submission.completed" ||
+      event === "form.signed"
+    ) {
+      const externalId = data.id || data.submission_id;
+
+      if (externalId) {
+        const submission = await prisma.docusealSubmission.findUnique({
+          where: { externalId: parseInt(externalId) },
+        });
+
+        if (submission) {
+          await prisma.docusealSubmission.update({
+            where: { id: submission.id },
+            data: {
+              status: "completed",
+            },
+          });
+
+          // Check if all submissions for this agreement are completed to mark agreement as ACTIVE
+          const allSubmissions = await prisma.docusealSubmission.findMany({
+            where: { agreementId: submission.agreementId },
+          });
+
+          const allCompleted = allSubmissions.every(
+            (s) => s.status === "completed",
+          );
+          if (allCompleted) {
+            await prisma.agreement.update({
+              where: { id: submission.agreementId },
+              data: { status: AgreementStatus.ACTIVE },
+            });
+          }
+        }
+      }
+    } else if (event === "form.viewed" || event === "form.started") {
+      const externalId = data.id || data.submission_id;
+      if (externalId) {
+        await prisma.docusealSubmission.updateMany({
+          where: { externalId: parseInt(externalId) },
+          data: {
+            status: event === "form.viewed" ? "viewed" : "started",
+          },
+        });
+      }
+    }
+
+    return res.status(200).send("OK");
+  } catch (error) {
+    console.error("Docuseal webhook error:", error);
+    return res.status(500).send("Internal Server Error");
+  }
+}
+
+export async function createDocusealSubmission(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const { agreementId, personId, templateId } = req.body;
+
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    if (!agreementId || !personId || !templateId) {
+      return res.status(400).json({
+        message: "agreementId, personId and templateId are required.",
+      });
+    }
+
+    const agreement = await prisma.agreement.findFirst({
+      where: { id: agreementId, practice: { ownerId: req.user.sub } },
+      include: { practice: true },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ message: "Agreement not found." });
+    }
+
+    const person = await prisma.person.findFirst({
+      where: {
+        id: personId,
+        practiceId: agreement.practiceId,
+      },
+    });
+
+    if (!person || !person.email) {
+      return res.status(404).json({
+        message: "Person not found for this practice or has no email address.",
+      });
+    }
+
+    const submission: any = await docuseal.createSubmission({
+      template_id: parseInt(templateId),
+      send_email: true,
+      submitters: [
+        {
+          role: "Signer",
+          email: person.email,
+          name: `${person.firstName} ${person.lastName}`,
+        },
+      ],
+    });
+
+    const docusealSubmissionData = Array.isArray(submission)
+      ? submission[0]
+      : submission;
+
+    const newSubmission = await prisma.docusealSubmission.create({
+      data: {
+        agreementId,
+        externalId: docusealSubmissionData.id,
+        status: docusealSubmissionData.status,
+        url: docusealSubmissionData.submitters?.[0]?.url || null,
+        templateId: parseInt(templateId),
+      },
+    });
+
+    return res.status(200).json({
+      message: "Docuseal submission created successfully.",
+      submission: newSubmission,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to create Docuseal submission.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getDocusealTemplates(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const templates = await docuseal.listTemplates({
+      limit: 100,
+    });
+
+    return res.status(200).json({
+      message: "Docuseal templates fetched successfully.",
+      templates,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch Docuseal templates.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
 
 export async function sendAgreementEmail(
   req: AuthenticatedRequest,
@@ -56,6 +226,7 @@ export async function sendAgreementEmail(
         practiceId: agreement.practiceId,
       },
     });
+    console.log(person);
 
     if (!person || !person.email) {
       return res.status(404).json({
@@ -99,8 +270,16 @@ export async function createAgreement(
   res: Response,
 ) {
   try {
-    const { practiceId, dealId, type, status, effectiveDate, renewalDate } =
-      req.body as AgreementBody;
+    const {
+      practiceId,
+      dealId,
+      type,
+      status,
+      effectiveDate,
+      renewalDate,
+      docusealSubmissions,
+    } = req.body as AgreementBody;
+    console.log(docusealSubmissions);
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -154,6 +333,26 @@ export async function createAgreement(
         status,
         effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
         renewalDate: renewalDate ? new Date(renewalDate) : undefined,
+        docusealSubmissions: {
+          create: docusealSubmissions?.map((s) => ({
+            externalId: s.externalId,
+            status: s.status,
+            url: s.url,
+            templateId: s.templateId,
+          })),
+        },
+      },
+      include: {
+        docusealSubmissions: true,
+      },
+    });
+
+    await prisma.practice.update({
+      where: { id: practiceId },
+      data: {
+        agreements: {
+          connect: { id: agreement.id },
+        },
       },
     });
 
@@ -223,6 +422,7 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
           practice: true,
           deal: true,
           channelPartners: true,
+          docusealSubmissions: true,
         },
         skip,
         take: limit,
@@ -255,7 +455,7 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
 
 export async function getAgreement(req: AuthenticatedRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -272,6 +472,7 @@ export async function getAgreement(req: AuthenticatedRequest, res: Response) {
         deal: true,
         invoices: true,
         channelPartners: true,
+        docusealSubmissions: true,
       },
     });
 
@@ -296,7 +497,7 @@ export async function updateAgreement(
   res: Response,
 ) {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const { dealId, type, status, effectiveDate, renewalDate } =
       req.body as AgreementBody;
 
@@ -378,7 +579,7 @@ export async function deleteAgreement(
   res: Response,
 ) {
   try {
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });

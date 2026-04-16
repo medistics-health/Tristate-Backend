@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@azure/msal-node": "^5.1.2",
+    "@docuseal/api": "^1.0.22",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",

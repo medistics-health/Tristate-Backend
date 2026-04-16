@@ -32,11 +32,15 @@ export async function sendEmail(req: AuthenticatedRequest, res: Response) {
     });
 
     if (!person) {
-      return res.status(404).json({ message: "Person not found or access denied." });
+      return res
+        .status(404)
+        .json({ message: "Person not found or access denied." });
     }
 
     if (!person.email) {
-      return res.status(400).json({ message: "Person does not have an email address." });
+      return res
+        .status(400)
+        .json({ message: "Person does not have an email address." });
     }
 
     await sendOutlookEmail(person.email, subject, body);
@@ -52,9 +56,12 @@ export async function sendEmail(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export async function getEmailHistory(req: AuthenticatedRequest, res: Response) {
+export async function getEmailHistory(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
-    const { personId } = req.params;
+    const { personId } = req.params as { personId: string };
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -73,11 +80,15 @@ export async function getEmailHistory(req: AuthenticatedRequest, res: Response) 
     });
 
     if (!person) {
-      return res.status(404).json({ message: "Person not found or access denied." });
+      return res
+        .status(404)
+        .json({ message: "Person not found or access denied." });
     }
 
     if (!person.email) {
-      return res.status(400).json({ message: "Person does not have an email address." });
+      return res
+        .status(400)
+        .json({ message: "Person does not have an email address." });
     }
 
     const emails = await listOutlookEmails(person.email);
