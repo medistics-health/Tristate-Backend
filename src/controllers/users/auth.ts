@@ -142,7 +142,7 @@ export async function login(req: Request, res: Response) {
     return res
       .cookie("token", token, {
         httpOnly: true, // prevents JS access
-        secure: true, // only over HTTPS (use false in local dev)
+        secure: false, // only over HTTPS (use false in local dev)
         sameSite: "lax", // CSRF protection
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       })
@@ -175,6 +175,7 @@ export async function authenticateMe(req: any, res: Response) {
 
     return res.status(200).json({
       id: user.id,
+      name: user.userName,
       email: user.email,
     });
   } catch (error) {

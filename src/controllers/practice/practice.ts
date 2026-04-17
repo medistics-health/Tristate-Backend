@@ -9,11 +9,14 @@ import { sendOutlookEmail } from "../../utils/outlook";
 
 type PracticeBody = {
   name?: string;
+  npi?: string;
   status?: string;
   region?: string;
   source?: string;
   bucket?: string[];
   companyId?: string;
+  practiceGroupId?: string;
+  taxIdId?: string;
 };
 
 type SendOnboardingEmailBody = {
@@ -106,7 +109,8 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const { search, status, region, source, companyId } = req.query;
+    const { search, status, region, source, companyId, practiceGroupId } =
+      req.query;
 
     const where: any = {
       ownerId: req.user.sub,
@@ -132,11 +136,18 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
       where.companyId = companyId as string;
     }
 
+    if (practiceGroupId) {
+      where.practiceGroupId = practiceGroupId as string;
+    }
+
     const [practices, totalRecords] = await Promise.all([
       prisma.practice.findMany({
         where,
         include: {
           company: true,
+          practiceGroup: true,
+          taxId: true,
+          groupNpis: true,
           agreements: true,
           persons: true,
           _count: {
@@ -174,8 +185,17 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
 
 export async function createPractice(req: AuthenticatedRequest, res: Response) {
   try {
-    const { name, status, region, source, bucket, companyId } =
-      req.body as PracticeBody;
+    const {
+      name,
+      npi,
+      status,
+      region,
+      source,
+      bucket,
+      companyId,
+      practiceGroupId,
+      taxIdId,
+    } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({
@@ -183,10 +203,9 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (!name || !status || !region || !source || !Array.isArray(bucket)) {
+    if (!name || !status || !region || !source || !npi) {
       return res.status(400).json({
-        message:
-          "name, status, region, source and bucket are required. bucket must be an array.",
+        message: "name, status, region, source are required.",
       });
     }
 
@@ -215,14 +234,39 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    if (practiceGroupId) {
+      const practiceGroup = await prisma.practiceGroup.findFirst({
+        where: { id: practiceGroupId, companyId },
+      });
+      if (!practiceGroup) {
+        return res.status(400).json({
+          message: "Invalid practiceGroupId for this company.",
+        });
+      }
+    }
+
+    if (taxIdId) {
+      const taxId = await prisma.taxId.findFirst({
+        where: { id: taxIdId, companyId },
+      });
+      if (!taxId) {
+        return res.status(400).json({
+          message: "Invalid taxIdId for this company.",
+        });
+      }
+    }
+
     const practice = await prisma.practice.create({
       data: {
         name,
+        npi,
         status,
         region,
         source,
         bucket,
         companyId,
+        practiceGroupId,
+        taxIdId,
         ownerId: req.user.sub,
       },
     });
@@ -262,6 +306,9 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
       },
       include: {
         company: true,
+        practiceGroup: true,
+        taxId: true,
+        groupNpis: true,
         persons: true,
         deals: true,
         agreements: true,
@@ -292,8 +339,17 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
 export async function updatePractice(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { name, status, region, source, bucket, companyId } =
-      req.body as PracticeBody;
+    const {
+      name,
+      npi,
+      status,
+      region,
+      source,
+      bucket,
+      companyId,
+      practiceGroupId,
+      taxIdId,
+    } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({
@@ -345,15 +401,46 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    if (practiceGroupId) {
+      const targetCompanyId = companyId || existingPractice.companyId;
+      if (targetCompanyId) {
+        const practiceGroup = await prisma.practiceGroup.findFirst({
+          where: { id: practiceGroupId, companyId: targetCompanyId },
+        });
+        if (!practiceGroup) {
+          return res.status(400).json({
+            message: "Invalid practiceGroupId for this company.",
+          });
+        }
+      }
+    }
+
+    if (taxIdId) {
+      const targetCompanyId = companyId || existingPractice.companyId;
+      if (targetCompanyId) {
+        const taxId = await prisma.taxId.findFirst({
+          where: { id: taxIdId, companyId: targetCompanyId },
+        });
+        if (!taxId) {
+          return res.status(400).json({
+            message: "Invalid taxIdId for this company.",
+          });
+        }
+      }
+    }
+
     const practice = await prisma.practice.update({
       where: { id },
       data: {
         name,
+        npi,
         status: status as PracticeStatus,
         region,
         source: source as PracticeSource,
         bucket,
         companyId,
+        practiceGroupId,
+        taxIdId,
       },
     });
 

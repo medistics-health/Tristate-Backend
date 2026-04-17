@@ -12,6 +12,9 @@ import emailRouter from "./routes/email.routes";
 import serviceRouter from "./routes/service.routes";
 import invoiceRouter from "./routes/invoice.routes";
 import purchaseOrderRouter from "./routes/purchaseOrder.routes";
+import practiceGroupRouter from "./routes/practiceGroup.routes";
+import taxIdRouter from "./routes/taxId.routes";
+import groupNpiRouter from "./routes/groupNpi.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
@@ -22,7 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(
   cors({
-    origin: "https://tristate-frontend.onrender.com",
+    origin: "http://localhost:5173",
     credentials: true,
   }),
 );
@@ -39,5 +42,8 @@ app.use("/api/v1/assessments", assessmentRouter);
 app.use("/api/v1/services", serviceRouter);
 app.use("/api/v1/invoices", invoiceRouter);
 app.use("/api/v1/purchase-orders", purchaseOrderRouter);
+app.use("/api/v1/practice-groups", practiceGroupRouter);
+app.use("/api/v1/tax-ids", taxIdRouter);
+app.use("/api/v1/group-npis", groupNpiRouter);
 
 export default app;

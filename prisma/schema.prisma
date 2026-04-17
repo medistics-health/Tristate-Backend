@@ -110,6 +110,11 @@ enum CompanyStatus {
   INACTIVE
 }
 
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
   id        String    @id @default(uuid()) @db.Uuid
   userName  String    @unique
@@ -145,25 +150,56 @@ model Company {
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @default(now()) @updatedAt @map("updated_at")
   owner     User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  practices Practice[]
+  practiceGroups PracticeGroup[]
+  practices      Practice[]
+  taxIds         TaxId[]
 
   @@index([ownerId])
   @@map("companies")
 }
 
+model PracticeGroup {
+  id        String          @id @default(uuid()) @db.Uuid
+  name      String
+  companyId String          @map("company_id") @db.Uuid
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  practices Practice[]
+  groupNpis GroupNpi[]
+
+  // FHIR-style recursive nesting (Groups within Groups)
+  parentId  String?         @map("parent_id") @db.Uuid
+  parent    PracticeGroup?  @relation("GroupHierarchy", fields: [parentId], references: [id])
+  children  PracticeGroup[] @relation("GroupHierarchy")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@index([parentId])
+  @@map("practice_groups")
+}
+
 model Practice {
-  id          String          @id @default(uuid()) @db.Uuid
-  companyId   String?         @map("company_id") @db.Uuid
-  name        String
-  status      PracticeStatus
-  region      String
-  source      PracticeSource
-  bucket      String[]
-  ownerId     String          @map("owner_id") @db.Uuid
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at")
-  company     Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  persons     Person[]
+  id              String          @id @default(uuid()) @db.Uuid
+  companyId       String?         @map("company_id") @db.Uuid
+  practiceGroupId String?         @map("practice_group_id") @db.Uuid
+  taxIdId         String?         @map("tax_id_id") @db.Uuid
+  groupNpiId      String?         @map("group_npi_id") @db.Uuid
+  name            String
+  npi             String?
+  status          PracticeStatus
+  region          String
+  source          PracticeSource
+  bucket          String[]
+  ownerId         String          @map("owner_id") @db.Uuid
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at")
+  company         Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  practiceGroup   PracticeGroup?  @relation(fields: [practiceGroupId], references: [id], onDelete: SetNull)
+  taxId           TaxId?          @relation(fields: [taxIdId], references: [id], onDelete: SetNull)
+  groupNpi        GroupNpi?       @relation(fields: [groupNpiId], references: [id], onDelete: SetNull)
+  persons         Person[]
   deals       Deal[]
   agreements  Agreement[]
   invoices    Invoice[]
@@ -172,7 +208,46 @@ model Practice {
 
   @@index([ownerId])
   @@index([companyId])
+  @@index([practiceGroupId])
+  @@index([taxIdId])
+  @@index([groupNpiId])
   @@map("practices")
+}
+
+model TaxId {
+  id              String       @id @default(uuid()) @db.Uuid
+  taxIdNumber     String       @unique @map("tax_id_number")
+  legalEntityName String       @map("legal_entity_name")
+  status          EntityStatus @default(ACTIVE)
+  notes           String?
+  companyId       String       @map("company_id") @db.Uuid
+  company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  groupNpis       GroupNpi[]
+  practices       Practice[]
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@index([companyId])
+  @@map("tax_ids")
+}
+
+model GroupNpi {
+  id              String         @id @default(uuid()) @db.Uuid
+  groupNpiNumber  String         @unique @map("group_npi_number")
+  groupName       String         @map("group_name")
+  status          EntityStatus   @default(ACTIVE)
+  notes           String?
+  taxId           String         @map("tax_id") @db.Uuid
+  tax             TaxId          @relation(fields: [taxId], references: [id], onDelete: Cascade)
+  practiceGroupId String?        @map("practice_group_id") @db.Uuid
+  practiceGroup   PracticeGroup? @relation(fields: [practiceGroupId], references: [id], onDelete: SetNull)
+  practices       Practice[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@index([taxId])
+  @@index([practiceGroupId])
+  @@map("group_npis")
 }
 
 model Person {
@@ -181,6 +256,7 @@ model Person {
   firstName  String         @map("first_name")
   lastName   String         @map("last_name")
   role       PersonRole
+  designation String?
   influence  InfluenceLevel
   email      String?        @unique
   phone      String?

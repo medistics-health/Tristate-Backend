@@ -22,6 +22,12 @@ type CompanyBody = {
   website?: string;
   address?: AddressBody;
   status?: string;
+  taxIds?: {
+    id?: string;
+    taxIdNumber: string;
+    legalEntityName: string;
+    notes?: string;
+  }[];
 };
 
 function isCompanyStatus(status: string): status is CompanyStatus {
@@ -41,6 +47,7 @@ export async function createCompany(req: AuthenticatedRequest, res: Response) {
       website,
       address,
       status,
+      taxIds,
     } = req.body as CompanyBody;
 
     if (!req.user?.sub) {
@@ -79,6 +86,18 @@ export async function createCompany(req: AuthenticatedRequest, res: Response) {
         zip: address?.zip,
         status: (status as CompanyStatus) || CompanyStatus.LEAD,
         ownerId: req.user.sub,
+        taxIds: taxIds
+          ? {
+              create: taxIds.map((tax) => ({
+                taxIdNumber: tax.taxIdNumber,
+                legalEntityName: tax.legalEntityName,
+                notes: tax.notes,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        taxIds: true,
       },
     });
 
@@ -132,8 +151,13 @@ export async function getCompanies(req: AuthenticatedRequest, res: Response) {
       prisma.company.findMany({
         where,
         include: {
+          taxIds: true,
           _count: {
-            select: { practices: true },
+            select: {
+              practices: true,
+              practiceGroups: true,
+              taxIds: true,
+            },
           },
         },
         skip,
@@ -189,6 +213,8 @@ export async function getCompany(req: AuthenticatedRequest, res: Response) {
       },
       include: {
         practices: true,
+        practiceGroups: true,
+        taxIds: true,
       },
     });
 
@@ -224,6 +250,7 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response) {
       website,
       address,
       status,
+      taxIds,
     } = req.body as CompanyBody;
 
     if (!req.user?.sub) {
@@ -258,6 +285,50 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    // SYNC BEHAVIOR:
+    // If taxIds is provided, we want the database to exactly match the provided list.
+    if (taxIds !== undefined) {
+      // 1. Identify IDs being sent (to keep)
+      const sentTaxIds = taxIds.map((t) => t.id).filter(Boolean) as string[];
+
+      // 2. Identify TaxIdNumbers being sent (to keep - for records without IDs yet)
+      const sentTaxNumbers = taxIds
+        .filter((t) => !t.id)
+        .map((t) => t.taxIdNumber);
+
+      // 3. Delete existing records for this company that are NOT in the sent list
+      await prisma.taxId.deleteMany({
+        where: {
+          companyId: id,
+          AND: [
+            { id: { notIn: sentTaxIds } },
+            { taxIdNumber: { notIn: sentTaxNumbers } },
+          ],
+        },
+      });
+
+      // 4. Upsert the provided records
+      if (taxIds.length > 0) {
+        for (const tax of taxIds) {
+          await prisma.taxId.upsert({
+            where: tax.id ? { id: tax.id } : { taxIdNumber: tax.taxIdNumber },
+            update: {
+              taxIdNumber: tax.taxIdNumber,
+              legalEntityName: tax.legalEntityName,
+              notes: tax.notes,
+              companyId: id,
+            },
+            create: {
+              taxIdNumber: tax.taxIdNumber,
+              legalEntityName: tax.legalEntityName,
+              notes: tax.notes,
+              companyId: id,
+            },
+          });
+        }
+      }
+    }
+
     const company = await prisma.company.update({
       where: { id },
       data: {
@@ -276,6 +347,9 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response) {
         zip: address?.zip,
         status: status as CompanyStatus,
       },
+      include: {
+        taxIds: true,
+      },
     });
 
     return res.status(200).json({
@@ -283,6 +357,13 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response) {
       company,
     });
   } catch (error) {
+    if ((error as any).code === "P2002") {
+      return res.status(400).json({
+        message:
+          "One or more Tax ID numbers are already in use by another company.",
+        error: "Unique constraint failed",
+      });
+    }
     return res.status(500).json({
       message: "Unable to update company.",
       error: error instanceof Error ? error.message : error,

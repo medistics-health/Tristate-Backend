@@ -8,6 +8,7 @@ type PersonBody = {
   firstName?: string;
   lastName?: string;
   role?: string;
+  designation?: string;
   influence?: string;
   email?: string;
   phone?: string;
@@ -98,8 +99,16 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
 
 export async function createPerson(req: AuthenticatedRequest, res: Response) {
   try {
-    const { practiceId, firstName, lastName, role, influence, email, phone } =
-      req.body as PersonBody;
+    const {
+      practiceId,
+      firstName,
+      lastName,
+      role,
+      designation,
+      influence,
+      email,
+      phone,
+    } = req.body as PersonBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({
@@ -147,6 +156,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
         firstName,
         lastName,
         role,
+        designation,
         influence,
         email,
         phone,
@@ -158,6 +168,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       person,
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to create person.",
       error: error instanceof Error ? error.message : error,
@@ -214,7 +225,7 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
 export async function updatePerson(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { firstName, lastName, role, influence, email, phone } =
+    const { firstName, lastName, role, designation, influence, email, phone } =
       req.body as PersonBody;
 
     if (!req.user?.sub) {
@@ -262,6 +273,7 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
       firstName?: string;
       lastName?: string;
       role?: PersonRole;
+      designation?: string | null;
       influence?: InfluenceLevel;
       email?: string | null;
       phone?: string | null;
@@ -277,6 +289,10 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
 
     if (role !== undefined) {
       updateData.role = role as PersonRole;
+    }
+
+    if (designation !== undefined) {
+      updateData.designation = designation;
     }
 
     if (influence !== undefined) {
