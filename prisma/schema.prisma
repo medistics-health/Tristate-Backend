@@ -185,7 +185,6 @@ model Practice {
   companyId       String?         @map("company_id") @db.Uuid
   practiceGroupId String?         @map("practice_group_id") @db.Uuid
   taxIdId         String?         @map("tax_id_id") @db.Uuid
-  groupNpiId      String?         @map("group_npi_id") @db.Uuid
   name            String
   npi             String?
   status          PracticeStatus
@@ -198,7 +197,7 @@ model Practice {
   company         Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
   practiceGroup   PracticeGroup?  @relation(fields: [practiceGroupId], references: [id], onDelete: SetNull)
   taxId           TaxId?          @relation(fields: [taxIdId], references: [id], onDelete: SetNull)
-  groupNpi        GroupNpi?       @relation(fields: [groupNpiId], references: [id], onDelete: SetNull)
+  groupNpis       GroupNpi[]      @relation("PracticeGroupNpis")
   persons         Person[]
   deals       Deal[]
   agreements  Agreement[]
@@ -210,7 +209,6 @@ model Practice {
   @@index([companyId])
   @@index([practiceGroupId])
   @@index([taxIdId])
-  @@index([groupNpiId])
   @@map("practices")
 }
 
@@ -237,11 +235,11 @@ model GroupNpi {
   groupName       String         @map("group_name")
   status          EntityStatus   @default(ACTIVE)
   notes           String?
-  taxId           String         @map("tax_id") @db.Uuid
-  tax             TaxId          @relation(fields: [taxId], references: [id], onDelete: Cascade)
+  taxId           String?        @map("tax_id") @db.Uuid
+  tax             TaxId?        @relation(fields: [taxId], references: [id], onDelete: Cascade)
   practiceGroupId String?        @map("practice_group_id") @db.Uuid
   practiceGroup   PracticeGroup? @relation(fields: [practiceGroupId], references: [id], onDelete: SetNull)
-  practices       Practice[]
+  practices       Practice[]     @relation("PracticeGroupNpis")
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 

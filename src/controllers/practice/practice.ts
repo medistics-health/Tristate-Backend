@@ -7,6 +7,15 @@ import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 
+type GroupNpiInput = {
+  groupNpiNumber: string;
+  groupName: string;
+  taxId: string;
+  practiceGroupId?: string;
+  notes?: string;
+  status?: string;
+};
+
 type PracticeBody = {
   name?: string;
   npi?: string;
@@ -17,6 +26,7 @@ type PracticeBody = {
   companyId?: string;
   practiceGroupId?: string;
   taxIdId?: string;
+  groupNpis?: GroupNpiInput[];
 };
 
 type SendOnboardingEmailBody = {
@@ -176,6 +186,7 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
       },
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to fetch practices.",
       error: error instanceof Error ? error.message : error,
@@ -195,6 +206,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
+      groupNpis,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -256,19 +268,69 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    const groupNpiConnect: { groupNpiNumber: string }[] = [];
+
+    if (groupNpis && groupNpis.length > 0) {
+      for (const groupNpi of groupNpis) {
+        if (!groupNpi.groupNpiNumber) {
+          return res.status(400).json({
+            message: "groupNpiNumber is required for each groupNpi.",
+          });
+        }
+
+        if (groupNpi.taxId && companyId) {
+          const taxIdRecord = await prisma.taxId.findFirst({
+            where: { id: groupNpi.taxId, companyId },
+          });
+          if (!taxIdRecord) {
+            return res.status(400).json({
+              message: "Invalid taxId for the groupNpi.",
+            });
+          }
+        }
+
+        const existingGroupNpi = await prisma.groupNpi.findUnique({
+          where: { groupNpiNumber: groupNpi.groupNpiNumber },
+        });
+
+        if (!existingGroupNpi && groupNpi.groupName) {
+          await prisma.groupNpi.create({
+            data: {
+              groupNpiNumber: groupNpi.groupNpiNumber,
+              groupName: groupNpi.groupName,
+              taxId: groupNpi.taxId || undefined,
+              practiceGroupId: groupNpi.practiceGroupId,
+              notes: groupNpi.notes,
+              status: (groupNpi.status as any) || "ACTIVE",
+            },
+          });
+        }
+
+        groupNpiConnect.push({ groupNpiNumber: groupNpi.groupNpiNumber });
+      }
+    }
+
+    const practiceData: any = {
+      name,
+      npi,
+      status,
+      region,
+      source,
+      bucket,
+      companyId,
+      practiceGroupId,
+      taxIdId,
+      ownerId: req.user.sub,
+    };
+
+    if (groupNpiConnect.length > 0) {
+      practiceData.groupNpis = {
+        connect: groupNpiConnect,
+      };
+    }
+
     const practice = await prisma.practice.create({
-      data: {
-        name,
-        npi,
-        status,
-        region,
-        source,
-        bucket,
-        companyId,
-        practiceGroupId,
-        taxIdId,
-        ownerId: req.user.sub,
-      },
+      data: practiceData,
     });
 
     return res.status(201).json({
@@ -276,6 +338,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       practice,
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to create practice.",
       error: error instanceof Error ? error.message : error,
@@ -318,6 +381,13 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
       },
     });
 
+    let allGroupNpisByTaxId: any[] = [];
+    if (practice?.taxIdId) {
+      allGroupNpisByTaxId = await prisma.groupNpi.findMany({
+        where: { taxId: practice.taxIdId },
+      });
+    }
+
     if (!practice) {
       return res.status(404).json({
         message: "Practice not found.",
@@ -327,6 +397,7 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
     return res.status(200).json({
       message: "Practice fetched successfully.",
       practice,
+      allGroupNpisByTaxId,
     });
   } catch (error) {
     return res.status(500).json({
@@ -349,6 +420,7 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
+      groupNpis,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -429,19 +501,68 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    const targetCompanyId =
+      companyId || existingPractice.companyId || undefined;
+
+    if (groupNpis && groupNpis.length > 0) {
+      for (const groupNpi of groupNpis) {
+        if (!groupNpi.groupNpiNumber) {
+          return res.status(400).json({
+            message: "groupNpiNumber is required for each groupNpi.",
+          });
+        }
+
+        if (groupNpi.taxId && targetCompanyId) {
+          const taxIdRecord = await prisma.taxId.findFirst({
+            where: { id: groupNpi.taxId, companyId: targetCompanyId },
+          });
+          if (!taxIdRecord) {
+            return res.status(400).json({
+              message: "Invalid taxId for the groupNpi.",
+            });
+          }
+        }
+
+        const existingGroupNpi = await prisma.groupNpi.findUnique({
+          where: { groupNpiNumber: groupNpi.groupNpiNumber },
+        });
+
+        if (!existingGroupNpi && groupNpi.groupName) {
+          await prisma.groupNpi.create({
+            data: {
+              groupNpiNumber: groupNpi.groupNpiNumber,
+              groupName: groupNpi.groupName,
+              taxId: groupNpi.taxId || undefined,
+              practiceGroupId: groupNpi.practiceGroupId,
+              notes: groupNpi.notes,
+              status: (groupNpi.status as any) || "ACTIVE",
+            },
+          });
+        }
+      }
+    }
+
+    const updateData: any = {
+      name,
+      npi,
+      status: status as PracticeStatus,
+      region,
+      source: source as PracticeSource,
+      bucket,
+      companyId,
+      practiceGroupId,
+      taxIdId,
+    };
+
+    if (groupNpis !== undefined) {
+      updateData.groupNpis = {
+        set: groupNpis.map((gn) => ({ groupNpiNumber: gn.groupNpiNumber })),
+      };
+    }
+
     const practice = await prisma.practice.update({
       where: { id },
-      data: {
-        name,
-        npi,
-        status: status as PracticeStatus,
-        region,
-        source: source as PracticeSource,
-        bucket,
-        companyId,
-        practiceGroupId,
-        taxIdId,
-      },
+      data: updateData,
     });
 
     return res.status(200).json({

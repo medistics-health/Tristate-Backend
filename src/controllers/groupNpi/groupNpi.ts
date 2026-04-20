@@ -161,7 +161,7 @@ export async function getGroupNpi(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    if (!groupNpi || groupNpi.tax.company.ownerId !== req.user.sub) {
+    if (!groupNpi || !groupNpi.tax || groupNpi.tax.company.ownerId !== req.user.sub) {
       return res.status(404).json({ message: "Group NPI not found or unauthorized." });
     }
 
@@ -195,7 +195,7 @@ export async function updateGroupNpi(req: AuthenticatedRequest, res: Response) {
       include: { tax: { include: { company: true } } },
     });
 
-    if (!existingNpi || existingNpi.tax.company.ownerId !== req.user.sub) {
+    if (!existingNpi || !existingNpi.tax || existingNpi.tax.company.ownerId !== req.user.sub) {
       return res.status(404).json({ message: "Group NPI not found or unauthorized." });
     }
 
@@ -264,7 +264,7 @@ export async function deleteGroupNpi(req: AuthenticatedRequest, res: Response) {
       include: { tax: { include: { company: true } } },
     });
 
-    if (!existingNpi || existingNpi.tax.company.ownerId !== req.user.sub) {
+    if (!existingNpi || !existingNpi.tax || existingNpi.tax.company.ownerId !== req.user.sub) {
       return res.status(404).json({ message: "Group NPI not found or unauthorized." });
     }
 
