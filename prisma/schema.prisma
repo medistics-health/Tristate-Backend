@@ -153,6 +153,7 @@ model Company {
   practiceGroups PracticeGroup[]
   practices      Practice[]
   taxIds         TaxId[]
+  persons       CompanyPerson[]
 
   @@index([ownerId])
   @@map("companies")
@@ -198,7 +199,7 @@ model Practice {
   practiceGroup   PracticeGroup?  @relation(fields: [practiceGroupId], references: [id], onDelete: SetNull)
   taxId           TaxId?          @relation(fields: [taxIdId], references: [id], onDelete: SetNull)
   groupNpis       GroupNpi[]      @relation("PracticeGroupNpis")
-  persons         Person[]
+  persons         PracticePerson[]
   deals       Deal[]
   agreements  Agreement[]
   invoices    Invoice[]
@@ -229,6 +230,32 @@ model TaxId {
   @@map("tax_ids")
 }
 
+model PracticePerson {
+  id         String   @id @default(uuid()) @db.Uuid
+  practiceId String @map("practice_id") @db.Uuid
+  personId   String  @map("person_id") @db.Uuid
+  practice   Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  person     Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId])
+  @@index([personId])
+  @@unique([practiceId, personId])
+  @@map("practice_persons")
+}
+
+model CompanyPerson {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  personId  String   @map("person_id") @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  person    Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([personId])
+  @@unique([companyId, personId])
+  @@map("company_persons")
+}
+
 model GroupNpi {
   id              String         @id @default(uuid()) @db.Uuid
   groupNpiNumber  String         @unique @map("group_npi_number")
@@ -249,20 +276,19 @@ model GroupNpi {
 }
 
 model Person {
-  id         String         @id @default(uuid()) @db.Uuid
-  practiceId String         @map("practice_id") @db.Uuid
-  firstName  String         @map("first_name")
-  lastName   String         @map("last_name")
-  role       PersonRole
+  id          String          @id @default(uuid()) @db.Uuid
+  firstName   String          @map("first_name")
+  lastName    String          @map("last_name")
+  role        PersonRole
   designation String?
-  influence  InfluenceLevel
-  email      String?        @unique
-  phone      String?
-  createdAt  DateTime       @default(now()) @map("created_at")
-  updatedAt  DateTime       @updatedAt @map("updated_at")
-  practice   Practice       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  influence   InfluenceLevel
+  email       String?
+  phone       String?
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  practices   PracticePerson[]
+  companies   CompanyPerson[]
 
-  @@index([practiceId])
   @@map("contacts")
 }
 
