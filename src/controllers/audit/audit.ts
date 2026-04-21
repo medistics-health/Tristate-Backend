@@ -47,7 +47,7 @@ export async function createAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const practice = await prisma.practice.findFirst({
-      where: { id: practiceId, ownerId: req.user.sub },
+      where: { id: practiceId },
     });
 
     if (!practice) {
@@ -56,7 +56,7 @@ export async function createAudit(req: AuthenticatedRequest, res: Response) {
 
     if (dealId) {
       const deal = await prisma.deal.findFirst({
-        where: { id: dealId, practiceId, practice: { ownerId: req.user.sub } },
+        where: { id: dealId, practiceId },
       });
       if (!deal) {
         return res
@@ -100,7 +100,7 @@ export async function getAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const audit = await prisma.audit.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
       include: { practice: true, deal: true },
     });
 
@@ -141,7 +141,7 @@ export async function updateAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingAudit = await prisma.audit.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingAudit) {
@@ -153,7 +153,6 @@ export async function updateAudit(req: AuthenticatedRequest, res: Response) {
         where: {
           id: dealId,
           practiceId: existingAudit.practiceId,
-          practice: { ownerId: req.user.sub },
         },
       });
       if (!deal) {
@@ -221,9 +220,7 @@ export async function getAllAudits(req: AuthenticatedRequest, res: Response) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      practice: { ownerId: req.user.sub },
-    };
+    const where: any = {};
 
     // if (search) {
     //   where.practice = {
@@ -284,7 +281,7 @@ export async function deleteAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingAudit = await prisma.audit.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingAudit) {

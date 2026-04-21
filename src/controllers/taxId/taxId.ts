@@ -31,13 +31,13 @@ export async function createTaxId(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ message: "Invalid status." });
     }
 
-    // Verify company access
+    // Verify company exists
     const company = await prisma.company.findFirst({
-      where: { id: companyId, ownerId: req.user.sub },
+      where: { id: companyId },
     });
 
     if (!company) {
-      return res.status(404).json({ message: "Company not found or unauthorized." });
+      return res.status(404).json({ message: "Company not found." });
     }
 
     const taxId = await prisma.taxId.create({
@@ -74,13 +74,13 @@ export async function getTaxIds(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ message: "Company ID is required." });
     }
 
-    // Verify company access
+    // Verify company exists
     const company = await prisma.company.findFirst({
-      where: { id: companyId as string, ownerId: req.user.sub },
+      where: { id: companyId as string },
     });
 
     if (!company) {
-      return res.status(404).json({ message: "Company not found or unauthorized." });
+      return res.status(404).json({ message: "Company not found." });
     }
 
     const taxIds = await prisma.taxId.findMany({
@@ -125,8 +125,8 @@ export async function getTaxId(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    if (!taxId || taxId.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Tax ID not found or unauthorized." });
+    if (!taxId) {
+      return res.status(404).json({ message: "Tax ID not found." });
     }
 
     return res.status(200).json({
@@ -159,8 +159,8 @@ export async function updateTaxId(req: AuthenticatedRequest, res: Response) {
       include: { company: true },
     });
 
-    if (!existingTaxId || existingTaxId.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Tax ID not found or unauthorized." });
+    if (!existingTaxId) {
+      return res.status(404).json({ message: "Tax ID not found." });
     }
 
     if (status && !isEntityStatus(status)) {
@@ -206,8 +206,8 @@ export async function deleteTaxId(req: AuthenticatedRequest, res: Response) {
       include: { company: true },
     });
 
-    if (!existingTaxId || existingTaxId.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Tax ID not found or unauthorized." });
+    if (!existingTaxId) {
+      return res.status(404).json({ message: "Tax ID not found." });
     }
 
     await prisma.taxId.delete({

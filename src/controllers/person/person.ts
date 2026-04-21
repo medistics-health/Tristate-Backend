@@ -37,28 +37,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
 
     const { search, role, influence, practiceId, companyId } = req.query;
 
-    const where: any = {
-      OR: [
-        {
-          practices: {
-            some: {
-              practice: {
-                ownerId: req.user.sub,
-              },
-            },
-          },
-        },
-        {
-          companies: {
-            some: {
-              company: {
-                ownerId: req.user.sub,
-              },
-            },
-          },
-        },
-      ],
-    };
+    const where: any = {};
 
     if (search) {
       where.AND = [
@@ -190,7 +169,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       const validPractices = await prisma.practice.findMany({
         where: {
           id: { in: practiceIds },
-          ownerId: req.user.sub,
+          // ownerId: req.user.sub,
         },
       });
 
@@ -205,7 +184,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       const validCompanies = await prisma.company.findMany({
         where: {
           id: { in: companyIds },
-          ownerId: req.user.sub,
+          // ownerId: req.user.sub,
         },
       });
 
@@ -290,26 +269,26 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
     const person = await prisma.person.findFirst({
       where: {
         id,
-        OR: [
-          {
-            practices: {
-              some: {
-                practice: {
-                  ownerId: req.user.sub,
-                },
-              },
-            },
-          },
-          {
-            companies: {
-              some: {
-                company: {
-                  ownerId: req.user.sub,
-                },
-              },
-            },
-          },
-        ],
+        // OR: [
+        //   {
+        //     practices: {
+        //       some: {
+        //         practice: {
+        //           ownerId: req.user.sub,
+        //         },
+        //       },
+        //     },
+        //   },
+        //   {
+        //     companies: {
+        //       some: {
+        //         company: {
+        //           ownerId: req.user.sub,
+        //         },
+        //       },
+        //     },
+        //   },
+        // ],
       },
       include: {
         practices: {
@@ -387,26 +366,26 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        OR: [
-          {
-            practices: {
-              some: {
-                practice: {
-                  ownerId: req.user.sub,
-                },
-              },
-            },
-          },
-          {
-            companies: {
-              some: {
-                company: {
-                  ownerId: req.user.sub,
-                },
-              },
-            },
-          },
-        ],
+        // OR: [
+        //   {
+        //     practices: {
+        //       some: {
+        //         practice: {
+        //           ownerId: req.user.sub,
+        //         },
+        //       },
+        //     },
+        //   },
+        //   {
+        //     companies: {
+        //       some: {
+        //         company: {
+        //           ownerId: req.user.sub,
+        //         },
+        //       },
+        //     },
+        //   },
+        // ],
       },
     });
 
@@ -451,11 +430,17 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
         where: { personId: id },
         select: { practiceId: true },
       });
-      const existingPracticeSet = new Set(existingPractices.map((e) => e.practiceId));
+      const existingPracticeSet = new Set(
+        existingPractices.map((e) => e.practiceId),
+      );
       const newPracticeSet = new Set(practiceIds);
 
-      const toRemove = [...existingPracticeSet].filter((pid) => !newPracticeSet.has(pid));
-      const toAdd = [...newPracticeSet].filter((pid) => !existingPracticeSet.has(pid));
+      const toRemove = [...existingPracticeSet].filter(
+        (pid) => !newPracticeSet.has(pid),
+      );
+      const toAdd = [...newPracticeSet].filter(
+        (pid) => !existingPracticeSet.has(pid),
+      );
 
       if (toRemove.length) {
         await prisma.practicePerson.deleteMany({
@@ -465,10 +450,13 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
 
       if (toAdd.length) {
         const validPractices = await prisma.practice.findMany({
-          where: { id: { in: toAdd }, ownerId: req.user.sub },
+          // where: { id: { in: toAdd }, ownerId: req.user.sub },
+          where: { id: { in: toAdd } },
         });
         if (validPractices.length !== toAdd.length) {
-          return res.status(404).json({ message: "One or more practices not found." });
+          return res
+            .status(404)
+            .json({ message: "One or more practices not found." });
         }
         updateData.practices = {
           create: toAdd.map((practiceId) => ({ practiceId })),
@@ -481,11 +469,17 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
         where: { personId: id },
         select: { companyId: true },
       });
-      const existingCompanySet = new Set(existingCompanies.map((e) => e.companyId));
+      const existingCompanySet = new Set(
+        existingCompanies.map((e) => e.companyId),
+      );
       const newCompanySet = new Set(companyIds);
 
-      const toRemove = [...existingCompanySet].filter((cid) => !newCompanySet.has(cid));
-      const toAdd = [...newCompanySet].filter((cid) => !existingCompanySet.has(cid));
+      const toRemove = [...existingCompanySet].filter(
+        (cid) => !newCompanySet.has(cid),
+      );
+      const toAdd = [...newCompanySet].filter(
+        (cid) => !existingCompanySet.has(cid),
+      );
 
       if (toRemove.length) {
         await prisma.companyPerson.deleteMany({
@@ -495,10 +489,15 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
 
       if (toAdd.length) {
         const validCompanies = await prisma.company.findMany({
-          where: { id: { in: toAdd }, ownerId: req.user.sub },
+          where: {
+            id: { in: toAdd },
+            // ownerId: req.user.sub
+          },
         });
         if (validCompanies.length !== toAdd.length) {
-          return res.status(404).json({ message: "One or more companies not found." });
+          return res
+            .status(404)
+            .json({ message: "One or more companies not found." });
         }
         updateData.companies = {
           create: toAdd.map((companyId) => ({ companyId })),
@@ -546,26 +545,26 @@ export async function deletePerson(req: AuthenticatedRequest, res: Response) {
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        OR: [
-          {
-            practices: {
-              some: {
-                practice: {
-                  ownerId: req.user.sub,
-                },
-              },
-            },
-          },
-          {
-            companies: {
-              some: {
-                company: {
-                  ownerId: req.user.sub,
-                },
-              },
-            },
-          },
-        ],
+        // OR: [
+        //   {
+        //     practices: {
+        //       some: {
+        //         practice: {
+        //           ownerId: req.user.sub,
+        //         },
+        //       },
+        //     },
+        //   },
+        //   {
+        //     companies: {
+        //       some: {
+        //         company: {
+        //           ownerId: req.user.sub,
+        //         },
+        //       },
+        //     },
+        //   },
+        // ],
       },
     });
 
@@ -597,34 +596,13 @@ type PersonAssociationBody = {
   companyIds?: string[];
 };
 
-async function getPersonOwnershipCondition(userId: string) {
-  return {
-    OR: [
-      {
-        practices: {
-          some: {
-            practice: {
-              ownerId: userId,
-            },
-          },
-        },
-      },
-      {
-        companies: {
-          some: {
-            company: {
-              ownerId: userId,
-            },
-          },
-        },
-      },
-    ],
-  };
-}
+// async function getPersonOwnershipCondition(_userId: string) {
+//   return {};
+// }
 
 export async function addPersonAssociations(
   req: AuthenticatedRequest,
-  res: Response
+  res: Response,
 ) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -651,7 +629,6 @@ export async function addPersonAssociations(
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        ...(await getPersonOwnershipCondition(req.user.sub)),
       },
     });
 
@@ -667,7 +644,7 @@ export async function addPersonAssociations(
       const validPractices = await prisma.practice.findMany({
         where: {
           id: { in: practiceIds },
-          ownerId: req.user.sub,
+          // ownerId: req.user.sub,
         },
       });
 
@@ -686,10 +663,10 @@ export async function addPersonAssociations(
       });
 
       const existingPracticeIdSet = new Set(
-        existingPracticeIds.map((p) => p.practiceId)
+        existingPracticeIds.map((p) => p.practiceId),
       );
       const newPracticeIds = practiceIds.filter(
-        (pid) => !existingPracticeIdSet.has(pid)
+        (pid) => !existingPracticeIdSet.has(pid),
       );
 
       if (newPracticeIds.length) {
@@ -703,7 +680,7 @@ export async function addPersonAssociations(
       const validCompanies = await prisma.company.findMany({
         where: {
           id: { in: companyIds },
-          ownerId: req.user.sub,
+          // ownerId: req.user.sub,
         },
       });
 
@@ -722,10 +699,10 @@ export async function addPersonAssociations(
       });
 
       const existingCompanyIdSet = new Set(
-        existingCompanyIds.map((c) => c.companyId)
+        existingCompanyIds.map((c) => c.companyId),
       );
       const newCompanyIds = companyIds.filter(
-        (cid) => !existingCompanyIdSet.has(cid)
+        (cid) => !existingCompanyIdSet.has(cid),
       );
 
       if (newCompanyIds.length) {
@@ -768,7 +745,7 @@ export async function addPersonAssociations(
 
 export async function removePersonPractice(
   req: AuthenticatedRequest,
-  res: Response
+  res: Response,
 ) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -789,7 +766,6 @@ export async function removePersonPractice(
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        ...(await getPersonOwnershipCondition(req.user.sub)),
       },
     });
 
@@ -842,7 +818,7 @@ export async function removePersonPractice(
 
 export async function removePersonCompany(
   req: AuthenticatedRequest,
-  res: Response
+  res: Response,
 ) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -863,7 +839,6 @@ export async function removePersonCompany(
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        ...(await getPersonOwnershipCondition(req.user.sub)),
       },
     });
 
@@ -916,7 +891,7 @@ export async function removePersonCompany(
 
 export async function syncPersonPractices(
   req: AuthenticatedRequest,
-  res: Response
+  res: Response,
 ) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -937,7 +912,6 @@ export async function syncPersonPractices(
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        ...(await getPersonOwnershipCondition(req.user.sub)),
       },
     });
 
@@ -951,7 +925,7 @@ export async function syncPersonPractices(
       const validPractices = await prisma.practice.findMany({
         where: {
           id: { in: practiceIds },
-          ownerId: req.user.sub,
+          // ownerId: req.user.sub,
         },
       });
 
@@ -1001,7 +975,7 @@ export async function syncPersonPractices(
 
 export async function syncPersonCompanies(
   req: AuthenticatedRequest,
-  res: Response
+  res: Response,
 ) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -1022,7 +996,6 @@ export async function syncPersonCompanies(
     const existingPerson = await prisma.person.findFirst({
       where: {
         id,
-        ...(await getPersonOwnershipCondition(req.user.sub)),
       },
     });
 
@@ -1036,7 +1009,7 @@ export async function syncPersonCompanies(
       const validCompanies = await prisma.company.findMany({
         where: {
           id: { in: companyIds },
-          ownerId: req.user.sub,
+          // ownerId: req.user.sub,
         },
       });
 

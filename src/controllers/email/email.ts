@@ -26,7 +26,6 @@ export async function sendEmail(req: AuthenticatedRequest, res: Response) {
     const person = await prisma.person.findFirst({
       where: {
         id: personId,
-        practice: { ownerId: req.user.sub },
       },
       select: { email: true },
     });
@@ -34,7 +33,7 @@ export async function sendEmail(req: AuthenticatedRequest, res: Response) {
     if (!person) {
       return res
         .status(404)
-        .json({ message: "Person not found or access denied." });
+        .json({ message: "Person not found." });
     }
 
     if (!person.email) {
@@ -74,7 +73,6 @@ export async function getEmailHistory(
     const person = await prisma.person.findFirst({
       where: {
         id: personId,
-        practice: { ownerId: req.user.sub },
       },
       select: { email: true },
     });
@@ -82,7 +80,7 @@ export async function getEmailHistory(
     if (!person) {
       return res
         .status(404)
-        .json({ message: "Person not found or access denied." });
+        .json({ message: "Person not found." });
     }
 
     if (!person.email) {

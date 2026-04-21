@@ -25,15 +25,15 @@ export async function createPracticeGroup(
         .json({ message: "Name and Company ID are required." });
     }
 
-    // Verify company exists and user owns it
+    // Verify company exists
     const company = await prisma.company.findFirst({
-      where: { id: companyId, ownerId: req.user.sub },
+      where: { id: companyId },
     });
 
     if (!company) {
       return res
         .status(404)
-        .json({ message: "Company not found or unauthorized." });
+        .json({ message: "Company not found." });
     }
 
     // If parentId is provided, verify it belongs to the same company
@@ -83,15 +83,15 @@ export async function getPracticeGroups(
       return res.status(400).json({ message: "Company ID is required." });
     }
 
-    // Verify company access
+    // Verify company exists
     const company = await prisma.company.findFirst({
-      where: { id: companyId as string, ownerId: req.user.sub },
+      where: { id: companyId as string },
     });
 
     if (!company) {
       return res
         .status(404)
-        .json({ message: "Company not found or unauthorized." });
+        .json({ message: "Company not found." });
     }
 
     const practiceGroups = await prisma.practiceGroup.findMany({
@@ -143,10 +143,10 @@ export async function getPracticeGroup(
       },
     });
 
-    if (!practiceGroup || practiceGroup.company.ownerId !== req.user.sub) {
+    if (!practiceGroup) {
       return res
         .status(404)
-        .json({ message: "Practice group not found or unauthorized." });
+        .json({ message: "Practice group not found." });
     }
 
     return res.status(200).json({
@@ -184,10 +184,10 @@ export async function updatePracticeGroup(
       include: { company: true },
     });
 
-    if (!existingGroup || existingGroup.company.ownerId !== req.user.sub) {
+    if (!existingGroup) {
       return res
         .status(404)
-        .json({ message: "Practice group not found or unauthorized." });
+        .json({ message: "Practice group not found." });
     }
 
     // Prevent circular reference if parentId is changed
@@ -249,10 +249,10 @@ export async function deletePracticeGroup(
       include: { company: true },
     });
 
-    if (!existingGroup || existingGroup.company.ownerId !== req.user.sub) {
+    if (!existingGroup) {
       return res
         .status(404)
-        .json({ message: "Practice group not found or unauthorized." });
+        .json({ message: "Practice group not found." });
     }
 
     await prisma.practiceGroup.delete({

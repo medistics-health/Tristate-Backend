@@ -43,7 +43,7 @@ export async function createDeal(req: AuthenticatedRequest, res: Response) {
     }
 
     const practice = await prisma.practice.findFirst({
-      where: { id: practiceId, ownerId: req.user.sub },
+      where: { id: practiceId },
     });
 
     if (!practice) {
@@ -86,7 +86,7 @@ export async function getDeal(req: AuthenticatedRequest, res: Response) {
     }
 
     const deal = await prisma.deal.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
       include: { practice: true, agreements: true, audits: true },
     });
 
@@ -124,7 +124,7 @@ export async function updateDeal(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingDeal = await prisma.deal.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingDeal) {
@@ -174,7 +174,7 @@ export async function deleteDeal(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingDeal = await prisma.deal.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingDeal) {

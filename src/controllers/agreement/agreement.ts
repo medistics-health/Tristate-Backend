@@ -109,7 +109,7 @@ export async function createDocusealSubmission(
     }
 
     const agreement = await prisma.agreement.findFirst({
-      where: { id: agreementId, practice: { ownerId: req.user.sub } },
+      where: { id: agreementId },
       include: { practice: true },
     });
 
@@ -214,7 +214,6 @@ export async function sendAgreementEmail(
     const agreement = await prisma.agreement.findFirst({
       where: {
         id: agreementId,
-        practice: { ownerId: req.user.sub },
       },
       include: {
         practice: true,
@@ -334,7 +333,7 @@ export async function createAgreement(
     }
 
     const practice = await prisma.practice.findFirst({
-      where: { id: practiceId, ownerId: req.user.sub },
+      where: { id: practiceId },
     });
 
     if (!practice) {
@@ -343,7 +342,7 @@ export async function createAgreement(
 
     if (dealId) {
       const deal = await prisma.deal.findFirst({
-        where: { id: dealId, practiceId, practice: { ownerId: req.user.sub } },
+        where: { id: dealId, practiceId },
       });
 
       if (!deal) {
@@ -410,15 +409,10 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      practice: {
-        ownerId: req.user.sub,
-      },
-    };
+    const where: any = {};
 
     if (search) {
       where.practice = {
-        ...where.practice,
         name: { contains: search, mode: "insensitive" },
       };
     }
@@ -494,7 +488,7 @@ export async function getAgreement(req: AuthenticatedRequest, res: Response) {
     }
 
     const agreement = await prisma.agreement.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id },
       include: {
         practice: true,
         deal: true,
@@ -552,7 +546,7 @@ export async function updateAgreement(
     }
 
     const existingAgreement = await prisma.agreement.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id },
     });
 
     if (!existingAgreement) {
@@ -564,7 +558,6 @@ export async function updateAgreement(
         where: {
           id: dealId,
           practiceId: existingAgreement.practiceId,
-          practice: { ownerId: req.user.sub },
         },
       });
 
@@ -618,7 +611,7 @@ export async function deleteAgreement(
     }
 
     const existingAgreement = await prisma.agreement.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id },
     });
 
     if (!existingAgreement) {

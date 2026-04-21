@@ -85,7 +85,6 @@ export async function createCompany(req: AuthenticatedRequest, res: Response) {
         country: address?.country,
         zip: address?.zip,
         status: (status as CompanyStatus) || CompanyStatus.LEAD,
-        ownerId: req.user.sub,
         taxIds: taxIds
           ? {
               create: taxIds.map((tax) => ({
@@ -127,9 +126,7 @@ export async function getCompanies(req: AuthenticatedRequest, res: Response) {
 
     const { search, status, industry } = req.query;
 
-    const where: any = {
-      ownerId: req.user.sub,
-    };
+    const where: any = {};
 
     if (search) {
       where.OR = [
@@ -209,7 +206,6 @@ export async function getCompany(req: AuthenticatedRequest, res: Response) {
     const company = await prisma.company.findFirst({
       where: {
         id,
-        ownerId: req.user.sub,
       },
       include: {
         practices: true,
@@ -275,13 +271,12 @@ export async function updateCompany(req: AuthenticatedRequest, res: Response) {
     const companyExists = await prisma.company.findFirst({
       where: {
         id,
-        ownerId: req.user.sub,
       },
     });
 
     if (!companyExists) {
       return res.status(404).json({
-        message: "Company not found or you are not authorized to update it.",
+        message: "Company not found.",
       });
     }
 
@@ -390,13 +385,12 @@ export async function deleteCompany(req: AuthenticatedRequest, res: Response) {
     const companyExists = await prisma.company.findFirst({
       where: {
         id,
-        ownerId: req.user.sub,
       },
     });
 
     if (!companyExists) {
       return res.status(404).json({
-        message: "Company not found or you are not authorized to delete it.",
+        message: "Company not found.",
       });
     }
 

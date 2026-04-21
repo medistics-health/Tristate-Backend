@@ -39,8 +39,8 @@ export async function createGroupNpi(req: AuthenticatedRequest, res: Response) {
       include: { company: true },
     });
 
-    if (!taxIdRecord || taxIdRecord.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Tax ID not found or unauthorized." });
+    if (!taxIdRecord) {
+      return res.status(404).json({ message: "Tax ID not found." });
     }
 
     // Verify practiceGroupId if provided
@@ -102,16 +102,16 @@ export async function getGroupNpis(req: AuthenticatedRequest, res: Response) {
         where: { id: taxId as string },
         include: { company: true },
       });
-      if (!taxIdRecord || taxIdRecord.company.ownerId !== req.user.sub) {
+      if (!taxIdRecord) {
         return res.status(404).json({ message: "Tax ID not found or unauthorized." });
       }
       where.taxId = taxId as string;
     } else if (companyId) {
       const company = await prisma.company.findFirst({
-        where: { id: companyId as string, ownerId: req.user.sub },
+        where: { id: companyId as string },
       });
       if (!company) {
-        return res.status(404).json({ message: "Company not found or unauthorized." });
+        return res.status(404).json({ message: "Company not found." });
       }
       where.tax = { companyId: companyId as string };
     } else {
@@ -161,8 +161,8 @@ export async function getGroupNpi(req: AuthenticatedRequest, res: Response) {
       },
     });
 
-    if (!groupNpi || !groupNpi.tax || groupNpi.tax.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Group NPI not found or unauthorized." });
+    if (!groupNpi || !groupNpi.tax) {
+      return res.status(404).json({ message: "Group NPI not found." });
     }
 
     return res.status(200).json({
@@ -195,8 +195,8 @@ export async function updateGroupNpi(req: AuthenticatedRequest, res: Response) {
       include: { tax: { include: { company: true } } },
     });
 
-    if (!existingNpi || !existingNpi.tax || existingNpi.tax.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Group NPI not found or unauthorized." });
+    if (!existingNpi || !existingNpi.tax) {
+      return res.status(404).json({ message: "Group NPI not found." });
     }
 
     if (status && !isEntityStatus(status)) {
@@ -264,8 +264,8 @@ export async function deleteGroupNpi(req: AuthenticatedRequest, res: Response) {
       include: { tax: { include: { company: true } } },
     });
 
-    if (!existingNpi || !existingNpi.tax || existingNpi.tax.company.ownerId !== req.user.sub) {
-      return res.status(404).json({ message: "Group NPI not found or unauthorized." });
+    if (!existingNpi || !existingNpi.tax) {
+      return res.status(404).json({ message: "Group NPI not found." });
     }
 
     await prisma.groupNpi.delete({

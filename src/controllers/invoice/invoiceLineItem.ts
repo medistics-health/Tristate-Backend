@@ -36,7 +36,7 @@ export async function createInvoiceLineItem(
     }
 
     const invoice = await prisma.invoice.findFirst({
-      where: { id: invoiceId, practice: { ownerId: req.user.sub } },
+      where: { id: invoiceId },
     });
 
     if (!invoice) {
@@ -85,7 +85,7 @@ export async function getInvoiceLineItem(
     }
 
     const invoiceLineItem = await prisma.invoiceLineItem.findFirst({
-      where: { id, invoice: { practice: { ownerId: req.user.sub } } },
+      where: { id },
       include: { invoice: true, service: true },
     });
 
@@ -125,7 +125,7 @@ export async function updateInvoiceLineItem(
     }
 
     const existingInvoiceLineItem = await prisma.invoiceLineItem.findFirst({
-      where: { id, invoice: { practice: { ownerId: req.user.sub } } },
+      where: { id },
     });
 
     if (!existingInvoiceLineItem) {
@@ -181,7 +181,7 @@ export async function deleteInvoiceLineItem(
     }
 
     const existingInvoiceLineItem = await prisma.invoiceLineItem.findFirst({
-      where: { id, invoice: { practice: { ownerId: req.user.sub } } },
+      where: { id },
     });
 
     if (!existingInvoiceLineItem) {
@@ -216,9 +216,7 @@ export async function getAllInvoiceLineItems(
 
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      invoice: { practice: { ownerId: req.user.sub } },
-    };
+    const where: any = {};
 
     if (invoiceId) {
       where.invoiceId = invoiceId;

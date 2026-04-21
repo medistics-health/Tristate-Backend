@@ -143,7 +143,7 @@ export async function login(req: Request, res: Response) {
       .cookie("token", token, {
         httpOnly: true, // prevents JS access
         secure: false, // only over HTTPS (use false in local dev)
-        sameSite: "lax", // CSRF protection
+        sameSite: "none", // CSRF protection
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       })
       .status(200)

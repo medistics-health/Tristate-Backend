@@ -38,7 +38,7 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const practice = await prisma.practice.findFirst({
-      where: { id: practiceId, ownerId: req.user.sub },
+      where: { id: practiceId },
     });
 
     if (!practice) {
@@ -50,7 +50,6 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
         where: {
           id: agreementId,
           practiceId,
-          practice: { ownerId: req.user.sub },
         },
       });
 
@@ -96,7 +95,7 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const invoice = await prisma.invoice.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
       include: {
         practice: true,
         agreement: true,
@@ -143,7 +142,7 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingInvoice = await prisma.invoice.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingInvoice) {
@@ -155,7 +154,6 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
         where: {
           id: agreementId,
           practiceId: existingInvoice.practiceId,
-          practice: { ownerId: req.user.sub },
         },
       });
 
@@ -205,7 +203,7 @@ export async function deleteInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingInvoice = await prisma.invoice.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingInvoice) {
@@ -236,9 +234,7 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
 
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      practice: { ownerId: req.user.sub },
-    };
+    const where: any = {};
 
     if (search) {
       where.practice = {

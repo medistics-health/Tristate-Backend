@@ -56,7 +56,7 @@ export async function sendOnboardingEmail(
     }
 
     const practice = await prisma.practice.findFirst({
-      where: { id: practiceId, ownerId: req.user.sub },
+      where: { id: practiceId },
     });
 
     if (!practice) {
@@ -122,9 +122,7 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
     const { search, status, region, source, companyId, practiceGroupId } =
       req.query;
 
-    const where: any = {
-      ownerId: req.user.sub,
-    };
+    const where: any = {};
 
     if (search) {
       where.name = { contains: search as string, mode: "insensitive" };
@@ -237,11 +235,11 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
 
     if (companyId) {
       const company = await prisma.company.findFirst({
-        where: { id: companyId, ownerId: req.user.sub },
+        where: { id: companyId },
       });
       if (!company) {
         return res.status(400).json({
-          message: "Invalid companyId. Company not found or unauthorized.",
+          message: "Invalid companyId. Company not found.",
         });
       }
     }
@@ -320,7 +318,6 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
-      ownerId: req.user.sub,
     };
 
     if (groupNpiConnect.length > 0) {
@@ -365,7 +362,6 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
     const practice = await prisma.practice.findFirst({
       where: {
         id,
-        ownerId: req.user.sub,
       },
       include: {
         company: true,
@@ -452,7 +448,6 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
     const existingPractice = await prisma.practice.findFirst({
       where: {
         id,
-        ownerId: req.user.sub,
       },
     });
 
@@ -464,11 +459,11 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
 
     if (companyId) {
       const company = await prisma.company.findFirst({
-        where: { id: companyId, ownerId: req.user.sub },
+        where: { id: companyId },
       });
       if (!company) {
         return res.status(400).json({
-          message: "Invalid companyId. Company not found or unauthorized.",
+          message: "Invalid companyId. Company not found.",
         });
       }
     }
@@ -596,7 +591,6 @@ export async function deletePractice(req: AuthenticatedRequest, res: Response) {
     const existingPractice = await prisma.practice.findFirst({
       where: {
         id,
-        ownerId: req.user.sub,
       },
     });
 

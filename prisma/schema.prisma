@@ -125,7 +125,6 @@ model User {
   role      UserRoles
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
-  companies Company[]
 
   @@map("User")
 }
@@ -146,16 +145,13 @@ model Company {
   country   String?
   zip       String?
   status    CompanyStatus @default(LEAD)
-  ownerId   String        @map("owner_id") @db.Uuid
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @default(now()) @updatedAt @map("updated_at")
-  owner     User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   practiceGroups PracticeGroup[]
   practices      Practice[]
   taxIds         TaxId[]
   persons       CompanyPerson[]
 
-  @@index([ownerId])
   @@map("companies")
 }
 
@@ -189,10 +185,9 @@ model Practice {
   name            String
   npi             String?
   status          PracticeStatus
-  region          String
+region          String
   source          PracticeSource
   bucket          String[]
-  ownerId         String          @map("owner_id") @db.Uuid
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at")
   company         Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
@@ -206,7 +201,6 @@ model Practice {
   audits      Audit[]
   assessments Assessment[]
 
-  @@index([ownerId])
   @@index([companyId])
   @@index([practiceGroupId])
   @@index([taxIdId])

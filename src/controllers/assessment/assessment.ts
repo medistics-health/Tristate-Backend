@@ -27,7 +27,7 @@ export async function createAssessment(
     }
 
     const practice = await prisma.practice.findFirst({
-      where: { id: practiceId, ownerId: req.user.sub },
+      where: { id: practiceId },
     });
 
     if (!practice) {
@@ -63,7 +63,7 @@ export async function getAssessment(req: AuthenticatedRequest, res: Response) {
     }
 
     const assessment = await prisma.assessment.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
       include: { practice: true },
     });
 
@@ -100,7 +100,7 @@ export async function updateAssessment(
     }
 
     const existingAssessment = await prisma.assessment.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingAssessment) {
@@ -156,7 +156,7 @@ export async function deleteAssessment(
     }
 
     const existingAssessment = await prisma.assessment.findFirst({
-      where: { id, practice: { ownerId: req.user.sub } },
+      where: { id,  },
     });
 
     if (!existingAssessment) {
@@ -192,9 +192,7 @@ export async function getAllAssessments(
 
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      practice: { ownerId: req.user.sub },
-    };
+    const where: any = {};
 
     if (search) {
       where.practice = {

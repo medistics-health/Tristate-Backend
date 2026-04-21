@@ -31,7 +31,7 @@ export async function createPurchaseOrder(
     }
 
     const invoice = await prisma.invoice.findFirst({
-      where: { id: invoiceId, practice: { ownerId: req.user.sub } },
+      where: { id: invoiceId,  },
     });
 
     if (!invoice) {
@@ -70,7 +70,7 @@ export async function getPurchaseOrder(
     }
 
     const purchaseOrder = await prisma.purchaseOrder.findFirst({
-      where: { id, invoice: { practice: { ownerId: req.user.sub } } },
+      where: { id, invoice: {  } },
       include: { vendor: true, invoice: true },
     });
 
@@ -107,7 +107,7 @@ export async function updatePurchaseOrder(
     }
 
     const existingPurchaseOrder = await prisma.purchaseOrder.findFirst({
-      where: { id, invoice: { practice: { ownerId: req.user.sub } } },
+      where: { id, invoice: {  } },
     });
 
     if (!existingPurchaseOrder) {
@@ -157,7 +157,7 @@ export async function deletePurchaseOrder(
     }
 
     const existingPurchaseOrder = await prisma.purchaseOrder.findFirst({
-      where: { id, invoice: { practice: { ownerId: req.user.sub } } },
+      where: { id, invoice: {  } },
     });
 
     if (!existingPurchaseOrder) {
@@ -194,7 +194,7 @@ export async function getAllPurchaseOrders(
     const skip = (page - 1) * limit;
 
     const where: any = {
-      invoice: { practice: { ownerId: req.user.sub } },
+      invoice: {  },
     };
 
     if (search) {

@@ -37,7 +37,7 @@ export async function createChannelPartner(
 
     if (agreementId) {
       const agreement = await prisma.agreement.findFirst({
-        where: { id: agreementId, practice: { ownerId: req.user.sub } },
+        where: { id: agreementId,  },
       });
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
@@ -84,7 +84,7 @@ export async function getChannelPartner(
         id,
         OR: [
           { agreementId: null },
-          { agreement: { practice: { ownerId: req.user.sub } } },
+          { agreement: {  } },
         ],
       },
       include: { agreement: true },
@@ -134,7 +134,7 @@ export async function updateChannelPartner(
         id,
         OR: [
           { agreementId: null },
-          { agreement: { practice: { ownerId: req.user.sub } } },
+          { agreement: {  } },
         ],
       },
     });
@@ -145,7 +145,7 @@ export async function updateChannelPartner(
 
     if (agreementId) {
       const agreement = await prisma.agreement.findFirst({
-        where: { id: agreementId, practice: { ownerId: req.user.sub } },
+        where: { id: agreementId,  },
       });
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
@@ -193,7 +193,7 @@ export async function deleteChannelPartner(
         id,
         OR: [
           { agreementId: null },
-          { agreement: { practice: { ownerId: req.user.sub } } },
+          { agreement: {  } },
         ],
       },
     });
