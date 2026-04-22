@@ -8,6 +8,7 @@ import {
   sendAgreementEmail,
   createDocusealSubmission,
   getDocusealTemplates,
+  getDocusealFormBySlug,
   handleDocusealWebhook,
 } from "../controllers/agreement/agreement";
 import { verifyAuthToken } from "../middleware/auth.middleware";
@@ -15,6 +16,7 @@ import { verifyAuthToken } from "../middleware/auth.middleware";
 const agreementRouter = Router();
 
 agreementRouter.post("/docuseal/webhook", handleDocusealWebhook);
+agreementRouter.get("/docuseal/forms/:slug", getDocusealFormBySlug);
 
 agreementRouter.use(verifyAuthToken);
 

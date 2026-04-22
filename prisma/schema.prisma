@@ -96,6 +96,78 @@ enum AuditType {
   OPERATIONAL
 }
 
+enum OnboardingType {
+  SINGLE_PRACTICE
+  MULTIPLE_PRACTICES
+  SINGLE_PRACTICE_NOW
+}
+
+enum OnboardingStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ContactRole {
+  EXECUTIVE_OWNER
+  OFFICE_MANAGER
+  PRACTICE_MANAGER
+  BILLING
+  CREDENTIALING
+  CLINICAL_STAFF
+  IT_TECHNICAL
+  CONSULTANT
+  OTHER
+}
+
+enum OrganizationType {
+  INDEPENDENT_PRACTICE
+  MEDICAL_GROUP
+  MULTI_SPECIALTY_GROUP
+  MSO
+  IPA
+  DSO
+  FQHC
+  HOSPITAL_AFFILIATED_GROUP
+  PHARMACY_ORGANIZATION
+  OTHER
+}
+
+enum OwnershipType {
+  PHYSICIAN_OWNED
+  CORPORATE_OWNED
+  PRIVATE_EQUITY_BACKED
+  HOSPITAL_AFFILIATED
+  FAMILY_OWNED
+  PARTNERSHIP
+  OTHER
+}
+
+enum ServiceType {
+  CREDENTIALING
+  BILLING_RCM
+  APCM
+  CCM
+  RPM
+  PCM
+  RTM
+  BHI
+  TCM
+  LAB_RELATIONSHIP_SUPPORT
+  PHARMACY_PROGRAM_SUPPORT
+  PATIENT_ACQUISITION
+  BRAND_GROWTH
+  AI_VISIBILITY
+  OTHER
+}
+
+enum BillingModel {
+  IN_HOUSE
+  OUTSOURCED
+  HYBRID
+}
+
 enum ChannelPartnerType {
   RESELLER
   REFERRAL
@@ -160,7 +232,7 @@ model PracticeGroup {
   name      String
   companyId String          @map("company_id") @db.Uuid
   company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
+
   practices Practice[]
   groupNpis GroupNpi[]
 
@@ -327,9 +399,12 @@ model Agreement {
 model DocusealSubmission {
   id            String    @id @default(uuid()) @db.Uuid
   agreementId   String    @map("agreement_id") @db.Uuid
-  externalId    Int       @unique @map("external_id")
+  externalId    Int       @map("external_id")
   status        String
   url           String?
+  embedUrl      String?
+  slug          String?
+  submitterUuid String?   @map("submitter_uuid")
   templateId    Int?      @map("template_id")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -444,6 +519,333 @@ model Assessment {
 
   @@index([practiceId])
   @@map("assessments")
+}
+
+model Onboarding {
+  id                                               String           @id @default(uuid()) @db.Uuid
+
+  // Section 1: Client Structure
+  onboardingType                                   OnboardingType?  @map("onboarding_type")
+  isAuthorizedPerson                              Boolean?         @map("is_authorized_person")
+  nonAuthorizedRole                               String?          @map("non_authorized_role")
+  numberOfPractices                               Int?             @map("number_of_practices")
+  numberOfLocations                               Int?             @map("number_of_locations")
+  billingManagedCentrally                         String?          @map("billing_managed_centrally")
+  credentialingManagedCentrally                   String?          @map("credentialing_managed_centrally")
+  contractingManagedCentrally                     String?          @map("contracting_managed_centrally")
+  oneMainContact                                  Boolean?         @map("one_main_contact")
+
+  // Section 2: Company Information
+  legalCompanyName                                String?          @map("legal_company_name")
+  dbaName                                         String?          @map("dba_name")
+  organizationType                                OrganizationType? @map("organization_type")
+  taxIdEin                                        String?          @map("tax_id_ein")
+  mainCompanyPhone                                String?          @map("main_company_phone")
+  mainCompanyFax                                  String?          @map("main_company_fax")
+  mainCompanyEmail                                String?          @map("main_company_email")
+  companyWebsite                                  String?          @map("company_website")
+  companyAddressLine1                             String?          @map("company_address_line_1")
+  companyAddressLine2                             String?          @map("company_address_line_2")
+  companyCity                                     String?          @map("company_city")
+  companyState                                    String?          @map("company_state")
+  companyZip                                      String?          @map("company_zip")
+  ownershipType                                   OwnershipType?  @map("ownership_type")
+  statesOfOperation                               String[]         @map("states_of_operation")
+  isLegalContractingEntity                       Boolean?         @map("is_legal_contracting_entity")
+  isBillingEntity                                 Boolean?         @map("is_billing_entity")
+  isCredentialingEntity                           Boolean?         @map("is_credentialing_entity")
+  primarySpecialty                                String?          @map("primary_specialty")
+  additionalSpecialties                           String[]         @map("additional_specialties")
+
+  // Section 7: Services Requested
+  requestedServices                               ServiceType[]    @map("requested_services")
+  primaryServiceToLaunch                          String?          @map("primary_service_to_launch")
+  requestedGoLiveDate                             DateTime?        @map("requested_go_live_date")
+  priorityLevel                                   String?          @map("priority_level")
+  servicesForAllPractices                        String?          @map("services_for_all_practices")
+  replacingExistingVendor                        Boolean?         @map("replacing_existing_vendor")
+  currentVendorName                               String?          @map("current_vendor_name")
+  currentVendorEndDate                            DateTime?        @map("current_vendor_end_date")
+  engagementGoals                                 String?          @map("engagement_goals")
+
+  // Final Review / Submission
+  informationAccurate                            Boolean?         @map("information_accurate")
+  authorizeUse                                    Boolean?         @map("authorize_use")
+  submittedByName                                 String?          @map("submitted_by_name")
+  submittedByTitle                                String?          @map("submitted_by_title")
+  submissionDate                                  DateTime?        @map("submission_date")
+
+  status                                          OnboardingStatus @default(DRAFT)
+  createdAt                                       DateTime         @default(now()) @map("created_at")
+  updatedAt                                       DateTime         @default(now()) @updatedAt @map("updated_at")
+
+  // Relations
+  contacts                                        OnboardingContact[]
+  practices                                       OnboardingPractice[]
+  documents                                       OnboardingDocument[]
+  billing                                         OnboardingBilling?
+  credentialing                                   OnboardingCredentialing?
+  technology                                      OnboardingTechnology?
+  outreach                                        OnboardingOutreach?
+  labPharmacy                                     OnboardingLabPharmacy?
+  compliance                                      OnboardingCompliance?
+
+  @@map("onboardings")
+}
+
+model OnboardingContact {
+  id                       String     @id @default(uuid()) @db.Uuid
+  onboardingId             String     @map("onboarding_id") @db.Uuid
+  fullName                 String?    @map("full_name")
+  jobTitle                 String?    @map("job_title")
+  contactRole              String?    @map("contact_role")
+  email                    String?
+  phone                    String?
+  extension                String?
+  preferredContactMethod   String?    @map("preferred_contact_method")
+  bestTimeToReach          String?    @map("best_time_to_reach")
+  isPrimaryDecisionMaker  Boolean?   @map("is_primary_decision_maker")
+  canSignAgreements        Boolean?   @map("can_sign_agreements")
+  additionalResponsibilities String[] @map("additional_responsibilities")
+  createdAt                DateTime   @default(now()) @map("created_at")
+  updatedAt                DateTime   @default(now()) @updatedAt @map("updated_at")
+
+  onboarding               Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_contacts")
+}
+
+model OnboardingPractice {
+  id                                  String     @id @default(uuid()) @db.Uuid
+  onboardingId                        String     @map("onboarding_id") @db.Uuid
+  practiceName                        String?    @map("practice_name")
+  practiceDbaName                    String?    @map("practice_dba_name")
+  isPartOfParentCompany              Boolean?   @map("is_part_of_parent_company")
+  practiceType                        String?    @map("practice_type")
+  additionalSpecialtyAreas           String[]   @map("additional_specialty_areas")
+  groupNpi                           String?    @map("group_npi")
+  taxIdEin                           String?    @map("tax_id_ein")
+  approximateNumberOfProviders       Int?       @map("approximate_number_of_providers")
+  approximateNumberOfLocations       Int?       @map("approximate_number_of_locations")
+  approximateMonthlyPatientVolume    Int?       @map("approximate_monthly_patient_volume")
+  approximateMedicarePatientVolume   Int?       @map("approximate_medicare_patient_volume")
+  approximateMedicaidPatientVolume   Int?       @map("approximate_medicaid_patient_volume")
+  approximateCommercialPatientVolume Int?       @map("approximate_commercial_patient_volume")
+  offersCareManagementServices       Boolean?   @map("offers_care_management_services")
+  currentServicesOffered             String[]   @map("current_services_offered")
+  operationalPainPoints              String[]   @map("operational_pain_points")
+  additionalNotes                    String?    @map("additional_notes")
+  createdAt                          DateTime   @default(now()) @map("created_at")
+  updatedAt                          DateTime   @default(now()) @updatedAt @map("updated_at")
+
+  onboarding                         Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  locations                          OnboardingLocation[]
+  providers                          OnboardingProvider[]
+
+  @@index([onboardingId])
+  @@map("onboarding_practices")
+}
+
+model OnboardingLocation {
+  id                          String   @id @default(uuid()) @db.Uuid
+  onboardingPracticeId        String   @map("onboarding_practice_id") @db.Uuid
+  locationName                String?  @map("location_name")
+  isPrimaryLocation           Boolean? @map("is_primary_location")
+  addressLine1                String?  @map("address_line_1")
+  addressLine2                String?  @map("address_line_2")
+  city                        String?
+  state                       String?
+  zipCode                     String?  @map("zip_code")
+  mainPhoneNumber             String?  @map("main_phone_number")
+  mainFaxNumber               String?  @map("main_fax_number")
+  officeEmail                 String?  @map("office_email")
+  hoursOfOperation            String?  @map("hours_of_operation")
+  officeManagerName           String?  @map("office_manager_name")
+  patientOutreachManaged      String?  @map("patient_outreach_managed")
+  billingManaged              String?  @map("billing_managed")
+  notes                       String?
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboardingPractice          OnboardingPractice @relation(fields: [onboardingPracticeId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingPracticeId])
+  @@map("onboarding_locations")
+}
+
+model OnboardingProvider {
+  id                    String   @id @default(uuid()) @db.Uuid
+  onboardingPracticeId  String   @map("onboarding_practice_id") @db.Uuid
+  firstName             String?  @map("first_name")
+  lastName              String?  @map("last_name")
+  credentials           String?
+  providerType          String?  @map("provider_type")
+  specialty             String?
+  npi                   String?
+  caqhId                String?  @map("caqh_id")
+  stateLicenseNumber    String?  @map("state_license_number")
+  deaNumber             String?  @map("dea_number")
+  boardCertified        Boolean? @map("board_certified")
+  employmentStatus      String?  @map("employment_status")
+  participatingLocations String[] @map("participating_locations")
+  credentialingNeeded   String?  @map("credentialing_needed")
+  recredentialingNeeded String?  @map("recredentialing_needed")
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboardingPractice    OnboardingPractice @relation(fields: [onboardingPracticeId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingPracticeId])
+  @@map("onboarding_providers")
+}
+
+model OnboardingDocument {
+  id                  String    @id @default(uuid()) @db.Uuid
+  onboardingId        String    @map("onboarding_id") @db.Uuid
+  documentType        String    @map("document_type")
+  fileName            String?   @map("file_name")
+  fileUrl             String?   @map("file_url")
+  required            Boolean?
+  status              String?
+  dateRequested       DateTime? @map("date_requested")
+  dateReceived        DateTime? @map("date_received")
+  notes               String?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  onboarding          Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_documents")
+}
+
+model OnboardingBilling {
+  id                           String   @id @default(uuid()) @db.Uuid
+  onboardingId                 String   @unique @map("onboarding_id") @db.Uuid
+  currentBillingModel         String?  @map("current_billing_model")
+  billingCompanyName          String?  @map("billing_company_name")
+  mainBillingContactName      String?  @map("main_billing_contact_name")
+  mainBillingContactEmail     String?  @map("main_billing_contact_email")
+  mainBillingContactPhone     String?  @map("main_billing_contact_phone")
+  currentlyBilledServices     String[] @map("currently_billed_services")
+  activePayers                String?  @map("active_payers")
+  eftEraSetup                 String?  @map("eft_era_setup")
+  invoiceRecipient            String?  @map("invoice_recipient")
+  invoiceEmail                String?  @map("invoice_email")
+  preferredReportingCadence  String?  @map("preferred_reporting_cadence")
+  billingPainPoints           String[] @map("billing_pain_points")
+  additionalNotes             String?  @map("additional_notes")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding                   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_billing")
+}
+
+model OnboardingCredentialing {
+  id                       String   @id @default(uuid()) @db.Uuid
+  onboardingId             String   @unique @map("onboarding_id") @db.Uuid
+  credentialingNeeded      Boolean? @map("credentialing_needed")
+  credentialingFor         String[] @map("credentialing_for")
+  payersToEnroll           String?  @map("payers_to_enroll")
+  caqhMaintained           Boolean? @map("caqh_maintained")
+  currentCredentialingIssues String[] @map("current_credentialing_issues")
+  medicarePtanAvailable    String?  @map("medicare_ptan_available")
+  medicaidEnrollmentActive String?  @map("medicaid_enrollment_active")
+  additionalNotes          String?  @map("additional_notes")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding                Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_credentialing")
+}
+
+model OnboardingTechnology {
+  id                           String   @id @default(uuid()) @db.Uuid
+  onboardingId                 String   @unique @map("onboarding_id") @db.Uuid
+  ehrSystem                    String?  @map("ehr_system")
+  practiceManagementSystem     String?  @map("practice_management_system")
+  patientPortalAvailable       Boolean? @map("patient_portal_available")
+  patientListExportable        Boolean? @map("patient_list_exportable")
+  appointmentListExportable    Boolean? @map("appointment_list_exportable")
+  apiAccessAvailable           Boolean? @map("api_access_available")
+  clearinghouse                String?
+  faxPlatform                  String?  @map("fax_platform")
+  phonePlatform                String?  @map("phone_platform")
+  currentCareManagementPlatform String? @map("current_care_management_platform")
+  itContactName                String?  @map("it_contact_name")
+  itContactEmail               String?  @map("it_contact_email")
+  additionalTechnicalNotes     String?  @map("additional_technical_notes")
+  createdAt                    DateTime @default(now()) @map("created_at")
+  updatedAt                    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding                   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_technology")
+}
+
+model OnboardingOutreach {
+  id                     String   @id @default(uuid()) @db.Uuid
+  onboardingId           String   @unique @map("onboarding_id") @db.Uuid
+  preferredChannels      String[] @map("preferred_channels")
+  patientTextConsent     Boolean? @map("patient_text_consent")
+  preferredLanguages     String[] @map("preferred_languages")
+  interpreterServices    Boolean? @map("interpreter_services")
+  outreachFromPractice   Boolean? @map("outreach_from_practice")
+  approvedOutreachHours  String?  @map("approved_outreach_hours")
+  messagingRequirements  String?  @map("messaging_requirements")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding              Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_outreach")
+}
+
+model OnboardingLabPharmacy {
+  id                      String   @id @default(uuid()) @db.Uuid
+  onboardingId            String   @unique @map("onboarding_id") @db.Uuid
+  preferredLab            String?  @map("preferred_lab")
+  existingLabRelationship Boolean? @map("existing_lab_relationship")
+  labInterfaceStatus      String?  @map("lab_interface_status")
+  labContactName          String?  @map("lab_contact_name")
+  labContactEmail         String?  @map("lab_contact_email")
+  pharmacyPartnerName     String?  @map("pharmacy_partner_name")
+  pharmacyPartnerInvolved Boolean? @map("pharmacy_partner_involved")
+  additionalNotes         String?  @map("additional_notes")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding               Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_lab_pharmacy")
+}
+
+model OnboardingCompliance {
+  id                     String   @id @default(uuid()) @db.Uuid
+  onboardingId           String   @unique @map("onboarding_id") @db.Uuid
+  hipaaContactName       String?  @map("hipaa_contact_name")
+  hipaaContactEmail      String?  @map("hipaa_contact_email")
+  baaRequired            Boolean? @map("baa_required")
+  securityQuestionnaire  Boolean? @map("security_questionnaire")
+  currentConcerns        String[] @map("current_concerns")
+  additionalNotes        String?  @map("additional_notes")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding              Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_compliance")
 }
 
 model ChannelPartner {

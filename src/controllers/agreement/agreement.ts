@@ -8,11 +8,22 @@ import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { docuseal } from "../../utils/docuseal";
 
+function escapeHtml(str: string | undefined): string {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 type DocusealSubmissionInput = {
   externalId: number;
   status: string;
   url?: string;
   templateId?: number;
+  slug?: string;
 };
 
 type AgreementBody = {
@@ -39,11 +50,40 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
     if (
       event === "form.completed" ||
       event === "submission.completed" ||
-      event === "form.signed"
+      event === "form.signed" ||
+      event === "submitter.completed"
     ) {
       const externalId = data.id || data.submission_id;
+      const submitterUuid = data.submitter_uuid || data.uuid;
 
-      if (externalId) {
+      if (submitterUuid) {
+        const submission = await prisma.docusealSubmission.findFirst({
+          where: { submitterUuid: submitterUuid },
+        });
+
+        if (submission) {
+          await prisma.docusealSubmission.update({
+            where: { id: submission.id },
+            data: {
+              status: "completed",
+            },
+          });
+
+          const allSubmissions = await prisma.docusealSubmission.findMany({
+            where: { agreementId: submission.agreementId },
+          });
+
+          const allCompleted = allSubmissions.every(
+            (s) => s.status === "completed",
+          );
+          if (allCompleted) {
+            await prisma.agreement.update({
+              where: { id: submission.agreementId },
+              data: { status: AgreementStatus.ACTIVE },
+            });
+          }
+        }
+      } else if (externalId) {
         const submission = await prisma.docusealSubmission.findUnique({
           where: { externalId: parseInt(externalId) },
         });
@@ -56,7 +96,6 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
             },
           });
 
-          // Check if all submissions for this agreement are completed to mark agreement as ACTIVE
           const allSubmissions = await prisma.docusealSubmission.findMany({
             where: { agreementId: submission.agreementId },
           });
@@ -73,10 +112,10 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
         }
       }
     } else if (event === "form.viewed" || event === "form.started") {
-      const externalId = data.id || data.submission_id;
-      if (externalId) {
+      const submitterUuid = data.submitter_uuid || data.uuid;
+      if (submitterUuid) {
         await prisma.docusealSubmission.updateMany({
-          where: { externalId: parseInt(externalId) },
+          where: { submitterUuid: submitterUuid },
           data: {
             status: event === "form.viewed" ? "viewed" : "started",
           },
@@ -120,7 +159,11 @@ export async function createDocusealSubmission(
     const person = await prisma.person.findFirst({
       where: {
         id: personId,
-        practiceId: agreement.practiceId,
+        practices: {
+          some: {
+            practiceId: agreement.practiceId,
+          },
+        },
       },
     });
 
@@ -146,12 +189,21 @@ export async function createDocusealSubmission(
       ? submission[0]
       : submission;
 
+    const submitter = docusealSubmissionData.submitters?.[0];
+    const submitterUuid = submitter?.uuid || "";
+    const signingSlug = submitter?.slug || docusealSubmissionData.slug || "";
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const embedUrl = `${frontendUrl}/sign/${signingSlug}`;
+
     const newSubmission = await prisma.docusealSubmission.create({
       data: {
         agreementId,
         externalId: docusealSubmissionData.id,
         status: docusealSubmissionData.status,
-        url: docusealSubmissionData.submitters?.[0]?.url || null,
+        url: submitter?.url || null,
+        embedUrl: embedUrl,
+        submitterUuid: submitterUuid,
         templateId: parseInt(templateId),
       },
     });
@@ -193,6 +245,31 @@ export async function getDocusealTemplates(
   }
 }
 
+export async function getDocusealFormBySlug(req: Request, res: Response) {
+  try {
+    const { slug } = req.params;
+
+    if (!slug) {
+      return res.status(400).json({ message: "Slug is required." });
+    }
+
+    const templates = await docuseal.listTemplates({ limit: 100 });
+
+    const template = templates.data.find((t: any) => t.slug === slug);
+
+    if (!template) {
+      return res.status(404).json({ message: "Form not found." });
+    }
+
+    return res.status(200).json(template);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch DocuSeal form.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function sendAgreementEmail(
   req: AuthenticatedRequest,
   res: Response,
@@ -225,11 +302,34 @@ export async function sendAgreementEmail(
       return res.status(404).json({ message: "Agreement not found." });
     }
 
+    const practicePersonExists = await prisma.practicePerson.findFirst({
+      where: {
+        personId,
+        practiceId: agreement.practiceId,
+      },
+    });
+
+    const personExists = await prisma.person.findFirst({
+      where: { id: personId },
+    });
+
     const person = await prisma.person.findFirst({
       where: {
         id: personId,
-        practiceId: agreement.practiceId,
+        practices: {
+          some: {
+            practiceId: agreement.practiceId,
+          },
+        },
       },
+    });
+
+    console.log({
+      personId,
+      practiceId: agreement.practiceId,
+      practicePersonExists,
+      personExists,
+      person,
     });
 
     if (!person || !person.email) {
@@ -239,33 +339,41 @@ export async function sendAgreementEmail(
     }
 
     const emailSubject =
-      subject || `Agreement: ${agreement.type} - ${agreement.practice.name}`;
+      subject ||
+      `Agreement: ${agreement.type} - ${agreement.practice?.name || "Unknown"}`;
 
     const submissionLinks = agreement.docusealSubmissions
-      .map(
-        (doc, index) => `
-          <p>
-            Document ${index + 1}:
-            <a href="${doc.url}" target="_blank">
-              View Document
-            </a>
-          </p>
-        `,
-      )
+      .map((doc, index) => {
+        const link = `http://localhost:5173/sign/${doc.slug}`;
+        if (!link) return "";
+        return `
+            <p>
+              Document ${index + 1}:
+              <a href="${link}" target="_blank">
+                Sign Document
+              </a>
+            </p>
+          `;
+      })
       .join("");
 
+    const personName = person.firstName || "there";
+    const practiceName = agreement.practice?.name || "Unknown Practice";
+
     const emailBody = `
-      <p>Hello ${person.firstName},</p>
+      <p>Hello ${personName},</p>
 
       <p>Please find the agreement details for
-      <strong>${agreement.practice.name}</strong>.</p>
+      <strong>${practiceName}</strong>.</p>
 
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
+
+      <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
 
       <p><strong>Documents:</strong></p>
       ${submissionLinks}
 
-      ${message ? `<p>${message}</p>` : ""}
+      ${message ? `<p>${escapeHtml(message)}</p>` : ""}
 
       <p>Best regards,<br/>The Team</p>
     `;
@@ -366,6 +474,7 @@ export async function createAgreement(
             status: s.status,
             url: s.url,
             templateId: s.templateId,
+            slug: s.slug,
           })),
         },
       },
@@ -388,6 +497,7 @@ export async function createAgreement(
       agreement,
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to create agreement.",
       error: error instanceof Error ? error.message : error,

@@ -66,7 +66,11 @@ export async function sendOnboardingEmail(
     const person = await prisma.person.findFirst({
       where: {
         id: personId,
-        practiceId: practiceId,
+        practices: {
+          some: {
+            practiceId: practiceId,
+          },
+        },
       },
     });
 
@@ -157,7 +161,11 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
           taxId: true,
           groupNpis: true,
           agreements: true,
-          persons: true,
+persons: {
+          include: {
+            person: true,
+          },
+        },
           _count: {
             select: { persons: true, deals: true, agreements: true },
           },
@@ -368,7 +376,11 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         practiceGroup: true,
         taxId: true,
         groupNpis: true,
-        persons: true,
+        persons: {
+          include: {
+            person: true,
+          },
+        },
         deals: true,
         agreements: true,
         invoices: true,
