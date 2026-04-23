@@ -89,6 +89,9 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
               company: true,
             },
           },
+          docusealSubmissions: {
+            where: { status: "completed" },
+          },
         },
         skip,
         take: limit,
@@ -300,6 +303,9 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
           include: {
             company: true,
           },
+        },
+        docusealSubmissions: {
+          where: { status: "completed" },
         },
       },
     });

@@ -230,9 +230,13 @@ export async function createOnboarding(
 
     const body = req.body as OnboardingBody;
 
+    const toEnum = (v: string) => (v === "" ? undefined : v);
+    const toDate = (v: string | Date | undefined) =>
+      !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
+
     const onboarding = await prisma.onboarding.create({
       data: {
-        onboardingType: body.onboardingType as any,
+        onboardingType: toEnum(body.onboardingType || "") as any,
         isAuthorizedPerson: body.isAuthorizedPerson,
         nonAuthorizedRole: body.nonAuthorizedRole,
         numberOfPractices: body.numberOfPractices,
@@ -243,7 +247,7 @@ export async function createOnboarding(
         oneMainContact: body.oneMainContact,
         legalCompanyName: body.legalCompanyName,
         dbaName: body.dbaName,
-        organizationType: body.organizationType as any,
+        organizationType: toEnum(body.organizationType || "") as any,
         taxIdEin: body.taxIdEin,
         mainCompanyPhone: body.mainCompanyPhone,
         mainCompanyFax: body.mainCompanyFax,
@@ -254,7 +258,7 @@ export async function createOnboarding(
         companyCity: body.companyCity,
         companyState: body.companyState,
         companyZip: body.companyZip,
-        ownershipType: body.ownershipType as any,
+        ownershipType: toEnum(body.ownershipType || "") as any,
         statesOfOperation: body.statesOfOperation,
         isLegalContractingEntity: body.isLegalContractingEntity,
         isBillingEntity: body.isBillingEntity,
@@ -263,12 +267,12 @@ export async function createOnboarding(
         additionalSpecialties: body.additionalSpecialties,
         requestedServices: body.requestedServices as any,
         primaryServiceToLaunch: body.primaryServiceToLaunch,
-        requestedGoLiveDate: body.requestedGoLiveDate,
+        requestedGoLiveDate: toDate(body.requestedGoLiveDate),
         priorityLevel: body.priorityLevel,
         servicesForAllPractices: body.servicesForAllPractices,
         replacingExistingVendor: body.replacingExistingVendor,
         currentVendorName: body.currentVendorName,
-        currentVendorEndDate: body.currentVendorEndDate,
+        currentVendorEndDate: toDate(body.currentVendorEndDate),
         engagementGoals: body.engagementGoals,
         informationAccurate: body.informationAccurate,
         authorizeUse: body.authorizeUse,
@@ -650,6 +654,8 @@ export async function updateOnboarding(
 
     const body = req.body as OnboardingBody;
 
+    const toEnum = (v: string) => (v === "" ? undefined : v);
+
     const existing = await prisma.onboarding.findFirst({
       where: { id },
       include: {
@@ -677,7 +683,7 @@ export async function updateOnboarding(
     const onboarding = await prisma.onboarding.update({
       where: { id },
       data: {
-        onboardingType: body.onboardingType as any,
+        onboardingType: toEnum(body.onboardingType || "") as any,
         isAuthorizedPerson: body.isAuthorizedPerson,
         nonAuthorizedRole: body.nonAuthorizedRole,
         numberOfPractices: body.numberOfPractices,
@@ -688,7 +694,7 @@ export async function updateOnboarding(
         oneMainContact: body.oneMainContact,
         legalCompanyName: body.legalCompanyName,
         dbaName: body.dbaName,
-        organizationType: body.organizationType as any,
+        organizationType: toEnum(body.organizationType || "") as any,
         taxIdEin: body.taxIdEin,
         mainCompanyPhone: body.mainCompanyPhone,
         mainCompanyFax: body.mainCompanyFax,
@@ -699,7 +705,7 @@ export async function updateOnboarding(
         companyCity: body.companyCity,
         companyState: body.companyState,
         companyZip: body.companyZip,
-        ownershipType: body.ownershipType as any,
+        ownershipType: toEnum(body.ownershipType || "") as any,
         statesOfOperation: body.statesOfOperation,
         isLegalContractingEntity: body.isLegalContractingEntity,
         isBillingEntity: body.isBillingEntity,

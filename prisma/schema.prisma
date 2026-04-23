@@ -13,6 +13,7 @@ enum UserRoles {
  OPERATIONS
  FINANCE
  VIEWER
+ INTERNAL
 }
 
 enum PracticeStatus {
@@ -144,6 +145,29 @@ enum OwnershipType {
   OTHER
 }
 
+enum DocumentTypes {
+  W9
+  SIGNED_AGREEMENT
+  BAA
+  COI
+  PROVIDER_ROSTER
+  CAQH
+  ENROLLMENT_LETTER
+  BRANDING_ASSET
+  BILLING_REPORT
+  OTHER
+}
+
+enum DocumentStatus {
+  NOT_REQUESTED
+  REQUESTED
+  RECEIVED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
 enum ServiceType {
   CREDENTIALING
   BILLING_RCM
@@ -159,6 +183,16 @@ enum ServiceType {
   PATIENT_ACQUISITION
   BRAND_GROWTH
   AI_VISIBILITY
+  OTHER
+}
+
+enum CredentialingIssues {
+  INCORRECT_SPECIALTY_ENROLLMENT
+  MISSING_PAYER_ENROLLMENT
+  EXPIRED_ENROLLMENT
+  RECREDENTIALING_LETTER
+  BRANDING_ASSET
+  BILLING_REPORT
   OTHER
 }
 
@@ -185,6 +219,36 @@ enum CompanyStatus {
 enum EntityStatus {
   ACTIVE
   INACTIVE
+}
+
+enum PracticeTypes {
+  PRIMARY_CARE
+  FAMILY_MEDICINE
+  INTERNAL_MEDICINE
+  PEDIATRICS
+  CARDIOLOGY
+  GASTROENTEROLOGY
+  ENDOCRINOLOGY
+  PULMONOLOGY
+  NEPHROLOGY
+  NEUROLOGY
+  BEHAVIORAL_HEALTH
+  MULTI_SPECIALTY
+  OTHER
+}
+
+enum ContactRoles {
+  OWNER
+  PRACTICE_MANAGER
+  OFFICE_MANAGER
+  BILLING_CONTACT
+  CREDENTIALING_CONTACT
+  CLINICAL_LEAD
+  TECHNICAL_CONTACT
+  COMPLIANCE_CONTACT
+  MARKETING_CONTACT
+  AUTHORIZED_SIGNER
+  OTHER
 }
 
 model User {
@@ -354,6 +418,7 @@ model Person {
   updatedAt   DateTime        @updatedAt @map("updated_at")
   practices   PracticePerson[]
   companies   CompanyPerson[]
+  docusealSubmissions DocusealSubmission[]
 
   @@map("contacts")
 }
@@ -399,9 +464,12 @@ model Agreement {
 model DocusealSubmission {
   id            String    @id @default(uuid()) @db.Uuid
   agreementId   String    @map("agreement_id") @db.Uuid
+  personId      String?   @map("person_id") @db.Uuid
   externalId    Int       @map("external_id")
   status        String
   url           String?
+  signedDocUrls  String?
+  auditLogUrl   String?
   embedUrl      String?
   slug          String?
   submitterUuid String?   @map("submitter_uuid")
@@ -409,8 +477,10 @@ model DocusealSubmission {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
   agreement     Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  person        Person?   @relation(fields: [personId], references: [id], onDelete: SetNull)
 
   @@index([agreementId])
+  @@index([personId])
   @@map("docuseal_submissions")
 }
 
@@ -598,7 +668,7 @@ model OnboardingContact {
   onboardingId             String     @map("onboarding_id") @db.Uuid
   fullName                 String?    @map("full_name")
   jobTitle                 String?    @map("job_title")
-  contactRole              String?    @map("contact_role")
+  contactRole              ContactRoles?    @map("contact_role")
   email                    String?
   phone                    String?
   extension                String?
@@ -622,7 +692,7 @@ model OnboardingPractice {
   practiceName                        String?    @map("practice_name")
   practiceDbaName                    String?    @map("practice_dba_name")
   isPartOfParentCompany              Boolean?   @map("is_part_of_parent_company")
-  practiceType                        String?    @map("practice_type")
+  practiceType                        PracticeTypes?    @map("practice_type")
   additionalSpecialtyAreas           String[]   @map("additional_specialty_areas")
   groupNpi                           String?    @map("group_npi")
   taxIdEin                           String?    @map("tax_id_ein")
@@ -704,11 +774,11 @@ model OnboardingProvider {
 model OnboardingDocument {
   id                  String    @id @default(uuid()) @db.Uuid
   onboardingId        String    @map("onboarding_id") @db.Uuid
-  documentType        String    @map("document_type")
+  documentType        DocumentTypes[]    @map("document_type")
   fileName            String?   @map("file_name")
   fileUrl             String?   @map("file_url")
   required            Boolean?
-  status              String?
+  status              DocumentStatus?
   dateRequested       DateTime? @map("date_requested")
   dateReceived        DateTime? @map("date_received")
   notes               String?
@@ -753,7 +823,7 @@ model OnboardingCredentialing {
   credentialingFor         String[] @map("credentialing_for")
   payersToEnroll           String?  @map("payers_to_enroll")
   caqhMaintained           Boolean? @map("caqh_maintained")
-  currentCredentialingIssues String[] @map("current_credentialing_issues")
+  currentCredentialingIssues CredentialingIssues[] @map("current_credentialing_issues")
   medicarePtanAvailable    String?  @map("medicare_ptan_available")
   medicaidEnrollmentActive String?  @map("medicaid_enrollment_active")
   additionalNotes          String?  @map("additional_notes")

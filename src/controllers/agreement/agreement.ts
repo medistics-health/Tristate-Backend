@@ -24,6 +24,7 @@ type DocusealSubmissionInput = {
   url?: string;
   templateId?: number;
   slug?: string;
+  submitter_uuid?: string;
 };
 
 type AgreementBody = {
@@ -45,56 +46,72 @@ type SendAgreementEmailBody = {
 
 export async function handleDocusealWebhook(req: Request, res: Response) {
   try {
-    const { event, data } = req.body;
+    const { event_type, data } = req.body;
+
+    // console.log(event_type, data);
 
     if (
-      event === "form.completed" ||
-      event === "submission.completed" ||
-      event === "form.signed" ||
-      event === "submitter.completed"
+      event_type === "submission.completed"
+      // ||
+      // event_type === "form.completed"
     ) {
-      const externalId = data.id || data.submission_id;
-      const submitterUuid = data.submitter_uuid || data.uuid;
+      const submitterUuid = data.submitters?.[0]?.uuid;
+      const externalId = data.id;
 
       if (submitterUuid) {
         const submission = await prisma.docusealSubmission.findFirst({
           where: { submitterUuid: submitterUuid },
         });
 
-        if (submission) {
-          await prisma.docusealSubmission.update({
-            where: { id: submission.id },
-            data: {
-              status: "completed",
-            },
-          });
-
-          const allSubmissions = await prisma.docusealSubmission.findMany({
-            where: { agreementId: submission.agreementId },
-          });
-
-          const allCompleted = allSubmissions.every(
-            (s) => s.status === "completed",
-          );
-          if (allCompleted) {
-            await prisma.agreement.update({
-              where: { id: submission.agreementId },
-              data: { status: AgreementStatus.ACTIVE },
+        if (!submission && externalId) {
+          const submissionByExternalId =
+            await prisma.docusealSubmission.findFirst({
+              where: { externalId: externalId },
+            });
+          if (submissionByExternalId) {
+            await prisma.docusealSubmission.update({
+              where: { id: submissionByExternalId.id },
+              data: {
+                status: "completed",
+                submitterUuid: submitterUuid,
+                url: data.submission?.url || null,
+              },
             });
           }
-        }
-      } else if (externalId) {
-        const submission = await prisma.docusealSubmission.findUnique({
-          where: { externalId: parseInt(externalId) },
-        });
-
-        if (submission) {
+        } else if (submission) {
+          const signedDocUrls = data.documents[0]?.url;
+          // data.documents?.map((d: any) => d.url) || data.documents[0]?.url;
           await prisma.docusealSubmission.update({
             where: { id: submission.id },
             data: {
               status: "completed",
+              signedDocUrls: signedDocUrls,
+              auditLogUrl: data.audit_log_url,
+              embedUrl: data.submission?.url
+                ? `${process.env.FRONTEND_URL || "http://localhost:5173"}/sign/${data.submission.url.split("/").pop()}`
+                : submission.embedUrl,
             },
           });
+
+          if (submission.personId) {
+            const person = await prisma.person.findFirst({
+              where: { id: submission.personId },
+              select: { email: true, firstName: true },
+            });
+
+            if (person?.email) {
+              const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${submission.personId}`;
+              const subject = "Complete Your Onboarding";
+              const body = `
+                <p>Hi ${person.firstName || "there"},</p>
+                <p>Your document has been signed successfully. Please complete your onboarding by clicking the link below:</p>
+                <p><a href="${onboardingUrl}">Complete Onboarding</a></p>
+                <p>If the link doesn't work, copy and paste this URL into your browser:</p>
+                <p>${onboardingUrl}</p>
+              `;
+              await sendOutlookEmail(person.email, subject, body);
+            }
+          }
 
           const allSubmissions = await prisma.docusealSubmission.findMany({
             where: { agreementId: submission.agreementId },
@@ -111,13 +128,13 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
           }
         }
       }
-    } else if (event === "form.viewed" || event === "form.started") {
+    } else if (event_type === "form.viewed" || event_type === "form.started") {
       const submitterUuid = data.submitter_uuid || data.uuid;
       if (submitterUuid) {
         await prisma.docusealSubmission.updateMany({
           where: { submitterUuid: submitterUuid },
           data: {
-            status: event === "form.viewed" ? "viewed" : "started",
+            status: event_type === "form.viewed" ? "viewed" : "started",
           },
         });
       }
@@ -147,6 +164,8 @@ export async function createDocusealSubmission(
       });
     }
 
+    const templateIds = Array.isArray(templateId) ? templateId : [templateId];
+
     const agreement = await prisma.agreement.findFirst({
       where: { id: agreementId },
       include: { practice: true },
@@ -173,44 +192,72 @@ export async function createDocusealSubmission(
       });
     }
 
-    const submission: any = await docuseal.createSubmission({
-      template_id: parseInt(templateId),
-      send_email: true,
-      submitters: [
-        {
-          role: "Signer",
-          email: person.email,
-          name: `${person.firstName} ${person.lastName}`,
+    const newSubmissions = [];
+
+    for (const tid of templateIds) {
+      const submission: any = await docuseal.createSubmission({
+        template_id: parseInt(tid),
+        send_email: false,
+        submitters: [
+          {
+            role: "Signer",
+            email: person.email,
+            name: `${person.firstName} ${person.lastName}`,
+          },
+        ],
+      });
+
+      const docusealSubmissionData = Array.isArray(submission)
+        ? submission[0]
+        : submission;
+
+      const submitter = docusealSubmissionData.submitters?.[0];
+      const submitterUuid = submitter?.uuid || "";
+      const signingSlug = submitter?.slug || docusealSubmissionData.slug || "";
+
+      const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+      const embedUrl = `${frontendUrl}/sign/${signingSlug}`;
+
+      const existingSubmission = await prisma.docusealSubmission.findFirst({
+        where: {
+          agreementId,
+          templateId: parseInt(tid),
         },
-      ],
-    });
+      });
 
-    const docusealSubmissionData = Array.isArray(submission)
-      ? submission[0]
-      : submission;
+      let newSubmission;
+      if (existingSubmission) {
+        newSubmission = await prisma.docusealSubmission.update({
+          where: { id: existingSubmission.id },
+          data: {
+            personId,
+            externalId: docusealSubmissionData.id,
+            status: submitter.status,
+            embedUrl: `${frontendUrl}/${existingSubmission.slug}`,
+            submitterUuid: submitterUuid,
+          },
+        });
+      } else {
+        newSubmission = await prisma.docusealSubmission.create({
+          data: {
+            agreementId,
+            personId,
+            externalId: docusealSubmissionData.id,
+            status: submitter.status,
+            url: submitter?.url || null,
+            embedUrl: embedUrl,
+            submitterUuid: submitterUuid,
+            templateId: parseInt(tid),
+          },
+        });
+      }
 
-    const submitter = docusealSubmissionData.submitters?.[0];
-    const submitterUuid = submitter?.uuid || "";
-    const signingSlug = submitter?.slug || docusealSubmissionData.slug || "";
-
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const embedUrl = `${frontendUrl}/sign/${signingSlug}`;
-
-    const newSubmission = await prisma.docusealSubmission.create({
-      data: {
-        agreementId,
-        externalId: docusealSubmissionData.id,
-        status: docusealSubmissionData.status,
-        url: submitter?.url || null,
-        embedUrl: embedUrl,
-        submitterUuid: submitterUuid,
-        templateId: parseInt(templateId),
-      },
-    });
+      newSubmissions.push(newSubmission);
+    }
 
     return res.status(200).json({
-      message: "Docuseal submission created successfully.",
-      submission: newSubmission,
+      message: "Docuseal submissions created successfully.",
+      submissions: newSubmissions,
     });
   } catch (error) {
     return res.status(500).json({
@@ -344,7 +391,9 @@ export async function sendAgreementEmail(
 
     const submissionLinks = agreement.docusealSubmissions
       .map((doc, index) => {
-        const link = `http://localhost:5173/sign/${doc.slug}`;
+        const link = process.env.FRONTEND_URL
+          ? `${process.env.FRONTEND_URL}/sign/${doc.slug}`
+          : `http://localhost:5173/sign/${doc.slug}`;
         if (!link) return "";
         return `
             <p>
@@ -475,6 +524,7 @@ export async function createAgreement(
             url: s.url,
             templateId: s.templateId,
             slug: s.slug,
+            submitterUuid: s.submitter_uuid,
           })),
         },
       },
