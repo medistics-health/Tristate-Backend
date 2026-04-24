@@ -4,37 +4,72 @@ import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
 type ServiceBody = {
   name?: string;
+  code?: string | null;
+  category?: string | null;
+  isActive?: boolean;
   clientRate?: number;
   vendorRate?: number;
   margin?: number;
 };
 
+function serializeService<T extends Record<string, unknown>>(service: T) {
+  return {
+    ...service,
+    clientRate: null,
+    vendorRate: null,
+    margin: null,
+  };
+}
+
+function hasDeprecatedPricingFields(body: ServiceBody) {
+  return (
+    body.clientRate !== undefined ||
+    body.vendorRate !== undefined ||
+    body.margin !== undefined
+  );
+}
+
 export async function createService(req: AuthenticatedRequest, res: Response) {
   try {
-    const { name, clientRate, vendorRate, margin } = req.body as ServiceBody;
+    const {
+      name,
+      code,
+      category,
+      isActive,
+      clientRate,
+      vendorRate,
+      margin,
+    } = req.body as ServiceBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    if (
-      !name ||
-      clientRate === undefined ||
-      vendorRate === undefined ||
-      margin === undefined
-    ) {
+    if (!name) {
       return res.status(400).json({
-        message: "name, clientRate, vendorRate and margin are required.",
+        message: "name is required.",
       });
     }
 
     const service = await prisma.service.create({
-      data: { name, clientRate, vendorRate, margin },
+      data: {
+        name,
+        ...(code !== undefined ? { code: code || null } : {}),
+        ...(category !== undefined ? { category: category || null } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
+      },
     });
 
-    return res
-      .status(201)
-      .json({ message: "Service created successfully.", service });
+    return res.status(201).json({
+      message: "Service created successfully.",
+      service: serializeService(service),
+      ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
+        ? {
+            warning:
+              "clientRate, vendorRate, and margin are deprecated and ignored. Configure pricing through agreement service terms.",
+          }
+        : {}),
+    });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to create service.",
@@ -64,9 +99,10 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ message: "Service not found." });
     }
 
-    return res
-      .status(200)
-      .json({ message: "Service fetched successfully.", service });
+    return res.status(200).json({
+      message: "Service fetched successfully.",
+      service: serializeService(service),
+    });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to fetch service.",
@@ -78,7 +114,15 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
 export async function updateService(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { name, clientRate, vendorRate, margin } = req.body as ServiceBody;
+    const {
+      name,
+      code,
+      category,
+      isActive,
+      clientRate,
+      vendorRate,
+      margin,
+    } = req.body as ServiceBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -98,15 +142,22 @@ export async function updateService(req: AuthenticatedRequest, res: Response) {
       where: { id },
       data: {
         ...(name !== undefined ? { name } : {}),
-        ...(clientRate !== undefined ? { clientRate } : {}),
-        ...(vendorRate !== undefined ? { vendorRate } : {}),
-        ...(margin !== undefined ? { margin } : {}),
+        ...(code !== undefined ? { code: code || null } : {}),
+        ...(category !== undefined ? { category: category || null } : {}),
+        ...(isActive !== undefined ? { isActive } : {}),
       },
     });
 
-    return res
-      .status(200)
-      .json({ message: "Service updated successfully.", service });
+    return res.status(200).json({
+      message: "Service updated successfully.",
+      service: serializeService(service),
+      ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
+        ? {
+            warning:
+              "clientRate, vendorRate, and margin are deprecated and ignored. Configure pricing through agreement service terms.",
+          }
+        : {}),
+    });
   } catch (error) {
     return res.status(500).json({
       message: "Unable to update service.",
@@ -174,7 +225,7 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
 
     return res.status(200).json({
       message: "Services fetched successfully.",
-      services,
+      services: services.map((service) => serializeService(service)),
       pagination: {
         total,
         page,
@@ -189,4 +240,3 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
     });
   }
 }
-

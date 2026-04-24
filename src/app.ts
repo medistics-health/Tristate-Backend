@@ -16,11 +16,13 @@ import practiceGroupRouter from "./routes/practiceGroup.routes";
 import taxIdRouter from "./routes/taxId.routes";
 import groupNpiRouter from "./routes/groupNpi.routes";
 import onboardingRouter from "./routes/onboarding.routes";
+import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
 const app = express();
 
+app.use("/api/v1/stripe/webhook", stripeWebhookRouter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -47,5 +49,6 @@ app.use("/api/v1/practice-groups", practiceGroupRouter);
 app.use("/api/v1/tax-ids", taxIdRouter);
 app.use("/api/v1/group-npis", groupNpiRouter);
 app.use("/api/v1/onboardings", onboardingRouter);
+app.use("/api/v1/stripe", stripeRouter);
 
 export default app;

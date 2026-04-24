@@ -26,6 +26,10 @@ type PracticeBody = {
   companyId?: string;
   practiceGroupId?: string;
   taxIdId?: string;
+  billToTaxIdId?: string | null;
+  stripeCustomerId?: string | null;
+  quickbooksCustomerId?: string | null;
+  defaultCurrency?: string | null;
   groupNpis?: GroupNpiInput[];
 };
 
@@ -212,6 +216,10 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
+      billToTaxIdId,
+      stripeCustomerId,
+      quickbooksCustomerId,
+      defaultCurrency,
       groupNpis,
     } = req.body as PracticeBody;
 
@@ -274,6 +282,17 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    if (billToTaxIdId) {
+      const billToTaxId = await prisma.taxId.findFirst({
+        where: { id: billToTaxIdId, companyId },
+      });
+      if (!billToTaxId) {
+        return res.status(400).json({
+          message: "Invalid billToTaxIdId for this company.",
+        });
+      }
+    }
+
     const groupNpiConnect: { groupNpiNumber: string }[] = [];
 
     if (groupNpis && groupNpis.length > 0) {
@@ -326,6 +345,12 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
+      billToTaxIdId,
+      stripeCustomerId,
+      quickbooksCustomerId,
+      ...(defaultCurrency !== undefined
+        ? { defaultCurrency: defaultCurrency || null }
+        : {}),
     };
 
     if (groupNpiConnect.length > 0) {
@@ -375,6 +400,7 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         company: true,
         practiceGroup: true,
         taxId: true,
+        billToTaxId: true,
         groupNpis: true,
         persons: {
           include: {
@@ -384,6 +410,8 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         deals: true,
         agreements: true,
         invoices: true,
+        billingRuns: true,
+        vendorPayables: true,
         audits: true,
         assessments: true,
       },
@@ -428,6 +456,10 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
+      billToTaxIdId,
+      stripeCustomerId,
+      quickbooksCustomerId,
+      defaultCurrency,
       groupNpis,
     } = req.body as PracticeBody;
 
@@ -508,6 +540,20 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    if (billToTaxIdId) {
+      const targetCompanyId = companyId || existingPractice.companyId;
+      if (targetCompanyId) {
+        const billToTaxId = await prisma.taxId.findFirst({
+          where: { id: billToTaxIdId, companyId: targetCompanyId },
+        });
+        if (!billToTaxId) {
+          return res.status(400).json({
+            message: "Invalid billToTaxIdId for this company.",
+          });
+        }
+      }
+    }
+
     const targetCompanyId =
       companyId || existingPractice.companyId || undefined;
 
@@ -559,6 +605,16 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
+      ...(billToTaxIdId !== undefined ? { billToTaxIdId: billToTaxIdId || null } : {}),
+      ...(stripeCustomerId !== undefined
+        ? { stripeCustomerId: stripeCustomerId || null }
+        : {}),
+      ...(quickbooksCustomerId !== undefined
+        ? { quickbooksCustomerId: quickbooksCustomerId || null }
+        : {}),
+      ...(defaultCurrency !== undefined
+        ? { defaultCurrency: defaultCurrency || null }
+        : {}),
     };
 
     if (groupNpis !== undefined) {

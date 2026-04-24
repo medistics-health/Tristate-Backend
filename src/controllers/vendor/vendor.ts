@@ -7,6 +7,9 @@ type VendorBody = {
   name?: string;
   type?: string;
   renewalDate?: string;
+  quickbooksVendorId?: string | null;
+  remitEmail?: string | null;
+  paymentTerms?: string | null;
 };
 
 function isVendorType(type: string): type is VendorType {
@@ -15,7 +18,8 @@ function isVendorType(type: string): type is VendorType {
 
 export async function createVendor(req: AuthenticatedRequest, res: Response) {
   try {
-    const { name, type, renewalDate } = req.body as VendorBody;
+    const { name, type, renewalDate, quickbooksVendorId, remitEmail, paymentTerms } =
+      req.body as VendorBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -37,6 +41,13 @@ export async function createVendor(req: AuthenticatedRequest, res: Response) {
         name,
         type,
         renewalDate: renewalDate ? new Date(renewalDate) : undefined,
+        ...(quickbooksVendorId !== undefined
+          ? { quickbooksVendorId: quickbooksVendorId || null }
+          : {}),
+        ...(remitEmail !== undefined ? { remitEmail: remitEmail || null } : {}),
+        ...(paymentTerms !== undefined
+          ? { paymentTerms: paymentTerms || null }
+          : {}),
       },
     });
 
@@ -63,7 +74,7 @@ export async function getVendor(req: AuthenticatedRequest, res: Response) {
 
     const vendor = await prisma.vendor.findUnique({
       where: { id },
-      include: { purchaseOrders: true },
+      include: { purchaseOrders: true, vendorPayables: true },
     });
 
     if (!vendor) {
@@ -82,7 +93,8 @@ export async function getVendor(req: AuthenticatedRequest, res: Response) {
 export async function updateVendor(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { name, type, renewalDate } = req.body as VendorBody;
+    const { name, type, renewalDate, quickbooksVendorId, remitEmail, paymentTerms } =
+      req.body as VendorBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -112,6 +124,13 @@ export async function updateVendor(req: AuthenticatedRequest, res: Response) {
         ...(type !== undefined ? { type: type as VendorType } : {}),
         ...(renewalDate !== undefined
           ? { renewalDate: renewalDate ? new Date(renewalDate) : null }
+          : {}),
+        ...(quickbooksVendorId !== undefined
+          ? { quickbooksVendorId: quickbooksVendorId || null }
+          : {}),
+        ...(remitEmail !== undefined ? { remitEmail: remitEmail || null } : {}),
+        ...(paymentTerms !== undefined
+          ? { paymentTerms: paymentTerms || null }
           : {}),
       },
     });
