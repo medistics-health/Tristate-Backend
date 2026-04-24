@@ -99,47 +99,49 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
               select: { email: true, firstName: true },
             });
 
-            if (person?.email) {
-              const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${submission.personId}`;
-              const subject = "Complete Your Onboarding";
-              const body = `
+            const allSubmissions = await prisma.docusealSubmission.findMany({
+              where: { personId: submission.personId },
+            });
+
+            const allCompleted = allSubmissions.every(
+              (s) => s.status === "completed",
+            );
+            if (allCompleted) {
+              await prisma.agreement.update({
+                where: { id: submission.agreementId },
+                data: { status: AgreementStatus.ACTIVE },
+              });
+
+              if (person?.email) {
+                const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${submission.personId}`;
+                const subject = "Complete Your Onboarding";
+                const body = `
                 <p>Hi ${person.firstName || "there"},</p>
                 <p>Your document has been signed successfully. Please complete your onboarding by clicking the link below:</p>
                 <p><a href="${onboardingUrl}">Complete Onboarding</a></p>
                 <p>If the link doesn't work, copy and paste this URL into your browser:</p>
                 <p>${onboardingUrl}</p>
               `;
-              await sendOutlookEmail(person.email, subject, body);
+                await sendOutlookEmail(person.email, subject, body);
+              }
             }
           }
-
-          const allSubmissions = await prisma.docusealSubmission.findMany({
-            where: { agreementId: submission.agreementId },
+        }
+      } else if (
+        event_type === "form.viewed" ||
+        event_type === "form.started"
+      ) {
+        const submitterUuid = data.submitter_uuid || data.uuid;
+        if (submitterUuid) {
+          await prisma.docusealSubmission.updateMany({
+            where: { submitterUuid: submitterUuid },
+            data: {
+              status: event_type === "form.viewed" ? "viewed" : "started",
+            },
           });
-
-          const allCompleted = allSubmissions.every(
-            (s) => s.status === "completed",
-          );
-          if (allCompleted) {
-            await prisma.agreement.update({
-              where: { id: submission.agreementId },
-              data: { status: AgreementStatus.ACTIVE },
-            });
-          }
         }
       }
-    } else if (event_type === "form.viewed" || event_type === "form.started") {
-      const submitterUuid = data.submitter_uuid || data.uuid;
-      if (submitterUuid) {
-        await prisma.docusealSubmission.updateMany({
-          where: { submitterUuid: submitterUuid },
-          data: {
-            status: event_type === "form.viewed" ? "viewed" : "started",
-          },
-        });
-      }
     }
-
     return res.status(200).send("OK");
   } catch (error) {
     console.error("Docuseal webhook error:", error);

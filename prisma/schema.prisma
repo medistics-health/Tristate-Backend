@@ -633,6 +633,7 @@ model Onboarding {
   requestedGoLiveDate                             DateTime?        @map("requested_go_live_date")
   priorityLevel                                   String?          @map("priority_level")
   servicesForAllPractices                        String?          @map("services_for_all_practices")
+  selectedPractices                               String[]         @map("selected_practices")
   replacingExistingVendor                        Boolean?         @map("replacing_existing_vendor")
   currentVendorName                               String?          @map("current_vendor_name")
   currentVendorEndDate                            DateTime?        @map("current_vendor_end_date")
@@ -659,6 +660,7 @@ model Onboarding {
   outreach                                        OnboardingOutreach?
   labPharmacy                                     OnboardingLabPharmacy?
   compliance                                      OnboardingCompliance?
+  careProgram                                     OnboardingCareProgram?
 
   @@map("onboardings")
 }
@@ -916,6 +918,27 @@ model OnboardingCompliance {
 
   @@index([onboardingId])
   @@map("onboarding_compliance")
+}
+
+model OnboardingCareProgram {
+  id                       String   @id @default(uuid()) @db.Uuid
+  onboardingId             String   @unique @map("onboarding_id") @db.Uuid
+  programsPlanned          String[] @map("programs_planned")
+  estimatedEligiblePatients Int?    @map("estimated_eligible_patients")
+  currentEnrolledPatients  Int?     @map("current_enrolled_patients")
+  patientEnrollmentHandler String?  @map("patient_enrollment_handler")
+  monthlyFollowUpHandler   String?  @map("monthly_follow_up_handler")
+  consentFormsInPlace      Boolean? @map("consent_forms_in_place")
+  existingCarePlanWorkflow Boolean? @map("existing_care_plan_workflow")
+  patientMinutesTracker    String?  @map("patient_minutes_tracker")
+  complianceConcerns       String?  @map("compliance_concerns")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @default(now()) @updatedAt @map("updated_at")
+
+  onboarding               Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@index([onboardingId])
+  @@map("onboarding_care_program")
 }
 
 model ChannelPartner {

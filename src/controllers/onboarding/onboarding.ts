@@ -81,7 +81,7 @@ type OnboardingPracticeBody = {
 
 type OnboardingDocumentBody = {
   id?: string;
-  documentType?: string;
+  documentType?: string[];
   fileName?: string;
   fileUrl?: string;
   required?: boolean;
@@ -199,6 +199,7 @@ type OnboardingBody = {
   requestedGoLiveDate?: Date;
   priorityLevel?: string;
   servicesForAllPractices?: string;
+  selectedPractices?: string[];
   replacingExistingVendor?: boolean;
   currentVendorName?: string;
   currentVendorEndDate?: Date;
@@ -217,6 +218,17 @@ type OnboardingBody = {
   outreach?: OnboardingOutreachBody;
   labPharmacy?: OnboardingLabPharmacyBody;
   compliance?: OnboardingComplianceBody;
+  careProgram?: {
+    programsPlanned?: string[];
+    estimatedEligiblePatients?: number;
+    currentEnrolledPatients?: number;
+    patientEnrollmentHandler?: string;
+    monthlyFollowUpHandler?: string;
+    consentFormsInPlace?: boolean;
+    existingCarePlanWorkflow?: boolean;
+    patientMinutesTracker?: string;
+    complianceConcerns?: string;
+  };
 };
 
 export async function createOnboarding(
@@ -232,6 +244,8 @@ export async function createOnboarding(
 
     const toEnum = (v: string) => (v === "" ? undefined : v);
     const toDate = (v: string | Date | undefined) =>
+      !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
+    const toDateValue = (v: string | Date | undefined) =>
       !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
 
     const onboarding = await prisma.onboarding.create({
@@ -270,6 +284,7 @@ export async function createOnboarding(
         requestedGoLiveDate: toDate(body.requestedGoLiveDate),
         priorityLevel: body.priorityLevel,
         servicesForAllPractices: body.servicesForAllPractices,
+        selectedPractices: body.selectedPractices,
         replacingExistingVendor: body.replacingExistingVendor,
         currentVendorName: body.currentVendorName,
         currentVendorEndDate: toDate(body.currentVendorEndDate),
@@ -368,13 +383,13 @@ export async function createOnboarding(
         documents: body.documents
           ? {
               create: body.documents.map((d) => ({
-                documentType: d.documentType || "",
+                documentType: d.documentType || [],
                 fileName: d.fileName,
                 fileUrl: d.fileUrl,
                 required: d.required,
                 status: d.status,
-                dateRequested: d.dateRequested,
-                dateReceived: d.dateReceived,
+                dateRequested: toDateValue(d.dateRequested),
+                dateReceived: toDateValue(d.dateReceived),
                 notes: d.notes,
               })),
             }
@@ -407,7 +422,7 @@ export async function createOnboarding(
                 payersToEnroll: body.credentialing.payersToEnroll,
                 caqhMaintained: body.credentialing.caqhMaintained,
                 currentCredentialingIssues:
-                  body.credentialing.currentCredentialingIssues,
+                  body.credentialing.currentCredentialingIssues as any,
                 medicarePtanAvailable: body.credentialing.medicarePtanAvailable,
                 medicaidEnrollmentActive:
                   body.credentialing.medicaidEnrollmentActive,
@@ -479,6 +494,26 @@ export async function createOnboarding(
               },
             }
           : undefined,
+        careProgram: body.careProgram
+          ? {
+              create: {
+                programsPlanned: body.careProgram.programsPlanned || [],
+                estimatedEligiblePatients:
+                  body.careProgram.estimatedEligiblePatients,
+                currentEnrolledPatients:
+                  body.careProgram.currentEnrolledPatients,
+                patientEnrollmentHandler:
+                  body.careProgram.patientEnrollmentHandler,
+                monthlyFollowUpHandler:
+                  body.careProgram.monthlyFollowUpHandler,
+                consentFormsInPlace: body.careProgram.consentFormsInPlace,
+                existingCarePlanWorkflow:
+                  body.careProgram.existingCarePlanWorkflow,
+                patientMinutesTracker: body.careProgram.patientMinutesTracker,
+                complianceConcerns: body.careProgram.complianceConcerns,
+              },
+            }
+          : undefined,
       },
       include: {
         contacts: true,
@@ -495,6 +530,7 @@ export async function createOnboarding(
         outreach: true,
         labPharmacy: true,
         compliance: true,
+        careProgram: true,
       },
     });
 
@@ -618,6 +654,7 @@ export async function getOnboarding(req: AuthenticatedRequest, res: Response) {
         outreach: true,
         labPharmacy: true,
         compliance: true,
+        careProgram: true,
       },
     });
 
@@ -673,6 +710,7 @@ export async function updateOnboarding(
         outreach: true,
         labPharmacy: true,
         compliance: true,
+        careProgram: true,
       },
     });
 
@@ -717,6 +755,7 @@ export async function updateOnboarding(
         requestedGoLiveDate: body.requestedGoLiveDate,
         priorityLevel: body.priorityLevel,
         servicesForAllPractices: body.servicesForAllPractices,
+        selectedPractices: body.selectedPractices,
         replacingExistingVendor: body.replacingExistingVendor,
         currentVendorName: body.currentVendorName,
         currentVendorEndDate: body.currentVendorEndDate,
@@ -730,6 +769,45 @@ export async function updateOnboarding(
             ? new Date()
             : existing.submissionDate,
         status: body.status as OnboardingStatus,
+        careProgram: body.careProgram
+          ? existing.careProgram
+            ? {
+                update: {
+                  programsPlanned: body.careProgram.programsPlanned || [],
+                  estimatedEligiblePatients:
+                    body.careProgram.estimatedEligiblePatients,
+                  currentEnrolledPatients:
+                    body.careProgram.currentEnrolledPatients,
+                  patientEnrollmentHandler:
+                    body.careProgram.patientEnrollmentHandler,
+                  monthlyFollowUpHandler:
+                    body.careProgram.monthlyFollowUpHandler,
+                  consentFormsInPlace: body.careProgram.consentFormsInPlace,
+                  existingCarePlanWorkflow:
+                    body.careProgram.existingCarePlanWorkflow,
+                  patientMinutesTracker: body.careProgram.patientMinutesTracker,
+                  complianceConcerns: body.careProgram.complianceConcerns,
+                },
+              }
+            : {
+                create: {
+                  programsPlanned: body.careProgram.programsPlanned || [],
+                  estimatedEligiblePatients:
+                    body.careProgram.estimatedEligiblePatients,
+                  currentEnrolledPatients:
+                    body.careProgram.currentEnrolledPatients,
+                  patientEnrollmentHandler:
+                    body.careProgram.patientEnrollmentHandler,
+                  monthlyFollowUpHandler:
+                    body.careProgram.monthlyFollowUpHandler,
+                  consentFormsInPlace: body.careProgram.consentFormsInPlace,
+                  existingCarePlanWorkflow:
+                    body.careProgram.existingCarePlanWorkflow,
+                  patientMinutesTracker: body.careProgram.patientMinutesTracker,
+                  complianceConcerns: body.careProgram.complianceConcerns,
+                },
+              }
+          : undefined,
       },
       include: {
         contacts: true,
@@ -746,6 +824,7 @@ export async function updateOnboarding(
         outreach: true,
         labPharmacy: true,
         compliance: true,
+        careProgram: true,
       },
     });
 
