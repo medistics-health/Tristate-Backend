@@ -15,9 +15,9 @@ type ServiceBody = {
 function serializeService<T extends Record<string, unknown>>(service: T) {
   return {
     ...service,
-    clientRate: null,
-    vendorRate: null,
-    margin: null,
+    // clientRate: null,
+    // vendorRate: null,
+    // margin: null,
   };
 }
 
@@ -36,9 +36,9 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
       code,
       category,
       isActive,
-      clientRate,
-      vendorRate,
-      margin,
+      // clientRate,
+      // vendorRate,
+      // margin,
     } = req.body as ServiceBody;
 
     if (!req.user?.sub) {
@@ -62,13 +62,13 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
 
     return res.status(201).json({
       message: "Service created successfully.",
-      service: serializeService(service),
-      ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
-        ? {
-            warning:
-              "clientRate, vendorRate, and margin are deprecated and ignored. Configure pricing through agreement service terms.",
-          }
-        : {}),
+      // service: serializeService(service),
+      // ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
+      //   ? {
+      //       warning:
+      //         "clientRate, vendorRate, and margin are deprecated and ignored. Configure pricing through agreement service terms.",
+      //     }
+      //   : {}),
     });
   } catch (error) {
     return res.status(500).json({
@@ -114,15 +114,8 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
 export async function updateService(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const {
-      name,
-      code,
-      category,
-      isActive,
-      clientRate,
-      vendorRate,
-      margin,
-    } = req.body as ServiceBody;
+    const { name, code, category, isActive, clientRate, vendorRate, margin } =
+      req.body as ServiceBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });

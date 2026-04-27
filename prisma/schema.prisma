@@ -593,24 +593,46 @@ model Agreement {
 model DocusealSubmission {
   id            String    @id @default(uuid()) @db.Uuid
   agreementId   String    @map("agreement_id") @db.Uuid
+  docusealSubmissionId      Int?      @unique @map("docuseal_submission_id")
   personId      String?   @map("person_id") @db.Uuid
-  externalId    Int       @map("external_id")
-  status        String
   url           String?
-  signedDocUrls  String?
-  auditLogUrl   String?
-  embedUrl      String?
-  slug          String?
-  submitterUuid String?   @map("submitter_uuid")
+  docSlug       String?
+  signedDocUrl  String?   @map("signed_doc_url")
+  auditLogUrl  String?   @map("audit_log_url")
   templateId    Int?      @map("template_id")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
-  agreement     Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-  person        Person?   @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  signers      DocuSigner[]
+  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  person      Person?   @relation(fields: [personId], references: [id], onDelete: SetNull)
 
   @@index([agreementId])
   @@index([personId])
   @@map("docuseal_submissions")
+}
+
+model DocuSigner {
+  id           String            @id @default(uuid()) @db.Uuid
+  externalId    Int?              @map("external_id")
+  signerUuid   String            @map("signer_uuid")
+  role        String
+  name        String
+  email       String
+  status      String
+  submissionSlug   String?
+  signedUrl   String?           @map("signed_url")
+  auditUrl    String?           @map("audit_url")
+  signedAt    DateTime?         @map("signed_at")
+  ipAddress   String?           @map("ip_address")
+  order      Int
+
+  submissionId String           @map("submission_id") @db.Uuid
+  submission  DocusealSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([signerUuid])
+  @@map("docu_signers")
 }
 
 model Service {
@@ -656,6 +678,7 @@ model Invoice {
   purchaseOrders PurchaseOrder[]
   paymentAllocations PaymentAllocation[]
   vendorPayables VendorPayable[]
+  stripeEventLogs StripeEventLog[]
 
   @@index([practiceId])
   @@index([agreementId])
@@ -1422,6 +1445,41 @@ model OnboardingCareProgram {
 
   @@index([onboardingId])
   @@map("onboarding_care_program")
+}
+
+model StripeEventLog {
+  id                String    @id @default(uuid()) @db.Uuid
+  stripeEventId      String    @map("stripe_event_id")
+  eventType         String    @map("event_type")
+  stripeObjectType  String?   @map("stripe_object_type")
+  stripeObjectId   String?   @map("stripe_object_id")
+  invoiceId       String?   @map("invoice_id") @db.Uuid
+  payload         Json?
+  processedAt     DateTime? @map("processed_at")
+  status          String?
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([stripeEventId])
+  @@index([invoiceId])
+  @@index([eventType])
+  @@map("stripe_event_logs")
+}
+
+model JournalEntryLink {
+  id                    String   @id @default(uuid()) @db.Uuid
+  sourceEntityType       String   @map("source_entity_type")
+  sourceEntityId        String   @map("source_entity_id") @db.Uuid
+  quickbooksJournalEntryId String? @map("quickbooks_journal_entry_id")
+  entryType            String   @map("entry_type")
+  status               String    @default("PENDING")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([sourceEntityType, sourceEntityId])
+  @@map("journal_entry_links")
 }
 
 model ChannelPartner {
