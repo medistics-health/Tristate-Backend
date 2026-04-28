@@ -62,7 +62,7 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
 
     return res.status(201).json({
       message: "Service created successfully.",
-      // service: serializeService(service),
+      service: serializeService(service),
       // ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
       //   ? {
       //       warning:

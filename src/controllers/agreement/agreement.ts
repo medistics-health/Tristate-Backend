@@ -48,11 +48,10 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
   try {
     const { event_type, data } = req.body;
 
-    console.log(event_type, data);
-
     let externalId: number;
 
     if (event_type === "form.completed") {
+      console.log(event_type, data);
       externalId = data.id || data.submission_id;
 
       const dbSubmission = await prisma.docusealSubmission.findFirst({
@@ -79,16 +78,35 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
           const secondParty = dbSubmission.signers.find(
             (s) => s.role === "Second Party",
           );
-          const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${dbSubmission.personId}`;
-          const subject = "Complete Your Onboarding";
-          // const body = `
-          //   <p>Hi ${person.firstName || "there"},</p>
-          //   <p>Your document has been signed successfully. Please complete your onboarding by clicking the link below:</p>
-          //   <p><a href="${onboardingUrl}">Complete Onboarding</a></p>
-          //   <p>If the link doesn't work, copy and paste this URL into your browser:</p>
-          //   <p>${onboardingUrl}</p>
-          // `;
-          // await sendOutlookEmail(secondParty.email, subject, body);
+
+          if (secondParty?.email) {
+            const agreement = await prisma.agreement.findUnique({
+              where: { id: dbSubmission.agreementId },
+              include: { practice: true },
+            });
+
+            const signerName = signer?.name || data.email || "First Party";
+
+            const link = process.env.FRONTEND_URL
+              ? `${process.env.FRONTEND_URL}/sign/${secondParty.submissionSlug}`
+              : `http://localhost:5173/sign/${secondParty.submissionSlug}`;
+            const subject = "Action Required: Please Sign the Agreement";
+            const body = `
+              <p>Hi ${secondParty.name || "Second Party"},</p>
+              <p>
+                The client (${signerName}) has completed signing the
+                ${agreement?.type || "agreement"}
+                ${agreement?.practice ? ` for ${agreement.practice.name}` : ""}.
+              </p>
+
+              <p>
+                <a href="${link}" target="_blank">Review and sign the agreement</a>
+              </p>
+              <p>Best regards,<br/>The Tristate Team</p>
+            `;
+
+            await sendOutlookEmail(secondParty.email, subject, body);
+          }
         }
         // await prisma.docusealSubmission.update({
         //   where: { id: dbSubmission.id },
@@ -104,62 +122,53 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
     }
 
     if (event_type === "submission.completed") {
-      externalId = data.id || data.submission_id;
+      console.log(event_type, data);
+      externalId = data?.id;
       const submitters = data.submitters || [];
       const dbSubmission = await prisma.docusealSubmission.findFirst({
-        where: { externalId },
-        include: { signers: true },
+        where: { docusealSubmissionId: externalId },
+        // include: { signers: true },
+      });
+      if (!dbSubmission) return;
+      if (dbSubmission.status === "completed") return;
+
+      await prisma.docusealSubmission.update({
+        where: { docusealSubmissionId: externalId },
+        data: {
+          signedDocUrl: data.documents[0].url,
+          auditLogUrl: data.audit_log_url,
+          status: data.status,
+        },
       });
 
-      if (dbSubmission && submitters.length > 0) {
-        await prisma.docuSigner.update({
-          where: { id: dbSubmission.signers[0]?.id },
-          data: {
-            status: submitters[0].status,
-            signedUrl: data.documents?.[0]?.url || null,
-            signedAt: new Date(),
-          },
+      if (dbSubmission.personId) {
+        const allDocs = await prisma.docusealSubmission.findMany({
+          where: { personId: dbSubmission.personId },
         });
 
-        if (dbSubmission.personId) {
-          const allSigners = await prisma.docuSigner.findMany({
-            where: { submissionId: dbSubmission.id },
+        const allCompleted = allDocs.every((doc) => doc.status === "completed");
+        if (allCompleted) {
+          await prisma.agreement.update({
+            where: { id: dbSubmission.agreementId },
+            data: { status: AgreementStatus.ACTIVE },
           });
 
-          const allCompleted = allSigners.every(
-            (s) => s.status === "completed",
-          );
-          if (allCompleted) {
-            await prisma.docusealSubmission.update({
-              where: { id: dbSubmission.id },
-              data: {
-                signedDocUrl: data.documents?.[0]?.url || null,
-                auditLogUrl: data.audit_log_url,
-              },
-            });
+          const person = await prisma.person.findFirst({
+            where: { id: dbSubmission.personId },
+            select: { email: true, firstName: true },
+          });
 
-            await prisma.agreement.update({
-              where: { id: dbSubmission.agreementId },
-              data: { status: AgreementStatus.ACTIVE },
-            });
-
-            const person = await prisma.person.findFirst({
-              where: { id: dbSubmission.personId },
-              select: { email: true, firstName: true },
-            });
-
-            if (person?.email) {
-              const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${dbSubmission.personId}`;
-              const subject = "Complete Your Onboarding";
-              const body = `
+          if (person?.email) {
+            const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${dbSubmission.personId}`;
+            const subject = "Complete Your Onboarding";
+            const body = `
                 <p>Hi ${person.firstName || "there"},</p>
                 <p>Your document has been signed successfully. Please complete your onboarding by clicking the link below:</p>
                 <p><a href="${onboardingUrl}">Complete Onboarding</a></p>
                 <p>If the link doesn't work, copy and paste this URL into your browser:</p>
                 <p>${onboardingUrl}</p>
               `;
-              await sendOutlookEmail(person.email, subject, body);
-            }
+            await sendOutlookEmail(person.email, subject, body);
           }
         }
       }
@@ -465,8 +474,6 @@ export async function sendAgreementEmail(
 
             return `
             <p>
-              // ${signer.role || `Signer ${index + 1}`}:
-              ${`Signer ${index + 1}`}:
               <a href="${link}" target="_blank">
                 Sign Document
               </a>
@@ -494,7 +501,10 @@ export async function sendAgreementEmail(
 
       ${message ? `<p>${escapeHtml(message)}</p>` : ""}
 
-      <p>Best regards,<br/>The Team</p>
+      <p>
+        Best regards,<br/>
+        The Tristate Team
+      </p>
     `;
 
     await sendOutlookEmail(person.email, emailSubject, emailBody);
@@ -594,7 +604,7 @@ export async function createAgreement(
             templateId: s.templateId,
             docSlug: s.slug,
             signers: {
-              create: s?.submitters.map((init: any, index: number) => ({
+              create: s?.submitters?.map((init: any, index: number) => ({
                 signerUuid: init.uuid,
                 role: init.role,
                 name: "",

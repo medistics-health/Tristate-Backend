@@ -11,6 +11,20 @@ import {
   getDocusealFormBySlug,
   handleDocusealWebhook,
 } from "../controllers/agreement/agreement";
+import {
+  createAgreementVersion,
+  getAgreementVersion,
+  getAgreementVersions,
+  updateAgreementVersion,
+  deleteAgreementVersion,
+} from "../controllers/agreement/agreementVersion";
+import {
+  createAgreementServiceTerm,
+  getAgreementServiceTerm,
+  getAgreementServiceTerms,
+  updateAgreementServiceTerm,
+  deleteAgreementServiceTerm,
+} from "../controllers/agreement/agreementServiceTerm";
 import { verifyAuthToken } from "../middleware/auth.middleware";
 
 const agreementRouter = Router();
@@ -24,6 +38,21 @@ agreementRouter.post("/", createAgreement);
 agreementRouter.post("/send-email", sendAgreementEmail);
 agreementRouter.post("/docuseal/submission", createDocusealSubmission);
 agreementRouter.get("/docuseal/templates", getDocusealTemplates);
+
+// Agreement Version routes
+agreementRouter.get("/versions", getAgreementVersions);
+agreementRouter.post("/versions", createAgreementVersion);
+agreementRouter.get("/versions/:id", getAgreementVersion);
+agreementRouter.patch("/versions/:id", updateAgreementVersion);
+agreementRouter.delete("/versions/:id", deleteAgreementVersion);
+
+// Agreement Service Term routes
+agreementRouter.get("/service-terms", getAgreementServiceTerms);
+agreementRouter.post("/service-terms", createAgreementServiceTerm);
+agreementRouter.get("/service-terms/:id", getAgreementServiceTerm);
+agreementRouter.patch("/service-terms/:id", updateAgreementServiceTerm);
+agreementRouter.delete("/service-terms/:id", deleteAgreementServiceTerm);
+
 agreementRouter.get("/", getAgreements);
 agreementRouter.get("/:id", getAgreement);
 agreementRouter.patch("/:id", updateAgreement);

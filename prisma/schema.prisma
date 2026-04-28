@@ -598,7 +598,8 @@ model DocusealSubmission {
   url           String?
   docSlug       String?
   signedDocUrl  String?   @map("signed_doc_url")
-  auditLogUrl  String?   @map("audit_log_url")
+  auditLogUrl   String?   @map("audit_log_url")
+  status        String?
   templateId    Int?      @map("template_id")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
