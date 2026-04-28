@@ -9,6 +9,17 @@ type InvoiceBody = {
   totalAmount?: number;
   status?: string;
   dueDate?: string;
+  invoiceNumber?: string | null;
+  currency?: string | null;
+  billingPeriodStart?: string | null;
+  billingPeriodEnd?: string | null;
+  subtotalAmount?: number | null;
+  taxAmount?: number | null;
+  discountAmount?: number | null;
+  stripeInvoiceId?: string | null;
+  stripeHostedInvoiceUrl?: string | null;
+  stripeInvoicePdfUrl?: string | null;
+  quickbooksInvoiceId?: string | null;
 };
 
 function isInvoiceStatus(status: string): status is InvoiceStatus {
@@ -17,8 +28,24 @@ function isInvoiceStatus(status: string): status is InvoiceStatus {
 
 export async function createInvoice(req: AuthenticatedRequest, res: Response) {
   try {
-    const { practiceId, agreementId, totalAmount, status, dueDate } =
-      req.body as InvoiceBody;
+    const {
+      practiceId,
+      agreementId,
+      totalAmount,
+      status,
+      dueDate,
+      invoiceNumber,
+      currency,
+      billingPeriodStart,
+      billingPeriodEnd,
+      subtotalAmount,
+      taxAmount,
+      discountAmount,
+      stripeInvoiceId,
+      stripeHostedInvoiceUrl,
+      stripeInvoicePdfUrl,
+      quickbooksInvoiceId,
+    } = req.body as InvoiceBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -67,6 +94,39 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
         totalAmount,
         status,
         dueDate: dueDate ? new Date(dueDate) : undefined,
+        ...(invoiceNumber !== undefined
+          ? { invoiceNumber: invoiceNumber || null }
+          : {}),
+        ...(currency !== undefined ? { currency: currency || null } : {}),
+        ...(billingPeriodStart !== undefined
+          ? {
+              billingPeriodStart: billingPeriodStart
+                ? new Date(billingPeriodStart)
+                : null,
+            }
+          : {}),
+        ...(billingPeriodEnd !== undefined
+          ? {
+              billingPeriodEnd: billingPeriodEnd
+                ? new Date(billingPeriodEnd)
+                : null,
+            }
+          : {}),
+        ...(subtotalAmount !== undefined ? { subtotalAmount } : {}),
+        ...(taxAmount !== undefined ? { taxAmount } : {}),
+        ...(discountAmount !== undefined ? { discountAmount } : {}),
+        ...(stripeInvoiceId !== undefined
+          ? { stripeInvoiceId: stripeInvoiceId || null }
+          : {}),
+        ...(stripeHostedInvoiceUrl !== undefined
+          ? { stripeHostedInvoiceUrl: stripeHostedInvoiceUrl || null }
+          : {}),
+        ...(stripeInvoicePdfUrl !== undefined
+          ? { stripeInvoicePdfUrl: stripeInvoicePdfUrl || null }
+          : {}),
+        ...(quickbooksInvoiceId !== undefined
+          ? { quickbooksInvoiceId: quickbooksInvoiceId || null }
+          : {}),
       },
     });
 
@@ -101,6 +161,7 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
         agreement: true,
         lineItems: true,
         purchaseOrders: true,
+        vendorPayables: true,
       },
     });
 
@@ -123,8 +184,23 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
 export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { agreementId, totalAmount, status, dueDate } =
-      req.body as InvoiceBody;
+    const {
+      agreementId,
+      totalAmount,
+      status,
+      dueDate,
+      invoiceNumber,
+      currency,
+      billingPeriodStart,
+      billingPeriodEnd,
+      subtotalAmount,
+      taxAmount,
+      discountAmount,
+      stripeInvoiceId,
+      stripeHostedInvoiceUrl,
+      stripeInvoicePdfUrl,
+      quickbooksInvoiceId,
+    } = req.body as InvoiceBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -174,6 +250,39 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
         ...(status !== undefined ? { status: status as InvoiceStatus } : {}),
         ...(dueDate !== undefined
           ? { dueDate: dueDate ? new Date(dueDate) : null }
+          : {}),
+        ...(invoiceNumber !== undefined
+          ? { invoiceNumber: invoiceNumber || null }
+          : {}),
+        ...(currency !== undefined ? { currency: currency || null } : {}),
+        ...(billingPeriodStart !== undefined
+          ? {
+              billingPeriodStart: billingPeriodStart
+                ? new Date(billingPeriodStart)
+                : null,
+            }
+          : {}),
+        ...(billingPeriodEnd !== undefined
+          ? {
+              billingPeriodEnd: billingPeriodEnd
+                ? new Date(billingPeriodEnd)
+                : null,
+            }
+          : {}),
+        ...(subtotalAmount !== undefined ? { subtotalAmount } : {}),
+        ...(taxAmount !== undefined ? { taxAmount } : {}),
+        ...(discountAmount !== undefined ? { discountAmount } : {}),
+        ...(stripeInvoiceId !== undefined
+          ? { stripeInvoiceId: stripeInvoiceId || null }
+          : {}),
+        ...(stripeHostedInvoiceUrl !== undefined
+          ? { stripeHostedInvoiceUrl: stripeHostedInvoiceUrl || null }
+          : {}),
+        ...(stripeInvoicePdfUrl !== undefined
+          ? { stripeInvoicePdfUrl: stripeInvoicePdfUrl || null }
+          : {}),
+        ...(quickbooksInvoiceId !== undefined
+          ? { quickbooksInvoiceId: quickbooksInvoiceId || null }
           : {}),
       },
     });

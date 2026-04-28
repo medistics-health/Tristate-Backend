@@ -202,6 +202,117 @@ enum BillingModel {
   HYBRID
 }
 
+enum PricingModel {
+  FIXED_MONTHLY
+  FIXED_ONE_TIME
+  PER_UNIT
+  PER_ENCOUNTER
+  PER_PATIENT
+  PER_PROVIDER
+  PER_SITE
+  PER_CPT_CODE
+  PERCENT_COLLECTIONS
+  PERCENT_REVENUE
+  PERCENT_PROFIT
+  TIERED_VOLUME
+  MONTHLY_MINIMUM
+  HYBRID
+  MULTI_COMPONENT
+  RETAINER
+  SUCCESS_FEE
+  CUSTOM_ATTACHMENT_DEFINED
+}
+
+enum BillingRunStatus {
+  PENDING
+  RUNNING
+  CALCULATED
+  REVIEW_REQUIRED
+  APPROVED
+  POSTED
+  FAILED
+  CLOSED
+}
+
+enum VendorPayableStatus {
+  DRAFT
+  CALCULATED
+  APPROVED
+  ON_HOLD
+  RELEASED
+  SENT_TO_VENDOR
+  PAYABLE
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum ReleasePolicy {
+  ON_INVOICE_APPROVAL
+  ON_CLIENT_PAYMENT
+  MANUAL
+}
+
+enum ApprovalEntityType {
+  BILLING_RUN
+  BILLING_RUN_ITEM
+  CLIENT_INVOICE
+  VENDOR_PAYABLE
+  AGREEMENT_TERM
+}
+
+enum ApprovalDecisionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  OVERRIDDEN
+}
+
+enum ExceptionSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  RESOLVED
+  OVERRIDDEN
+}
+
+enum ExternalSystem {
+  STRIPE
+  QUICKBOOKS
+}
+
+enum ExternalEntityType {
+  CUSTOMER
+  VENDOR
+  INVOICE
+  PAYMENT
+  BILL
+  BILL_PAYMENT
+  JOURNAL_ENTRY
+}
+
+enum ExternalSyncStatus {
+  PENDING
+  IN_PROGRESS
+  SYNCED
+  FAILED
+  RETRYING
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  PARTIALLY_ALLOCATED
+  ALLOCATED
+  REFUNDED
+}
+
 enum ChannelPartnerType {
   RESELLER
   REFERRAL
@@ -261,6 +372,9 @@ model User {
   role      UserRoles
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
+  approvedBillingRuns BillingRun[] @relation("BillingRunApprovedBy")
+  approvalDecisions ApprovalDecision[] @relation("ApprovalDecisionByUser")
+  resolvedExceptions ExceptionEvent[] @relation("ExceptionResolvedByUser")
 
   @@map("User")
 }
@@ -324,11 +438,16 @@ model Practice {
 region          String
   source          PracticeSource
   bucket          String[]
+  stripeCustomerId String?        @map("stripe_customer_id")
+  quickbooksCustomerId String?    @map("quickbooks_customer_id")
+  defaultCurrency String?         @default("USD") @map("default_currency")
+  billToTaxIdId   String?         @map("bill_to_tax_id_id") @db.Uuid
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at")
   company         Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
   practiceGroup   PracticeGroup?  @relation(fields: [practiceGroupId], references: [id], onDelete: SetNull)
-  taxId           TaxId?          @relation(fields: [taxIdId], references: [id], onDelete: SetNull)
+  taxId           TaxId?          @relation("PracticeTaxId", fields: [taxIdId], references: [id], onDelete: SetNull)
+  billToTaxId     TaxId?          @relation("PracticeBillToTaxId", fields: [billToTaxIdId], references: [id], onDelete: SetNull)
   groupNpis       GroupNpi[]      @relation("PracticeGroupNpis")
   persons         PracticePerson[]
   deals       Deal[]
@@ -336,10 +455,16 @@ region          String
   invoices    Invoice[]
   audits      Audit[]
   assessments Assessment[]
+  billingRuns BillingRun[]
+  billingInputSnapshots BillingInputSnapshot[]
+  billingRunItems BillingRunItem[]
+  vendorPayables VendorPayable[]
+  payments Payment[]
 
   @@index([companyId])
   @@index([practiceGroupId])
   @@index([taxIdId])
+  @@index([billToTaxIdId])
   @@map("practices")
 }
 
@@ -352,7 +477,8 @@ model TaxId {
   companyId       String       @map("company_id") @db.Uuid
   company         Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   groupNpis       GroupNpi[]
-  practices       Practice[]
+  practices       Practice[]   @relation("PracticeTaxId")
+  billToPractices Practice[]   @relation("PracticeBillToTaxId")
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
@@ -448,6 +574,7 @@ model Agreement {
   status                AgreementStatus
   effectiveDate         DateTime?        @map("effective_date")
   renewalDate           DateTime?        @map("renewal_date")
+  externalReference     String?          @map("external_reference")
   createdAt             DateTime         @default(now()) @map("created_at")
   updatedAt             DateTime         @default(now()) @updatedAt @map("updated_at")
   practice              Practice         @relation(fields: [practiceId], references: [id], onDelete: Cascade)
@@ -455,6 +582,8 @@ model Agreement {
   invoices              Invoice[]
   channelPartners       ChannelPartner[]
   docusealSubmissions   DocusealSubmission[]
+  versions              AgreementVersion[]
+  serviceTerms          AgreementServiceTerm[]
 
   @@index([practiceId])
   @@index([dealId])
@@ -464,35 +593,62 @@ model Agreement {
 model DocusealSubmission {
   id            String    @id @default(uuid()) @db.Uuid
   agreementId   String    @map("agreement_id") @db.Uuid
+  docusealSubmissionId      Int?      @unique @map("docuseal_submission_id")
   personId      String?   @map("person_id") @db.Uuid
-  externalId    Int       @map("external_id")
-  status        String
   url           String?
-  signedDocUrls  String?
-  auditLogUrl   String?
-  embedUrl      String?
-  slug          String?
-  submitterUuid String?   @map("submitter_uuid")
+  docSlug       String?
+  signedDocUrl  String?   @map("signed_doc_url")
+  auditLogUrl   String?   @map("audit_log_url")
+  status        String?
   templateId    Int?      @map("template_id")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
-  agreement     Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-  person        Person?   @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  signers      DocuSigner[]
+  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  person      Person?   @relation(fields: [personId], references: [id], onDelete: SetNull)
 
   @@index([agreementId])
   @@index([personId])
   @@map("docuseal_submissions")
 }
 
+model DocuSigner {
+  id           String            @id @default(uuid()) @db.Uuid
+  externalId    Int?              @map("external_id")
+  signerUuid   String            @map("signer_uuid")
+  role        String
+  name        String
+  email       String
+  status      String
+  submissionSlug   String?
+  signedUrl   String?           @map("signed_url")
+  auditUrl    String?           @map("audit_url")
+  signedAt    DateTime?         @map("signed_at")
+  ipAddress   String?           @map("ip_address")
+  order      Int
+
+  submissionId String           @map("submission_id") @db.Uuid
+  submission  DocusealSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([signerUuid])
+  @@map("docu_signers")
+}
+
 model Service {
   id         String            @id @default(uuid()) @db.Uuid
   name       String
-  clientRate Decimal           @map("client_rate") @db.Decimal(12, 2)
-  vendorRate Decimal           @map("vendor_rate") @db.Decimal(12, 2)
-  margin     Decimal           @db.Decimal(5, 2)
+  code       String?
+  category   String?
+  isActive   Boolean           @default(true) @map("is_active")
   createdAt  DateTime          @default(now()) @map("created_at")
   updatedAt  DateTime          @default(now()) @updatedAt @map("updated_at")
   lineItems  InvoiceLineItem[]
+  agreementTerms AgreementServiceTerm[]
+  billingInputSnapshots BillingInputSnapshot[]
+  billingRunItems BillingRunItem[]
+  vendorPayableLineItems VendorPayableLineItem[]
 
   @@map("services")
 }
@@ -504,12 +660,26 @@ model Invoice {
   totalAmount   Decimal           @map("total_amount") @db.Decimal(12, 2)
   status        InvoiceStatus
   dueDate       DateTime?         @map("due_date")
+  invoiceNumber String?           @unique @map("invoice_number")
+  currency      String?           @default("USD")
+  billingPeriodStart DateTime?    @map("billing_period_start")
+  billingPeriodEnd DateTime?      @map("billing_period_end")
+  subtotalAmount Decimal?         @map("subtotal_amount") @db.Decimal(12, 2)
+  taxAmount     Decimal?          @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount Decimal?         @map("discount_amount") @db.Decimal(12, 2)
+  stripeInvoiceId String?         @map("stripe_invoice_id")
+  stripeHostedInvoiceUrl String?  @map("stripe_hosted_invoice_url")
+  stripeInvoicePdfUrl String?     @map("stripe_invoice_pdf_url")
+  quickbooksInvoiceId String?     @map("quickbooks_invoice_id")
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at")
   practice      Practice          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   agreement     Agreement?        @relation(fields: [agreementId], references: [id], onDelete: SetNull)
   lineItems     InvoiceLineItem[]
   purchaseOrders PurchaseOrder[]
+  paymentAllocations PaymentAllocation[]
+  vendorPayables VendorPayable[]
+  stripeEventLogs StripeEventLog[]
 
   @@index([practiceId])
   @@index([agreementId])
@@ -523,13 +693,25 @@ model InvoiceLineItem {
   quantity   Int
   unitPrice  Decimal  @map("unit_price") @db.Decimal(12, 2)
   totalPrice Decimal  @map("total_price") @db.Decimal(12, 2)
+  description String?
+  billingRunItemId String? @map("billing_run_item_id") @db.Uuid
+  billingRunItemComponentId String? @map("billing_run_item_component_id") @db.Uuid
+  agreementServiceTermId String? @map("agreement_service_term_id") @db.Uuid
+  billingPeriodStart DateTime? @map("billing_period_start")
+  billingPeriodEnd DateTime? @map("billing_period_end")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
   invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   service    Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  billingRunItem BillingRunItem? @relation(fields: [billingRunItemId], references: [id], onDelete: SetNull)
+  billingRunItemComponent BillingRunItemComponent? @relation(fields: [billingRunItemComponentId], references: [id], onDelete: SetNull)
+  agreementServiceTerm AgreementServiceTerm? @relation(fields: [agreementServiceTermId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
   @@index([serviceId])
+  @@index([billingRunItemId])
+  @@index([billingRunItemComponentId])
+  @@index([agreementServiceTermId])
   @@map("invoice_line_items")
 }
 
@@ -538,13 +720,16 @@ model PurchaseOrder {
   vendorId  String   @map("vendor_id") @db.Uuid
   invoiceId String   @map("invoice_id") @db.Uuid
   totalCost Decimal  @map("total_cost") @db.Decimal(12, 2)
+  vendorPayableId String? @map("vendor_payable_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   vendor    Vendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  vendorPayable VendorPayable? @relation(fields: [vendorPayableId], references: [id], onDelete: SetNull)
 
   @@index([vendorId])
   @@index([invoiceId])
+  @@index([vendorPayableId])
   @@map("purchase_orders")
 }
 
@@ -553,11 +738,333 @@ model Vendor {
   name           String
   type           VendorType
   renewalDate    DateTime?       @map("renewal_date")
+  quickbooksVendorId String?     @map("quickbooks_vendor_id")
+  remitEmail     String?         @map("remit_email")
+  paymentTerms   String?         @map("payment_terms")
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at")
   purchaseOrders PurchaseOrder[]
+  agreementTerms AgreementServiceTerm[]
+  billingRunItems BillingRunItem[]
+  vendorPayables VendorPayable[]
 
   @@map("vendors")
+}
+
+model AgreementVersion {
+  id          String    @id @default(uuid()) @db.Uuid
+  agreementId String    @map("agreement_id") @db.Uuid
+  versionNumber Int     @map("version_number")
+  isCurrent   Boolean   @default(true) @map("is_current")
+  effectiveDate DateTime? @map("effective_date")
+  endDate     DateTime? @map("end_date")
+  notes       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+  agreement   Agreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  serviceTerms AgreementServiceTerm[]
+
+  @@unique([agreementId, versionNumber])
+  @@index([agreementId])
+  @@map("agreement_versions")
+}
+
+model AgreementServiceTerm {
+  id                  String       @id @default(uuid()) @db.Uuid
+  agreementId         String       @map("agreement_id") @db.Uuid
+  agreementVersionId  String?      @map("agreement_version_id") @db.Uuid
+  serviceId           String       @map("service_id") @db.Uuid
+  vendorId            String?      @map("vendor_id") @db.Uuid
+  pricingModel        PricingModel @map("pricing_model")
+  pricingConfig       Json         @map("pricing_config")
+  currency            String?      @default("USD")
+  priority            Int          @default(1)
+  minimumFee          Decimal?     @map("minimum_fee") @db.Decimal(12, 2)
+  effectiveDate       DateTime?    @map("effective_date")
+  endDate             DateTime?    @map("end_date")
+  isActive            Boolean      @default(true) @map("is_active")
+  externalReference   String?      @map("external_reference")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @default(now()) @updatedAt @map("updated_at")
+  agreement           Agreement    @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  agreementVersion    AgreementVersion? @relation(fields: [agreementVersionId], references: [id], onDelete: SetNull)
+  service             Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  vendor              Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  billingRunItems     BillingRunItem[]
+  invoiceLineItems    InvoiceLineItem[]
+
+  @@index([agreementId])
+  @@index([agreementVersionId])
+  @@index([serviceId])
+  @@index([vendorId])
+  @@index([effectiveDate, endDate])
+  @@map("agreement_service_terms")
+}
+
+model BillingRun {
+  id                String           @id @default(uuid()) @db.Uuid
+  practiceId        String           @map("practice_id") @db.Uuid
+  periodStart       DateTime         @map("period_start")
+  periodEnd         DateTime         @map("period_end")
+  status            BillingRunStatus @default(PENDING)
+  approvedByUserId  String?          @map("approved_by_user_id") @db.Uuid
+  approvedAt        DateTime?        @map("approved_at")
+  notes             String?
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at")
+  practice          Practice         @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  approvedByUser    User?            @relation("BillingRunApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  inputSnapshots    BillingInputSnapshot[]
+  items             BillingRunItem[]
+  vendorPayables    VendorPayable[]
+
+  @@index([practiceId])
+  @@index([approvedByUserId])
+  @@index([periodStart, periodEnd])
+  @@map("billing_runs")
+}
+
+model BillingInputSnapshot {
+  id              String    @id @default(uuid()) @db.Uuid
+  billingRunId    String    @map("billing_run_id") @db.Uuid
+  practiceId      String    @map("practice_id") @db.Uuid
+  serviceId       String?   @map("service_id") @db.Uuid
+  metricKey       String    @map("metric_key")
+  metricValue     Decimal?  @map("metric_value") @db.Decimal(18, 4)
+  metricTextValue String?   @map("metric_text_value")
+  metricJsonValue Json?     @map("metric_json_value")
+  sourceType      String?   @map("source_type")
+  sourceReference String?   @map("source_reference")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+  billingRun      BillingRun @relation(fields: [billingRunId], references: [id], onDelete: Cascade)
+  practice        Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  service         Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([billingRunId])
+  @@index([practiceId])
+  @@index([serviceId])
+  @@index([metricKey])
+  @@map("billing_input_snapshots")
+}
+
+model BillingRunItem {
+  id                    String    @id @default(uuid()) @db.Uuid
+  billingRunId          String    @map("billing_run_id") @db.Uuid
+  practiceId            String    @map("practice_id") @db.Uuid
+  serviceId             String    @map("service_id") @db.Uuid
+  vendorId              String?   @map("vendor_id") @db.Uuid
+  agreementServiceTermId String?  @map("agreement_service_term_id") @db.Uuid
+  clientAmount          Decimal   @map("client_amount") @db.Decimal(12, 2)
+  vendorAmount          Decimal?  @map("vendor_amount") @db.Decimal(12, 2)
+  marginAmount          Decimal?  @map("margin_amount") @db.Decimal(12, 2)
+  currency              String?   @default("USD")
+  formulaSnapshot       Json?     @map("formula_snapshot")
+  sourceSnapshot        Json?     @map("source_snapshot")
+  exceptionFlags        String[]  @default([]) @map("exception_flags")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at")
+  billingRun            BillingRun @relation(fields: [billingRunId], references: [id], onDelete: Cascade)
+  practice              Practice  @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  service               Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  vendor                Vendor?   @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  agreementServiceTerm  AgreementServiceTerm? @relation(fields: [agreementServiceTermId], references: [id], onDelete: SetNull)
+  components            BillingRunItemComponent[]
+  invoiceLineItems      InvoiceLineItem[]
+  vendorPayableLineItems VendorPayableLineItem[]
+
+  @@index([billingRunId])
+  @@index([practiceId])
+  @@index([serviceId])
+  @@index([vendorId])
+  @@index([agreementServiceTermId])
+  @@map("billing_run_items")
+}
+
+model BillingRunItemComponent {
+  id                String   @id @default(uuid()) @db.Uuid
+  billingRunItemId  String   @map("billing_run_item_id") @db.Uuid
+  componentType     String   @map("component_type")
+  description       String?
+  quantity          Decimal? @db.Decimal(18, 4)
+  rate              Decimal? @db.Decimal(12, 4)
+  amount            Decimal  @db.Decimal(12, 2)
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
+  billingRunItem    BillingRunItem @relation(fields: [billingRunItemId], references: [id], onDelete: Cascade)
+  invoiceLineItems  InvoiceLineItem[]
+  vendorPayableLineItems VendorPayableLineItem[]
+
+  @@index([billingRunItemId])
+  @@index([componentType])
+  @@map("billing_run_item_components")
+}
+
+model VendorPayable {
+  id                String              @id @default(uuid()) @db.Uuid
+  practiceId        String              @map("practice_id") @db.Uuid
+  vendorId          String              @map("vendor_id") @db.Uuid
+  invoiceId         String?             @map("invoice_id") @db.Uuid
+  billingRunId      String?             @map("billing_run_id") @db.Uuid
+  payableNumber     String?             @unique @map("payable_number")
+  totalAmount       Decimal             @map("total_amount") @db.Decimal(12, 2)
+  currency          String?             @default("USD")
+  status            VendorPayableStatus @default(DRAFT)
+  releasePolicy     ReleasePolicy       @default(ON_CLIENT_PAYMENT) @map("release_policy")
+  releasedAt        DateTime?           @map("released_at")
+  paidAt            DateTime?           @map("paid_at")
+  quickbooksBillId  String?             @map("quickbooks_bill_id")
+  quickbooksBillPaymentId String?       @map("quickbooks_bill_payment_id")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at")
+  practice          Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  vendor            Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  invoice           Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  billingRun        BillingRun?         @relation(fields: [billingRunId], references: [id], onDelete: SetNull)
+  lineItems         VendorPayableLineItem[]
+  purchaseOrders    PurchaseOrder[]
+
+  @@index([practiceId])
+  @@index([vendorId])
+  @@index([invoiceId])
+  @@index([billingRunId])
+  @@map("vendor_payables")
+}
+
+model VendorPayableLineItem {
+  id                         String   @id @default(uuid()) @db.Uuid
+  vendorPayableId            String   @map("vendor_payable_id") @db.Uuid
+  serviceId                  String?  @map("service_id") @db.Uuid
+  description                String?
+  quantity                   Decimal? @db.Decimal(18, 4)
+  unitCost                   Decimal? @map("unit_cost") @db.Decimal(12, 4)
+  totalCost                  Decimal  @map("total_cost") @db.Decimal(12, 2)
+  billingRunItemId           String?  @map("billing_run_item_id") @db.Uuid
+  billingRunItemComponentId  String?  @map("billing_run_item_component_id") @db.Uuid
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @default(now()) @updatedAt @map("updated_at")
+  vendorPayable              VendorPayable @relation(fields: [vendorPayableId], references: [id], onDelete: Cascade)
+  service                    Service?  @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  billingRunItem             BillingRunItem? @relation(fields: [billingRunItemId], references: [id], onDelete: SetNull)
+  billingRunItemComponent    BillingRunItemComponent? @relation(fields: [billingRunItemComponentId], references: [id], onDelete: SetNull)
+
+  @@index([vendorPayableId])
+  @@index([serviceId])
+  @@index([billingRunItemId])
+  @@index([billingRunItemComponentId])
+  @@map("vendor_payable_line_items")
+}
+
+model ApprovalDecision {
+  id              String                 @id @default(uuid()) @db.Uuid
+  entityType      ApprovalEntityType     @map("entity_type")
+  entityId        String                 @map("entity_id") @db.Uuid
+  decision        ApprovalDecisionStatus
+  decidedByUserId String?                @map("decided_by_user_id") @db.Uuid
+  reason          String?
+  note            String?
+  decidedAt       DateTime?              @map("decided_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @default(now()) @updatedAt @map("updated_at")
+  decidedByUser   User?                  @relation("ApprovalDecisionByUser", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([decidedByUserId])
+  @@map("approval_decisions")
+}
+
+model ExceptionEvent {
+  id              String            @id @default(uuid()) @db.Uuid
+  entityType      ApprovalEntityType @map("entity_type")
+  entityId        String            @map("entity_id") @db.Uuid
+  code            String
+  message         String
+  severity        ExceptionSeverity
+  status          ExceptionStatus   @default(OPEN)
+  resolvedByUserId String?          @map("resolved_by_user_id") @db.Uuid
+  resolvedAt      DateTime?         @map("resolved_at")
+  metadata        Json?
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at")
+  resolvedByUser  User?             @relation("ExceptionResolvedByUser", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([resolvedByUserId])
+  @@index([status])
+  @@map("exception_events")
+}
+
+model ExternalSyncJob {
+  id              String             @id @default(uuid()) @db.Uuid
+  system          ExternalSystem
+  entityType      ExternalEntityType @map("entity_type")
+  entityId        String             @map("entity_id") @db.Uuid
+  externalId      String?            @map("external_id")
+  status          ExternalSyncStatus @default(PENDING)
+  direction       String?
+  payload         Json?
+  lastError       String?            @map("last_error")
+  lastSyncedAt    DateTime?          @map("last_synced_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at")
+  attempts        ExternalSyncAttempt[]
+
+  @@index([system, entityType, entityId])
+  @@index([status])
+  @@map("external_sync_jobs")
+}
+
+model ExternalSyncAttempt {
+  id              String             @id @default(uuid()) @db.Uuid
+  externalSyncJobId String           @map("external_sync_job_id") @db.Uuid
+  status          ExternalSyncStatus
+  requestPayload  Json?              @map("request_payload")
+  responsePayload Json?              @map("response_payload")
+  errorMessage    String?            @map("error_message")
+  attemptedAt     DateTime           @default(now()) @map("attempted_at")
+  externalSyncJob ExternalSyncJob    @relation(fields: [externalSyncJobId], references: [id], onDelete: Cascade)
+
+  @@index([externalSyncJobId])
+  @@index([status])
+  @@map("external_sync_attempts")
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  practiceId        String        @map("practice_id") @db.Uuid
+  amount            Decimal       @db.Decimal(12, 2)
+  currency          String?       @default("USD")
+  status            PaymentStatus @default(PENDING)
+  paymentDate       DateTime?     @map("payment_date")
+  paymentMethod     String?       @map("payment_method")
+  stripePaymentIntentId String?   @map("stripe_payment_intent_id")
+  stripeChargeId    String?       @map("stripe_charge_id")
+  quickbooksPaymentId String?     @map("quickbooks_payment_id")
+  externalReference String?       @map("external_reference")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at")
+  practice          Practice      @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  allocations       PaymentAllocation[]
+
+  @@index([practiceId])
+  @@index([status])
+  @@map("payments")
+}
+
+model PaymentAllocation {
+  id            String   @id @default(uuid()) @db.Uuid
+  paymentId     String   @map("payment_id") @db.Uuid
+  invoiceId     String   @map("invoice_id") @db.Uuid
+  allocatedAmount Decimal @map("allocated_amount") @db.Decimal(12, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  payment       Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
 }
 
 model Audit {
@@ -939,6 +1446,41 @@ model OnboardingCareProgram {
 
   @@index([onboardingId])
   @@map("onboarding_care_program")
+}
+
+model StripeEventLog {
+  id                String    @id @default(uuid()) @db.Uuid
+  stripeEventId      String    @map("stripe_event_id")
+  eventType         String    @map("event_type")
+  stripeObjectType  String?   @map("stripe_object_type")
+  stripeObjectId   String?   @map("stripe_object_id")
+  invoiceId       String?   @map("invoice_id") @db.Uuid
+  payload         Json?
+  processedAt     DateTime? @map("processed_at")
+  status          String?
+  errorMessage   String?   @map("error_message")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@index([stripeEventId])
+  @@index([invoiceId])
+  @@index([eventType])
+  @@map("stripe_event_logs")
+}
+
+model JournalEntryLink {
+  id                    String   @id @default(uuid()) @db.Uuid
+  sourceEntityType       String   @map("source_entity_type")
+  sourceEntityId        String   @map("source_entity_id") @db.Uuid
+  quickbooksJournalEntryId String? @map("quickbooks_journal_entry_id")
+  entryType            String   @map("entry_type")
+  status               String    @default("PENDING")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([sourceEntityType, sourceEntityId])
+  @@map("journal_entry_links")
 }
 
 model ChannelPartner {

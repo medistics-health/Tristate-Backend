@@ -16,11 +16,14 @@ import practiceGroupRouter from "./routes/practiceGroup.routes";
 import taxIdRouter from "./routes/taxId.routes";
 import groupNpiRouter from "./routes/groupNpi.routes";
 import onboardingRouter from "./routes/onboarding.routes";
+import vendorRouter from "./routes/vendor.routes";
+import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
 const app = express();
 
+app.use("/api/v1/stripe/webhook", stripeWebhookRouter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -41,11 +44,13 @@ app.use("/api/v1/emails", emailRouter);
 app.use("/api/v1/audits", auditRouter);
 app.use("/api/v1/assessments", assessmentRouter);
 app.use("/api/v1/services", serviceRouter);
+app.use("/api/v1/vendors", vendorRouter);
 app.use("/api/v1/invoices", invoiceRouter);
 app.use("/api/v1/purchase-orders", purchaseOrderRouter);
 app.use("/api/v1/practice-groups", practiceGroupRouter);
 app.use("/api/v1/tax-ids", taxIdRouter);
 app.use("/api/v1/group-npis", groupNpiRouter);
 app.use("/api/v1/onboardings", onboardingRouter);
+app.use("/api/v1/stripe", stripeRouter);
 
 export default app;

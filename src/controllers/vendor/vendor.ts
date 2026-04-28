@@ -7,6 +7,9 @@ type VendorBody = {
   name?: string;
   type?: string;
   renewalDate?: string;
+  quickbooksVendorId?: string | null;
+  remitEmail?: string | null;
+  paymentTerms?: string | null;
 };
 
 function isVendorType(type: string): type is VendorType {
@@ -15,7 +18,8 @@ function isVendorType(type: string): type is VendorType {
 
 export async function createVendor(req: AuthenticatedRequest, res: Response) {
   try {
-    const { name, type, renewalDate } = req.body as VendorBody;
+    const { name, type, renewalDate, quickbooksVendorId, remitEmail, paymentTerms } =
+      req.body as VendorBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -37,6 +41,13 @@ export async function createVendor(req: AuthenticatedRequest, res: Response) {
         name,
         type,
         renewalDate: renewalDate ? new Date(renewalDate) : undefined,
+        ...(quickbooksVendorId !== undefined
+          ? { quickbooksVendorId: quickbooksVendorId || null }
+          : {}),
+        ...(remitEmail !== undefined ? { remitEmail: remitEmail || null } : {}),
+        ...(paymentTerms !== undefined
+          ? { paymentTerms: paymentTerms || null }
+          : {}),
       },
     });
 
@@ -63,7 +74,7 @@ export async function getVendor(req: AuthenticatedRequest, res: Response) {
 
     const vendor = await prisma.vendor.findUnique({
       where: { id },
-      include: { purchaseOrders: true },
+      include: { purchaseOrders: true, vendorPayables: true },
     });
 
     if (!vendor) {
@@ -82,7 +93,8 @@ export async function getVendor(req: AuthenticatedRequest, res: Response) {
 export async function updateVendor(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { name, type, renewalDate } = req.body as VendorBody;
+    const { name, type, renewalDate, quickbooksVendorId, remitEmail, paymentTerms } =
+      req.body as VendorBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -113,6 +125,13 @@ export async function updateVendor(req: AuthenticatedRequest, res: Response) {
         ...(renewalDate !== undefined
           ? { renewalDate: renewalDate ? new Date(renewalDate) : null }
           : {}),
+        ...(quickbooksVendorId !== undefined
+          ? { quickbooksVendorId: quickbooksVendorId || null }
+          : {}),
+        ...(remitEmail !== undefined ? { remitEmail: remitEmail || null } : {}),
+        ...(paymentTerms !== undefined
+          ? { paymentTerms: paymentTerms || null }
+          : {}),
       },
     });
 
@@ -120,6 +139,63 @@ export async function updateVendor(req: AuthenticatedRequest, res: Response) {
   } catch (error) {
     return res.status(500).json({
       message: "Unable to update vendor.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getVendors(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { search, type } = req.query;
+
+    const where: any = {};
+
+    if (search) {
+      where.name = { contains: search as string, mode: "insensitive" };
+    }
+
+    if (type) {
+      where.type = type as VendorType;
+    }
+
+    const [vendors, totalRecords] = await Promise.all([
+      prisma.vendor.findMany({
+        where,
+        include: {
+          _count: {
+            select: { purchaseOrders: true, vendorPayables: true },
+          },
+        },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.vendor.count({ where }),
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return res.status(200).json({
+      message: "Vendors fetched successfully.",
+      vendors,
+      pagination: {
+        totalRecords,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch vendors.",
       error: error instanceof Error ? error.message : error,
     });
   }

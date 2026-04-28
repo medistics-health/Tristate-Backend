@@ -90,7 +90,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
             },
           },
           docusealSubmissions: {
-            where: { status: "completed" },
+            where: { signers: { some: { status: "completed" } } },
           },
         },
         skip,
@@ -305,7 +305,7 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
           },
         },
         docusealSubmissions: {
-          where: { status: "completed" },
+          where: { signers: { some: { status: "completed" } } },
         },
       },
     });
