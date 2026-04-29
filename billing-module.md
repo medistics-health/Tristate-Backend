@@ -1,216 +1,133 @@
-# Billing Module Schema
+# Billing Module Flow After Creating an Agreement for a Practice
 
-This document describes the billing and accounting schema added on top of the existing CRM models in `prisma/schema.prisma`.
+This document describes the actual business flow in the current codebase after an `Agreement` is created for a `Practice`.
 
-## Purpose
+## What Happens Immediately After Agreement Creation
 
-The billing module separates:
+When an agreement is created:
 
-- commercial setup
-- billing calculation
-- client invoicing
-- vendor payables
-- approvals and exceptions
-- external sync
-- payments
+1. the `Agreement` is stored and linked to the `Practice`
+2. optional Docuseal submission metadata can also be created with it
 
-The design keeps the existing `Practice`, `Agreement`, `Invoice`, `Vendor`, and `PurchaseOrder` models working while introducing a proper contract-driven billing structure.
+This happens in:
 
-## Existing Base Models
+- `src/controllers/agreement/agreement.ts`
 
-These models already existed and remain part of the billing flow:
+Important point:
 
-- `Practice`
-- `Agreement`
-- `Service`
-- `Invoice`
-- `InvoiceLineItem`
-- `Vendor`
-- `PurchaseOrder`
-- `TaxId`
-- `User`
+- creating an agreement alone does not create invoices
+- creating an agreement alone does not start billing automatically
 
-They now act as the base layer for the billing module.
+## Implemented Flow After Agreement Creation
 
-## Updated Existing Models
+The implemented downstream flow is:
 
-### `Practice`
+1. create the `Agreement`
+2. send or track signing through Docuseal if applicable
+3. once signing is completed, move the agreement to `ACTIVE`
+4. create an `AgreementVersion`
+5. create `AgreementServiceTerm` records under that agreement or agreement version
+6. create a `BillingRun` for a billing period
+7. attach or capture `BillingInputSnapshot` records for that run
+8. calculate the run
+9. approve the run
+10. post the run
+11. generate `Invoice` and `InvoiceLineItem`
+12. generate `VendorPayable` and `VendorPayableLineItem`
+13. sync/send invoice through Stripe if needed
+14. record payment and allocate it to invoice(s)
 
-Represents the client/practice being billed.
+## Agreement Creation
 
-Important fields:
+The agreement is created from:
 
-- `taxIdId`: primary legal tax entity
-- `billToTaxIdId`: optional billing entity
-- `stripeCustomerId`
-- `quickbooksCustomerId`
-- `defaultCurrency`
+- `POST /api/v1/agreements`
 
-New billing relations:
+Handled in:
 
-- `billingRuns`
-- `billingInputSnapshots`
-- `billingRunItems`
-- `vendorPayables`
-- `payments`
+- `src/controllers/agreement/agreement.ts`
 
-Meaning:
+The controller:
 
-- one practice can have many billing runs
-- one practice can have many calculated billing items
-- one practice can have many vendor payables
-- one practice can have many payments
+- validates `practiceId`, `type`, and `status`
+- verifies the `Practice` exists
+- optionally verifies the `Deal` belongs to that practice
+- creates the `Agreement`
+- optionally creates related Docuseal submission metadata
 
-### `Agreement`
+At this stage, the agreement exists, but billing still cannot happen unless pricing terms are defined.
 
-Represents the parent commercial agreement with a practice.
+## Agreement Signing and Activation
 
-New additions:
+If Docuseal is used, the signing flow is handled through:
 
-- `externalReference`
-- `versions`
-- `serviceTerms`
+- `POST /api/v1/agreements/docuseal/submission`
+- `POST /api/v1/agreements/docuseal/webhook`
 
-Meaning:
+Implemented in:
 
-- one agreement can have multiple versions
-- one agreement can have multiple service terms
+- `src/controllers/agreement/agreement.ts`
 
-### `Service`
+When the Docuseal webhook reports completion:
 
-`Service` is now treated as a service catalog record, not a pricing table.
+- the submission status is updated
+- the signed document URL and audit log URL are stored
+- the agreement can be updated to `ACTIVE`
 
-Fields:
+This is the point where the agreement becomes commercially effective.
 
-- `name`
-- `code`
-- `category`
-- `isActive`
+## Agreement Version
 
-Relations:
+After the agreement exists, the next operational step is:
 
-- `agreementTerms`
-- `billingInputSnapshots`
-- `billingRunItems`
-- `lineItems`
-- `vendorPayableLineItems`
+- create an `AgreementVersion`
 
-Important note:
+Endpoint:
 
-- `clientRate`, `vendorRate`, and `margin` were removed from the schema
-- pricing now belongs in `AgreementServiceTerm`
+- `POST /api/v1/agreements/versions`
 
-### `Invoice`
+Handled in:
 
-Represents the client receivable header.
-
-New additions:
-
-- `invoiceNumber`
-- `currency`
-- `billingPeriodStart`
-- `billingPeriodEnd`
-- `subtotalAmount`
-- `taxAmount`
-- `discountAmount`
-- `stripeInvoiceId`
-- `stripeHostedInvoiceUrl`
-- `stripeInvoicePdfUrl`
-- `quickbooksInvoiceId`
-
-New relations:
-
-- `paymentAllocations`
-- `vendorPayables`
-
-Meaning:
-
-- one invoice can have many line items
-- one invoice can have many payment allocations
-- one invoice can be linked to many vendor payables
-
-### `InvoiceLineItem`
-
-Represents invoice detail rows.
-
-New additions:
-
-- `description`
-- `billingRunItemId`
-- `billingRunItemComponentId`
-- `agreementServiceTermId`
-- `billingPeriodStart`
-- `billingPeriodEnd`
-
-Meaning:
-
-- invoice lines can still point to `Service`
-- invoice lines can now also trace back to calculated billing data
-
-### `Vendor`
-
-Represents the vendor being paid.
-
-New additions:
-
-- `quickbooksVendorId`
-- `remitEmail`
-- `paymentTerms`
-
-New relations:
-
-- `agreementTerms`
-- `billingRunItems`
-- `vendorPayables`
-
-### `PurchaseOrder`
-
-Still supported for compatibility.
-
-New addition:
-
-- `vendorPayableId`
-
-Meaning:
-
-- purchase orders can optionally point to a `VendorPayable`
-- `VendorPayable` is now the preferred operational payable object
-
-## New Billing Models
-
-### `AgreementVersion`
+- `src/controllers/agreement/agreementVersion.ts`
 
 Purpose:
 
-- tracks versions of an agreement over time
+- preserve contract history over time
+- let billing resolve the correct version for a period
+- avoid changing old billing results when terms change later
 
-Important fields:
+Implemented hardening:
 
-- `agreementId`
-- `versionNumber`
-- `isCurrent`
-- `effectiveDate`
-- `endDate`
+- an initial `AgreementVersion` is now auto-created when the agreement is created
+- the initial version is created as:
+  - `versionNumber = 1`
+  - `isCurrent = true`
+  - `effectiveDate = agreement.effectiveDate` when available
+- manual version creation now validates:
+  - agreement exists
+  - `versionNumber` is a positive integer
+  - `versionNumber` is unique per agreement
+  - `effectiveDate <= endDate`
+- deleting an agreement version is blocked if service terms are still linked to it
 
-Relations:
+## Agreement Service Terms
 
-- belongs to one `Agreement`
-- has many `AgreementServiceTerm`
+After the version exists, pricing must be defined through:
 
-Use case:
+- `AgreementServiceTerm`
 
-- preserve history when agreement terms change
+Endpoint:
 
-### `AgreementServiceTerm`
+- `POST /api/v1/agreements/service-terms`
 
-Purpose:
+Handled in:
 
-- stores the service-level pricing and fulfillment terms for an agreement
+- `src/controllers/agreement/agreementServiceTerm.ts`
 
-Important fields:
+This is the object that actually makes the agreement billable.
 
-- `agreementId`
-- `agreementVersionId`
+It defines:
+
 - `serviceId`
 - `vendorId`
 - `pricingModel`
@@ -218,423 +135,216 @@ Important fields:
 - `currency`
 - `priority`
 - `minimumFee`
-- `effectiveDate`
-- `endDate`
-- `isActive`
+- active date range
 
-Relations:
+Without active service terms, the billing run has nothing to calculate.
 
-- belongs to one `Agreement`
-- optionally belongs to one `AgreementVersion`
-- belongs to one `Service`
-- optionally belongs to one `Vendor`
-- has many `BillingRunItem`
-- has many `InvoiceLineItem`
+Implemented hardening:
 
-This is the main commercial pricing object.
+- `agreementVersionId` is now required when creating a service term
+- service terms are now enforced to be version-bound
+- service term creation now validates:
+  - agreement exists
+  - agreement version exists
+  - agreement version belongs to the agreement
+  - service exists
+  - vendor exists when provided
+  - `effectiveDate <= endDate`
+  - service term dates do not conflict with the agreement version dates
+- service term updates keep the version binding enforced
 
-### `BillingRun`
+This closes the earlier gap where terms could exist without being pinned to a contract version.
 
-Purpose:
+## Billing Run Start
 
-- represents a billing cycle for a practice and period
+Billing starts only after:
 
-Important fields:
+- agreement is active
+- service terms exist
+- a billing period is selected
 
-- `practiceId`
-- `periodStart`
-- `periodEnd`
-- `status`
-- `approvedByUserId`
-- `approvedAt`
-- `notes`
+Billing entry point:
 
-Relations:
+- `POST /api/v1/billing/runs`
 
-- belongs to one `Practice`
-- optionally belongs to one approving `User`
-- has many `BillingInputSnapshot`
-- has many `BillingRunItem`
-- has many `VendorPayable`
+Handled in:
 
-### `BillingInputSnapshot`
+- `src/controllers/billing/billing.ts`
+- `src/services/billing/billing.service.ts`
 
-Purpose:
+The implemented billing flow is:
 
-- stores frozen input values used during billing calculations
+1. create `BillingRun`
+2. optionally create snapshots with the run
+3. calculate the run
+4. review results
+5. approve the run
+6. post the run
 
-Important fields:
+## Billing Input Snapshots
 
-- `billingRunId`
-- `practiceId`
-- `serviceId`
-- `metricKey`
-- `metricValue`
-- `metricTextValue`
-- `metricJsonValue`
-- `sourceType`
-- `sourceReference`
+Snapshots are attached to a billing run, not created independently first.
 
-Relations:
+Endpoint:
 
-- belongs to one `BillingRun`
-- belongs to one `Practice`
-- optionally belongs to one `Service`
+- `POST /api/v1/billing/runs/:id/snapshots`
 
 Examples:
 
+- provider count
 - collections
+- revenue
 - encounters
-- CPT counts
-- users
-- sites
-- hours
+- units
 
-### `BillingRunItem`
+These snapshots are the frozen inputs used in billing calculation.
 
-Purpose:
+## Billing Calculation
 
-- stores the calculated result for one service within a billing run
+Calculation is triggered by:
 
-Important fields:
+- `POST /api/v1/billing/runs/:id/calculate`
 
-- `billingRunId`
-- `practiceId`
-- `serviceId`
-- `vendorId`
-- `agreementServiceTermId`
-- `clientAmount`
-- `vendorAmount`
-- `marginAmount`
-- `currency`
-- `formulaSnapshot`
-- `sourceSnapshot`
-- `exceptionFlags`
+The billing service:
 
-Relations:
+- loads active agreement service terms for the practice and period
+- reads the snapshots
+- applies `pricingModel` and `pricingConfig`
+- creates `BillingRunItem`
+- creates `BillingRunItemComponent`
+- records exception flags where needed
 
-- belongs to one `BillingRun`
-- belongs to one `Practice`
-- belongs to one `Service`
-- optionally belongs to one `Vendor`
-- optionally belongs to one `AgreementServiceTerm`
-- has many `BillingRunItemComponent`
-- has many `InvoiceLineItem`
-- has many `VendorPayableLineItem`
+Possible run statuses after calculation:
 
-This is the core auditable billing result.
+- `CALCULATED`
+- `REVIEW_REQUIRED`
 
-### `BillingRunItemComponent`
+## Billing Approval
 
-Purpose:
+Approval is triggered by:
 
-- breaks a billing item into detailed components
+- `POST /api/v1/billing/runs/:id/approve`
 
-Important fields:
+This:
 
-- `billingRunItemId`
-- `componentType`
-- `description`
-- `quantity`
-- `rate`
-- `amount`
-- `metadata`
+- marks the run as approved
+- records approval metadata
+- prepares the run for posting
 
-Relations:
+Approval does not yet create the invoice.
 
-- belongs to one `BillingRunItem`
-- has many `InvoiceLineItem`
-- has many `VendorPayableLineItem`
+## Billing Posting
 
-Examples:
+Posting is triggered by:
 
-- fixed monthly fee
-- minimum uplift
-- CPT charge
-- implementation fee
-- per-user charge
+- `POST /api/v1/billing/runs/:id/post`
 
-### `VendorPayable`
+This is the step that transforms billing results into financial records.
 
-Purpose:
+The posting flow:
 
-- operational payable header for vendor obligations
+1. create `Invoice`
+2. create `InvoiceLineItem`
+3. create `VendorPayable`
+4. create `VendorPayableLineItem`
+5. mark the billing run as `POSTED`
 
-Important fields:
+So the actual rule is:
 
-- `practiceId`
-- `vendorId`
-- `invoiceId`
-- `billingRunId`
-- `payableNumber`
-- `totalAmount`
-- `currency`
-- `status`
-- `releasePolicy`
-- `releasedAt`
-- `paidAt`
-- `quickbooksBillId`
-- `quickbooksBillPaymentId`
+- `APPROVED` means finance accepted the run
+- `POSTED` means invoice and payable records were created
 
-Relations:
+## Invoice Stage
 
-- belongs to one `Practice`
-- belongs to one `Vendor`
-- optionally belongs to one `Invoice`
-- optionally belongs to one `BillingRun`
-- has many `VendorPayableLineItem`
-- has many `PurchaseOrder`
+After posting, invoices now exist and can be managed through:
 
-This is the preferred payable object instead of using `PurchaseOrder` as the core payable record.
+- `src/controllers/invoice/invoice.ts`
+- `src/controllers/invoice/invoiceLineItem.ts`
 
-### `VendorPayableLineItem`
+Optional Stripe actions already implemented:
 
-Purpose:
+- sync invoice to Stripe
+- finalize Stripe invoice
+- send Stripe invoice
 
-- detailed vendor payable rows
+Implemented in:
 
-Important fields:
+- `src/controllers/stripe/stripe.ts`
 
-- `vendorPayableId`
-- `serviceId`
-- `description`
-- `quantity`
-- `unitCost`
-- `totalCost`
-- `billingRunItemId`
-- `billingRunItemComponentId`
+## Payment Stage
 
-Relations:
+Payments happen after invoice generation.
 
-- belongs to one `VendorPayable`
-- optionally belongs to one `Service`
-- optionally belongs to one `BillingRunItem`
-- optionally belongs to one `BillingRunItemComponent`
+Two paths exist:
 
-### `ApprovalDecision`
+1. Stripe webhook-based payment recording
+2. manual payment recording through billing module
 
-Purpose:
+Manual payment endpoint:
 
-- stores review and approval decisions for billing entities
+- `POST /api/v1/billing/payments/record`
 
-Important fields:
+This creates:
 
-- `entityType`
-- `entityId`
-- `decision`
-- `decidedByUserId`
-- `reason`
-- `note`
-- `decidedAt`
+- `Payment`
+- `PaymentAllocation`
 
-Relations:
+It also updates invoice payment status.
 
-- optionally belongs to one `User`
+## Important Operational Rule
 
-Supported entity categories:
+After creating an agreement for a practice, the next real steps should be:
 
-- billing run
-- billing run item
-- client invoice
-- vendor payable
-- agreement term
-
-### `ExceptionEvent`
-
-Purpose:
-
-- stores calculation or workflow exceptions
-
-Important fields:
-
-- `entityType`
-- `entityId`
-- `code`
-- `message`
-- `severity`
-- `status`
-- `resolvedByUserId`
-- `resolvedAt`
-- `metadata`
-
-Relations:
-
-- optionally belongs to one `User`
-
-### `ExternalSyncJob`
-
-Purpose:
-
-- stores sync work for Stripe and QuickBooks
-
-Important fields:
-
-- `system`
-- `entityType`
-- `entityId`
-- `externalId`
-- `status`
-- `direction`
-- `payload`
-- `lastError`
-- `lastSyncedAt`
-
-Relations:
-
-- has many `ExternalSyncAttempt`
-
-### `ExternalSyncAttempt`
-
-Purpose:
-
-- stores each sync attempt for a job
-
-Important fields:
-
-- `externalSyncJobId`
-- `status`
-- `requestPayload`
-- `responsePayload`
-- `errorMessage`
-- `attemptedAt`
-
-Relations:
-
-- belongs to one `ExternalSyncJob`
-
-### `Payment`
-
-Purpose:
-
-- internal record of client payment receipt
-
-Important fields:
-
-- `practiceId`
-- `amount`
-- `currency`
-- `status`
-- `paymentDate`
-- `paymentMethod`
-- `stripePaymentIntentId`
-- `stripeChargeId`
-- `quickbooksPaymentId`
-- `externalReference`
-
-Relations:
-
-- belongs to one `Practice`
-- has many `PaymentAllocation`
-
-### `PaymentAllocation`
-
-Purpose:
-
-- applies a payment to an invoice
-
-Important fields:
-
-- `paymentId`
-- `invoiceId`
-- `allocatedAmount`
-
-Relations:
-
-- belongs to one `Payment`
-- belongs to one `Invoice`
-
-## Main Relationship Flow
-
-The main commercial and billing flow is:
-
-1. `Practice`
-2. `Agreement`
-3. `AgreementVersion`
-4. `AgreementServiceTerm`
-5. `BillingRun`
-6. `BillingInputSnapshot`
-7. `BillingRunItem`
-8. `BillingRunItemComponent`
-9. `Invoice` and `InvoiceLineItem`
-10. `VendorPayable` and `VendorPayableLineItem`
-11. `Payment` and `PaymentAllocation`
-12. `ExternalSyncJob` and `ExternalSyncAttempt`
-
-## Relationship Summary
-
-### Commercial setup
-
-- one `Practice` has many `Agreement`
-- one `Agreement` has many `AgreementVersion`
-- one `Agreement` has many `AgreementServiceTerm`
-- one `AgreementServiceTerm` belongs to one `Service`
-- one `AgreementServiceTerm` can optionally belong to one `Vendor`
-
-### Billing execution
-
-- one `Practice` has many `BillingRun`
-- one `BillingRun` has many `BillingInputSnapshot`
-- one `BillingRun` has many `BillingRunItem`
-- one `BillingRunItem` can reference one `AgreementServiceTerm`
-- one `BillingRunItem` has many `BillingRunItemComponent`
-
-### Client invoicing
-
-- one `Invoice` belongs to one `Practice`
-- one `Invoice` can belong to one `Agreement`
-- one `Invoice` has many `InvoiceLineItem`
-- one `InvoiceLineItem` belongs to one `Service`
-- one `InvoiceLineItem` can reference one `BillingRunItem`
-- one `InvoiceLineItem` can reference one `BillingRunItemComponent`
-- one `InvoiceLineItem` can reference one `AgreementServiceTerm`
-
-### Vendor payable flow
-
-- one `VendorPayable` belongs to one `Practice`
-- one `VendorPayable` belongs to one `Vendor`
-- one `VendorPayable` can reference one `Invoice`
-- one `VendorPayable` can reference one `BillingRun`
-- one `VendorPayable` has many `VendorPayableLineItem`
-- one `VendorPayableLineItem` can reference one `BillingRunItem`
-- one `VendorPayableLineItem` can reference one `BillingRunItemComponent`
-
-### Payment flow
-
-- one `Payment` belongs to one `Practice`
-- one `Payment` has many `PaymentAllocation`
-- one `PaymentAllocation` belongs to one `Invoice`
-
-### Review and sync
-
-- `ApprovalDecision` points to business entities by `entityType` and `entityId`
-- `ExceptionEvent` points to business entities by `entityType` and `entityId`
-- `ExternalSyncJob` points to business entities by `entityType` and `entityId`
-- one `ExternalSyncJob` has many `ExternalSyncAttempt`
-
-## Why This Structure Works
-
-This schema solves the original gaps:
-
-- pricing is no longer stored globally on `Service`
-- pricing is contract-driven through `AgreementServiceTerm`
-- billing calculations are frozen in `BillingRun`, `BillingInputSnapshot`, and `BillingRunItem`
-- invoice lines can trace back to calculated billing records
-- vendor obligations are modeled separately through `VendorPayable`
-- approvals, exceptions, payments, and sync state are first-class entities
-
-## Current Compatibility Notes
-
-- legacy invoice, vendor, and practice flows still work
-- `PurchaseOrder` still exists for compatibility
-- `Service` responses may still expose deprecated pricing keys in controller output for older clients, but the schema no longer stores them
-
-## Recommended Operational Rule
-
-Use these models as the system of record:
-
-- `AgreementServiceTerm` for pricing rules
-- `BillingRun` and `BillingRunItem` for billing calculations
-- `Invoice` for client receivables
-- `VendorPayable` for vendor obligations
-- `Payment` for money received
-- `ExternalSyncJob` for Stripe and QuickBooks integration state
+1. create agreement
+2. initial agreement version is auto-created
+3. activate agreement through signing or manual status update
+4. create agreement service terms against the correct agreement version
+5. create billing run
+6. add billing snapshots
+7. calculate run
+8. approve run
+9. post run
+10. sync/send invoice if needed
+11. record payment
+
+## What Does Not Happen Automatically
+
+Creating an agreement does not automatically:
+
+- create service terms
+- create a billing run
+- calculate charges
+- generate invoice
+- generate vendor payable
+- sync to Stripe
+- collect payment
+
+Those happen only after the billing workflow is executed.
+
+## Code References
+
+Main files involved in this flow:
+
+- `src/controllers/agreement/agreement.ts`
+- `src/controllers/agreement/agreementVersion.ts`
+- `src/controllers/agreement/agreementServiceTerm.ts`
+- `src/controllers/billing/billing.ts`
+- `src/services/billing/billing.service.ts`
+- `src/controllers/invoice/invoice.ts`
+- `src/controllers/invoice/invoiceLineItem.ts`
+- `src/controllers/stripe/stripe.ts`
+
+## Summary of the New Contract Readiness Rules
+
+The agreement-to-billing handoff is now stricter than before.
+
+New enforced rules:
+
+1. Every agreement gets an initial version automatically.
+2. Agreement versions must have valid dates and unique version numbers.
+3. Service terms must be attached to an agreement version.
+4. Service terms must belong to the same agreement as the version.
+5. Service term dates must be logically consistent with the agreement version.
+6. Billing readiness is checked before a billing run can be created.
+
+This means the system now blocks more bad contract setups earlier, instead of waiting until billing run creation or calculation to discover them.

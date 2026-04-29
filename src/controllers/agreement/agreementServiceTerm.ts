@@ -7,6 +7,19 @@ function isPricingModel(value: string): value is PricingModel {
   return Object.values(PricingModel).includes(value as PricingModel);
 }
 
+function asOptionalDate(value: unknown, fieldName: string) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+
+  return parsed;
+}
+
 export async function getAgreementServiceTerms(req: AuthenticatedRequest, res: Response) {
   try {
     if (!req.user?.sub) {
@@ -120,9 +133,10 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    if (!agreementId || !serviceId || !pricingModel || !pricingConfig) {
+    if (!agreementId || !agreementVersionId || !serviceId || !pricingModel || !pricingConfig) {
       return res.status(400).json({
-        message: "agreementId, serviceId, pricingModel and pricingConfig are required.",
+        message:
+          "agreementId, agreementVersionId, serviceId, pricingModel and pricingConfig are required.",
       });
     }
 
@@ -133,10 +147,84 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
       });
     }
 
+    const agreement = await prisma.agreement.findUnique({
+      where: { id: agreementId as string },
+      include: {
+        versions: true,
+      },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ message: "Agreement not found." });
+    }
+
+    const agreementVersion = await prisma.agreementVersion.findUnique({
+      where: { id: agreementVersionId as string },
+    });
+
+    if (!agreementVersion || agreementVersion.agreementId !== agreement.id) {
+      return res.status(404).json({
+        message: "Agreement version not found for this agreement.",
+      });
+    }
+
+    const service = await prisma.service.findUnique({
+      where: { id: serviceId as string },
+    });
+
+    if (!service) {
+      return res.status(404).json({ message: "Service not found." });
+    }
+
+    if (vendorId) {
+      const vendor = await prisma.vendor.findUnique({
+        where: { id: vendorId as string },
+      });
+
+      if (!vendor) {
+        return res.status(404).json({ message: "Vendor not found." });
+      }
+    }
+
+    const parsedEffectiveDate = asOptionalDate(effectiveDate, "effectiveDate");
+    const parsedEndDate = asOptionalDate(endDate, "endDate");
+
+    if (
+      parsedEffectiveDate &&
+      parsedEndDate &&
+      parsedEffectiveDate > parsedEndDate
+    ) {
+      return res.status(400).json({
+        message: "effectiveDate must be before endDate.",
+      });
+    }
+
+    if (
+      parsedEffectiveDate &&
+      agreementVersion.endDate &&
+      parsedEffectiveDate > agreementVersion.endDate
+    ) {
+      return res.status(400).json({
+        message:
+          "Service term effectiveDate cannot start after the agreement version endDate.",
+      });
+    }
+
+    if (
+      parsedEndDate &&
+      agreementVersion.effectiveDate &&
+      parsedEndDate < agreementVersion.effectiveDate
+    ) {
+      return res.status(400).json({
+        message:
+          "Service term endDate cannot end before the agreement version effectiveDate.",
+      });
+    }
+
     const term = await prisma.agreementServiceTerm.create({
       data: {
         agreementId: agreementId as string,
-        agreementVersionId: (agreementVersionId as string) || null,
+        agreementVersionId: agreementVersionId as string,
         serviceId: serviceId as string,
         vendorId: (vendorId as string) || null,
         pricingModel,
@@ -144,8 +232,8 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
         currency: currency || "USD",
         priority: priority ?? 1,
         minimumFee: minimumFee ?? undefined,
-        effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
+        effectiveDate: parsedEffectiveDate,
+        endDate: parsedEndDate,
         isActive: isActive ?? true,
         externalReference,
       },
@@ -194,16 +282,106 @@ export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res:
 
     const existingTerm = await prisma.agreementServiceTerm.findUnique({
       where: { id },
+      include: {
+        agreement: {
+          include: {
+            versions: true,
+          },
+        },
+      },
     });
 
     if (!existingTerm) {
       return res.status(404).json({ message: "Agreement service term not found." });
     }
 
+    const nextAgreementVersionId =
+      agreementVersionId !== undefined
+        ? (agreementVersionId as string)
+        : existingTerm.agreementVersionId;
+
+    if (!nextAgreementVersionId) {
+      return res.status(400).json({
+        message: "agreementVersionId is required for agreement service terms.",
+      });
+    }
+
+    const agreementVersion = await prisma.agreementVersion.findUnique({
+      where: { id: nextAgreementVersionId },
+    });
+
+    if (
+      !agreementVersion ||
+      agreementVersion.agreementId !== existingTerm.agreementId
+    ) {
+      return res.status(404).json({
+        message: "Agreement version not found for this agreement.",
+      });
+    }
+
+    if (serviceId) {
+      const service = await prisma.service.findUnique({
+        where: { id: serviceId as string },
+      });
+
+      if (!service) {
+        return res.status(404).json({ message: "Service not found." });
+      }
+    }
+
+    if (vendorId) {
+      const vendor = await prisma.vendor.findUnique({
+        where: { id: vendorId as string },
+      });
+
+      if (!vendor) {
+        return res.status(404).json({ message: "Vendor not found." });
+      }
+    }
+
+    const parsedEffectiveDate = asOptionalDate(effectiveDate, "effectiveDate");
+    const parsedEndDate = asOptionalDate(endDate, "endDate");
+
+    if (
+      parsedEffectiveDate &&
+      parsedEndDate &&
+      parsedEffectiveDate > parsedEndDate
+    ) {
+      return res.status(400).json({
+        message: "effectiveDate must be before endDate.",
+      });
+    }
+
+    const nextEffectiveDate =
+      parsedEffectiveDate ?? existingTerm.effectiveDate ?? undefined;
+    const nextEndDate = parsedEndDate ?? existingTerm.endDate ?? undefined;
+
+    if (
+      nextEffectiveDate &&
+      agreementVersion.endDate &&
+      nextEffectiveDate > agreementVersion.endDate
+    ) {
+      return res.status(400).json({
+        message:
+          "Service term effectiveDate cannot start after the agreement version endDate.",
+      });
+    }
+
+    if (
+      nextEndDate &&
+      agreementVersion.effectiveDate &&
+      nextEndDate < agreementVersion.effectiveDate
+    ) {
+      return res.status(400).json({
+        message:
+          "Service term endDate cannot end before the agreement version effectiveDate.",
+      });
+    }
+
     const term = await prisma.agreementServiceTerm.update({
       where: { id },
       data: {
-        agreementVersionId: agreementVersionId !== undefined ? (agreementVersionId as string) : undefined,
+        agreementVersionId: nextAgreementVersionId,
         serviceId: serviceId ? (serviceId as string) : undefined,
         vendorId: vendorId !== undefined ? (vendorId as string) : undefined,
         pricingModel: pricingModel ?? undefined,
@@ -211,8 +389,8 @@ export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res:
         currency: currency ?? undefined,
         priority: priority ?? undefined,
         minimumFee: minimumFee ?? undefined,
-        effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
+        effectiveDate: parsedEffectiveDate,
+        endDate: parsedEndDate,
         isActive: isActive ?? undefined,
         externalReference: externalReference ?? undefined,
       },

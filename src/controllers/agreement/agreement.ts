@@ -618,6 +618,17 @@ export async function createAgreement(
       },
       include: {
         docusealSubmissions: true,
+        versions: true,
+      },
+    });
+
+    const initialVersion = await prisma.agreementVersion.create({
+      data: {
+        agreementId: agreement.id,
+        versionNumber: 1,
+        isCurrent: true,
+        effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
+        notes: "Initial version auto-created with agreement creation.",
       },
     });
 
@@ -632,7 +643,10 @@ export async function createAgreement(
 
     return res.status(201).json({
       message: "Agreement created successfully.",
-      agreement,
+      agreement: {
+        ...agreement,
+        versions: [initialVersion],
+      },
     });
   } catch (error) {
     console.log(error);
