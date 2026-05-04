@@ -707,6 +707,8 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
           deal: true,
           channelPartners: true,
           docusealSubmissions: true,
+          versions: true,
+          serviceTerms: true,
         },
         skip,
         take: limit,
@@ -757,6 +759,8 @@ export async function getAgreement(req: AuthenticatedRequest, res: Response) {
         invoices: true,
         channelPartners: true,
         docusealSubmissions: true,
+        versions: true,
+        serviceTerms: true,
       },
     });
 
