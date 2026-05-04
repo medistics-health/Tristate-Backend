@@ -2,6 +2,19 @@ import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
+function asOptionalDate(value: unknown, fieldName: string) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+
+  return parsed;
+}
+
 export async function getAgreementVersions(req: AuthenticatedRequest, res: Response) {
   try {
     if (!req.user?.sub) {
@@ -113,8 +126,54 @@ export async function createAgreementVersion(req: AuthenticatedRequest, res: Res
       });
     }
 
+    const parsedVersionNumber = Number(versionNumber);
+    if (!Number.isInteger(parsedVersionNumber) || parsedVersionNumber <= 0) {
+      return res.status(400).json({
+        message: "versionNumber must be a positive integer.",
+      });
+    }
+
+    const agreement = await prisma.agreement.findUnique({
+      where: { id: agreementId as string },
+      include: {
+        versions: true,
+      },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ message: "Agreement not found." });
+    }
+
+    const parsedEffectiveDate = asOptionalDate(effectiveDate, "effectiveDate");
+    const parsedEndDate = asOptionalDate(endDate, "endDate");
+
+    if (
+      parsedEffectiveDate &&
+      parsedEndDate &&
+      parsedEffectiveDate > parsedEndDate
+    ) {
+      return res.status(400).json({
+        message: "effectiveDate must be before endDate.",
+      });
+    }
+
+    const existingVersionNumber = agreement.versions.find(
+      (version) => version.versionNumber === parsedVersionNumber,
+    );
+
+    if (existingVersionNumber) {
+      return res.status(409).json({
+        message: "This versionNumber already exists for the agreement.",
+      });
+    }
+
     // If this is set to current, unset others for the same agreement
-    if (isCurrent) {
+    const shouldBeCurrent =
+      typeof isCurrent === "boolean"
+        ? isCurrent
+        : agreement.versions.length === 0;
+
+    if (shouldBeCurrent) {
       await prisma.agreementVersion.updateMany({
         where: { agreementId: agreementId as string, isCurrent: true },
         data: { isCurrent: false },
@@ -124,10 +183,10 @@ export async function createAgreementVersion(req: AuthenticatedRequest, res: Res
     const version = await prisma.agreementVersion.create({
       data: {
         agreementId: agreementId as string,
-        versionNumber,
-        isCurrent: isCurrent ?? true,
-        effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
+        versionNumber: parsedVersionNumber,
+        isCurrent: shouldBeCurrent,
+        effectiveDate: parsedEffectiveDate,
+        endDate: parsedEndDate,
         notes,
       },
     });
@@ -161,10 +220,51 @@ export async function updateAgreementVersion(req: AuthenticatedRequest, res: Res
 
     const existingVersion = await prisma.agreementVersion.findUnique({
       where: { id },
+      include: {
+        agreement: {
+          include: {
+            versions: true,
+          },
+        },
+      },
     });
 
     if (!existingVersion) {
       return res.status(404).json({ message: "Agreement version not found." });
+    }
+
+    const parsedEffectiveDate = asOptionalDate(effectiveDate, "effectiveDate");
+    const parsedEndDate = asOptionalDate(endDate, "endDate");
+
+    if (
+      parsedEffectiveDate &&
+      parsedEndDate &&
+      parsedEffectiveDate > parsedEndDate
+    ) {
+      return res.status(400).json({
+        message: "effectiveDate must be before endDate.",
+      });
+    }
+
+    if (versionNumber !== undefined) {
+      const parsedVersionNumber = Number(versionNumber);
+      if (!Number.isInteger(parsedVersionNumber) || parsedVersionNumber <= 0) {
+        return res.status(400).json({
+          message: "versionNumber must be a positive integer.",
+        });
+      }
+
+      const conflictingVersion = existingVersion.agreement.versions.find(
+        (version) =>
+          version.id !== existingVersion.id &&
+          version.versionNumber === parsedVersionNumber,
+      );
+
+      if (conflictingVersion) {
+        return res.status(409).json({
+          message: "This versionNumber already exists for the agreement.",
+        });
+      }
     }
 
     // If this is being set to current, unset others for the same agreement
@@ -178,10 +278,11 @@ export async function updateAgreementVersion(req: AuthenticatedRequest, res: Res
     const version = await prisma.agreementVersion.update({
       where: { id },
       data: {
-        versionNumber: versionNumber ?? undefined,
+        versionNumber:
+          versionNumber !== undefined ? Number(versionNumber) : undefined,
         isCurrent: isCurrent ?? undefined,
-        effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
-        endDate: endDate ? new Date(endDate) : undefined,
+        effectiveDate: parsedEffectiveDate,
+        endDate: parsedEndDate,
         notes: notes ?? undefined,
       },
     });
@@ -208,10 +309,22 @@ export async function deleteAgreementVersion(req: AuthenticatedRequest, res: Res
 
     const existingVersion = await prisma.agreementVersion.findUnique({
       where: { id },
+      include: {
+        serviceTerms: {
+          select: { id: true },
+        },
+      },
     });
 
     if (!existingVersion) {
       return res.status(404).json({ message: "Agreement version not found." });
+    }
+
+    if (existingVersion.serviceTerms.length > 0) {
+      return res.status(400).json({
+        message:
+          "Agreement version cannot be deleted while service terms are linked to it.",
+      });
     }
 
     await prisma.agreementVersion.delete({
