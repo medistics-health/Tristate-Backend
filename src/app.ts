@@ -20,6 +20,7 @@ import onboardingRouter from "./routes/onboarding.routes";
 import vendorRouter from "./routes/vendor.routes";
 import billingRouter from "./routes/billing.routes";
 import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
+import { quickBooksRouter, quickBooksCallbackRouter } from "./routes/quickbooks.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
@@ -56,5 +57,7 @@ app.use("/api/v1/tax-ids", taxIdRouter);
 app.use("/api/v1/group-npis", groupNpiRouter);
 app.use("/api/v1/onboardings", onboardingRouter);
 app.use("/api/v1/stripe", stripeRouter);
+app.use("/api/v1/quickbooks/callback", quickBooksCallbackRouter);
+app.use("/api/v1/quickbooks", quickBooksRouter);
 
 export default app;

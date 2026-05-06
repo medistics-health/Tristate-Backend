@@ -375,6 +375,7 @@ model User {
   approvedBillingRuns BillingRun[] @relation("BillingRunApprovedBy")
   approvalDecisions ApprovalDecision[] @relation("ApprovalDecisionByUser")
   resolvedExceptions ExceptionEvent[] @relation("ExceptionResolvedByUser")
+  quickbooksConnections QuickBooksConnection[] @relation("QuickBooksConnectedByUser")
 
   @@map("User")
 }
@@ -401,8 +402,34 @@ model Company {
   practices      Practice[]
   taxIds         TaxId[]
   persons       CompanyPerson[]
+  quickbooksConnection QuickBooksConnection?
 
   @@map("companies")
+}
+
+model QuickBooksConnection {
+  id                    String   @id @default(uuid()) @db.Uuid
+  companyId             String   @unique @map("company_id") @db.Uuid
+  realmId               String   @unique @map("realm_id")
+  isSandbox             Boolean  @default(true) @map("is_sandbox")
+  accessToken           String   @map("access_token")
+  refreshToken          String   @map("refresh_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at")
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at")
+  connectedByUserId     String?  @map("connected_by_user_id") @db.Uuid
+  defaultIncomeItemId   String?  @map("default_income_item_id")
+  defaultExpenseAccountId String? @map("default_expense_account_id")
+  lastSyncAt            DateTime? @map("last_sync_at")
+  lastError             String?  @map("last_error")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
+
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connectedByUser       User?    @relation("QuickBooksConnectedByUser", fields: [connectedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([realmId])
+  @@map("quickbooks_connections")
 }
 
 model PracticeGroup {
