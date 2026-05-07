@@ -191,3 +191,62 @@ export async function deleteDeal(req: AuthenticatedRequest, res: Response) {
     });
   }
 }
+
+export async function getAllDeals(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { stage, practiceId, minValue, maxValue } = req.query;
+
+    const where: any = {};
+
+    if (stage) {
+      if (isDealStage(stage as string)) {
+        where.stage = stage as DealStage;
+      }
+    }
+
+    if (practiceId) {
+      where.practiceId = practiceId as string;
+    }
+
+    if (minValue || maxValue) {
+      where.value = {};
+      if (minValue) where.value.gte = parseFloat(minValue as string);
+      if (maxValue) where.value.lte = parseFloat(maxValue as string);
+    }
+
+    const [deals, total] = await Promise.all([
+      prisma.deal.findMany({
+        where,
+        include: { practice: true, agreements: true, audits: true },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.deal.count({ where }),
+    ]);
+
+    return res.status(200).json({
+      message: "Deals fetched successfully.",
+      deals,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch deals.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
