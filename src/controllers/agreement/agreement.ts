@@ -150,7 +150,7 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
         if (allCompleted) {
           await prisma.agreement.update({
             where: { id: dbSubmission.agreementId },
-            data: { status: AgreementStatus.ACTIVE },
+            data: { status: AgreementStatus.SIGNED },
           });
 
           const person = await prisma.person.findFirst({
