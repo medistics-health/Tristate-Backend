@@ -351,3 +351,101 @@ export async function syncQuickBooksVendorBillPaymentHandler(
     );
   }
 }
+
+export async function getExternalSyncLogsHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const { prisma } = require("../../lib/prisma");
+
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const skip = (page - 1) * limit;
+
+    const [logs, total] = await Promise.all([
+      prisma.externalSyncJob.findMany({
+        orderBy: { updatedAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.externalSyncJob.count(),
+    ]);
+
+    return res.status(200).json({
+      message: "Sync logs fetched successfully.",
+      logs,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch sync logs.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function retryExternalSyncHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const jobId = resolveString(req.params.jobId);
+    if (!jobId) {
+      return res.status(400).json({ message: "jobId is required." });
+    }
+
+    const { prisma } = require("../../lib/prisma");
+    
+    const job = await prisma.externalSyncJob.findFirst({
+      where: { id: jobId }
+    });
+
+    if (!job) {
+      return res.status(404).json({ message: "Sync job not found." });
+    }
+
+    let result;
+    // Map the entityType to the correct sync function
+    switch (job.entityType) {
+      case "INVOICE":
+        result = await syncQuickBooksInvoice(job.entityId);
+        break;
+      case "VENDOR_BILL":
+      case "VENDOR_PAYABLE":
+        result = await syncQuickBooksVendorBill(job.entityId);
+        break;
+      case "PAYMENT":
+        result = await syncQuickBooksPayment(job.entityId);
+        break;
+      case "CUSTOMER":
+        result = await syncQuickBooksCustomer(job.entityId);
+        break;
+      default:
+        return res.status(400).json({ message: `Retry not supported for entity type: ${job.entityType}` });
+    }
+
+    return res.status(200).json({
+      message: "Retry initiated and completed.",
+      result,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to retry sync.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
