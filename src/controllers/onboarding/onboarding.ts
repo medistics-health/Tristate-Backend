@@ -164,6 +164,19 @@ type OnboardingComplianceBody = {
   additionalNotes?: string;
 };
 
+type OnboardingMarketingBody = {
+  websiteUrl?: string;
+  socialMediaChannels?: string[];
+  currentMarketingChannels?: string[];
+  targetPatientDemographics?: string;
+  monthlyMarketingBudget?: string;
+  existingBrandAssets?: string;
+  googleBusinessProfileClaimed?: boolean;
+  patientAcquisitionGoals?: string;
+  aiToolsUsed?: string;
+  additionalMarketingNotes?: string;
+};
+
 type OnboardingBody = {
   onboardingType?: string;
   isAuthorizedPerson?: boolean;
@@ -229,6 +242,7 @@ type OnboardingBody = {
     patientMinutesTracker?: string;
     complianceConcerns?: string;
   };
+  marketing?: OnboardingMarketingBody;
 };
 
 export async function createOnboarding(
@@ -514,6 +528,22 @@ export async function createOnboarding(
               },
             }
           : undefined,
+        marketing: body.marketing
+          ? {
+              create: {
+                websiteUrl: body.marketing.websiteUrl,
+                socialMediaChannels: body.marketing.socialMediaChannels || [],
+                currentMarketingChannels: body.marketing.currentMarketingChannels || [],
+                targetPatientDemographics: body.marketing.targetPatientDemographics,
+                monthlyMarketingBudget: body.marketing.monthlyMarketingBudget,
+                existingBrandAssets: body.marketing.existingBrandAssets,
+                googleBusinessProfileClaimed: body.marketing.googleBusinessProfileClaimed,
+                patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
+                aiToolsUsed: body.marketing.aiToolsUsed,
+                additionalMarketingNotes: body.marketing.additionalMarketingNotes,
+              },
+            }
+          : undefined,
       },
       include: {
         contacts: true,
@@ -531,6 +561,7 @@ export async function createOnboarding(
         labPharmacy: true,
         compliance: true,
         careProgram: true,
+        marketing: true,
       },
     });
 
@@ -655,6 +686,7 @@ export async function getOnboarding(req: AuthenticatedRequest, res: Response) {
         labPharmacy: true,
         compliance: true,
         careProgram: true,
+        marketing: true,
       },
     });
 
@@ -711,6 +743,7 @@ export async function updateOnboarding(
         labPharmacy: true,
         compliance: true,
         careProgram: true,
+        marketing: true,
       },
     });
 
@@ -808,6 +841,37 @@ export async function updateOnboarding(
                 },
               }
           : undefined,
+        marketing: body.marketing
+          ? existing.marketing
+            ? {
+                update: {
+                  websiteUrl: body.marketing.websiteUrl,
+                  socialMediaChannels: body.marketing.socialMediaChannels || [],
+                  currentMarketingChannels: body.marketing.currentMarketingChannels || [],
+                  targetPatientDemographics: body.marketing.targetPatientDemographics,
+                  monthlyMarketingBudget: body.marketing.monthlyMarketingBudget,
+                  existingBrandAssets: body.marketing.existingBrandAssets,
+                  googleBusinessProfileClaimed: body.marketing.googleBusinessProfileClaimed,
+                  patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
+                  aiToolsUsed: body.marketing.aiToolsUsed,
+                  additionalMarketingNotes: body.marketing.additionalMarketingNotes,
+                },
+              }
+            : {
+                create: {
+                  websiteUrl: body.marketing.websiteUrl,
+                  socialMediaChannels: body.marketing.socialMediaChannels || [],
+                  currentMarketingChannels: body.marketing.currentMarketingChannels || [],
+                  targetPatientDemographics: body.marketing.targetPatientDemographics,
+                  monthlyMarketingBudget: body.marketing.monthlyMarketingBudget,
+                  existingBrandAssets: body.marketing.existingBrandAssets,
+                  googleBusinessProfileClaimed: body.marketing.googleBusinessProfileClaimed,
+                  patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
+                  aiToolsUsed: body.marketing.aiToolsUsed,
+                  additionalMarketingNotes: body.marketing.additionalMarketingNotes,
+                },
+              }
+          : undefined,
       },
       include: {
         contacts: true,
@@ -825,6 +889,7 @@ export async function updateOnboarding(
         labPharmacy: true,
         compliance: true,
         careProgram: true,
+        marketing: true,
       },
     });
 
