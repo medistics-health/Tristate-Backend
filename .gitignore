@@ -4,3 +4,4 @@ dist
 prisma.config.js
 generated
 .env
+.env.*
