@@ -61,7 +61,7 @@ export async function startQuickBooksConnectionHandler(
     const result = await createQuickBooksConnection({
       companyId: resolvedCompanyId,
       userId: req.user.sub,
-      isSandbox,
+      isSandbox: isSandbox === true || isSandbox === undefined, // Default to true if not specified
     });
 
     return res.status(200).json({
@@ -83,6 +83,13 @@ export async function completeQuickBooksConnectionHandler(
   res: Response,
 ) {
   try {
+    const error = resolveString(req.query.error);
+    const errorDescription = resolveString(req.query.error_description);
+
+    if (error) {
+      throw new Error(`${error}: ${errorDescription || "No description provided"}`);
+    }
+
     const code = resolveString(req.query.code);
     const realmId = resolveString(req.query.realmId);
     const state = resolveString(req.query.state);
@@ -99,16 +106,58 @@ export async function completeQuickBooksConnectionHandler(
       state,
     });
 
-    return res.status(200).json({
-      message: "QuickBooks connected successfully.",
-      connection,
-    });
+    return res.status(200).send(`
+      <html>
+        <head>
+          <title>QuickBooks Connected</title>
+          <style>
+            body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; }
+            .card { background: white; padding: 2rem; border-radius: 1rem; shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; }
+            h1 { color: #1e293b; margin-bottom: 0.5rem; }
+            p { color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Connected!</h1>
+            <p>Connection successful. Closing window...</p>
+          </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage('qb-connected', '*');
+              setTimeout(() => window.close(), 1000);
+            } else {
+              window.location.href = '/settings?tab=integrations';
+            }
+          </script>
+        </body>
+      </html>
+    `);
   } catch (error) {
-    return handleQuickBooksError(
-      res,
-      error,
-      "Unable to complete QuickBooks connection.",
-    );
+    console.error("QuickBooks Connection Error:", error);
+    return res.status(500).send(`
+      <html>
+        <head>
+          <title>Connection Failed</title>
+          <style>
+            body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fff1f2; }
+            .card { background: white; padding: 2.5rem; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); text-align: center; max-width: 400px; border: 1px solid #fecaca; }
+            h1 { color: #991b1b; margin-bottom: 0.5rem; font-size: 1.5rem; }
+            p { color: #7f1d1d; font-size: 0.875rem; line-height: 1.5; margin-bottom: 1.5rem; }
+            code { background: #fef2f2; padding: 0.5rem; border-radius: 0.5rem; color: #b91c1c; font-family: monospace; display: block; margin-bottom: 1.5rem; word-break: break-all; }
+            button { background: #1e293b; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-weight: bold; cursor: pointer; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Connection Failed</h1>
+            <p>We couldn't link your QuickBooks account. This usually happens if the Redirect URI doesn't match or you're using a Production account instead of a Sandbox one.</p>
+            <code>Error: ${error instanceof Error ? error.message : "Handshake failed"}</code>
+            <button onclick="window.close()">Close & Try Again</button>
+          </div>
+        </body>
+      </html>
+    `);
   }
 }
 

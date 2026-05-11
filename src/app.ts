@@ -23,6 +23,8 @@ import vendorPayableRouter from "./routes/vendorPayable.routes";
 import portalRouter from "./routes/portal.routes";
 import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
 import { quickBooksRouter, quickBooksCallbackRouter } from "./routes/quickbooks.routes";
+import userRouter from "./routes/user.routes";
+import settingsRouter from "./routes/settings.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
@@ -63,5 +65,7 @@ app.use("/api/v1/portal", portalRouter);
 app.use("/api/v1/stripe", stripeRouter);
 app.use("/api/v1/quickbooks/callback", quickBooksCallbackRouter);
 app.use("/api/v1/quickbooks", quickBooksRouter);
+app.use("/api/v1/users", userRouter);
+app.use("/api/v1/settings", settingsRouter);
 
 export default app;

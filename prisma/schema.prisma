@@ -49,6 +49,7 @@ enum InfluenceLevel {
 }
 
 enum DealStage {
+  LEAD
   PROSPECTING
   QUALIFICATION
   PROPOSAL
@@ -1521,4 +1522,14 @@ model ChannelPartner {
 
   @@index([agreementId])
   @@map("channel_partners")
+}
+model SystemSettings {
+  id               String   @id @default(uuid())
+  organizationName String   @default("Tristate MSO") @map("organization_name")
+  domain           String   @default("tristate-mso.com")
+  address          String?
+  supportEmail     String?  @default("support@tristate-mso.com") @map("support_email")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
 }

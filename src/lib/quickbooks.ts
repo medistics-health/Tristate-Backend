@@ -76,12 +76,12 @@ export function buildQuickBooksAuthUrl(params: {
   url.searchParams.set("response_type", "code");
   url.searchParams.set(
     "scope",
-    "com.intuit.quickbooks.accounting offline_access",
+    "com.intuit.quickbooks.accounting",
   );
   url.searchParams.set("state", state);
   url.searchParams.set("prompt", "select_account");
 
-  return url.toString();
+  return url.toString().replace(/\+/g, "%20");
 }
 
 export function encodeQuickBooksState(payload: QuickBooksStatePayload) {

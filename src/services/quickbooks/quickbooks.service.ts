@@ -1010,9 +1010,9 @@ export async function completeQuickBooksConnection(params: {
       NOW(),
       NOW()
     )
-    ON CONFLICT (company_id)
+    ON CONFLICT (realm_id)
     DO UPDATE SET
-      realm_id = EXCLUDED.realm_id,
+      company_id = EXCLUDED.company_id,
       is_sandbox = EXCLUDED.is_sandbox,
       access_token = EXCLUDED.access_token,
       refresh_token = EXCLUDED.refresh_token,
@@ -1143,6 +1143,15 @@ export async function syncQuickBooksVendorForCompany(
 
 export async function syncQuickBooksInvoice(invoiceId: string) {
   const invoice = await loadInvoiceContext(invoiceId);
+
+  // Prevent double sync
+  if (invoice.quickbooksInvoiceId) {
+    return {
+      quickbooksInvoiceId: invoice.quickbooksInvoiceId,
+      message: "Invoice was already synced to QuickBooks.",
+    };
+  }
+
   const connection = await ensureQuickBooksConnectionForCompany(
     invoice.practice.companyId!,
   );
@@ -1168,6 +1177,14 @@ export async function syncQuickBooksInvoice(invoiceId: string) {
       );
 
       const itemId = await ensureQuickBooksIncomeAccount(prisma, connection);
+      
+      if (invoice.lineItems.length === 0) {
+        throw new QuickBooksServiceError(
+          400,
+          "Invoice must have at least one line item before syncing to QuickBooks.",
+        );
+      }
+
       const qbLines = buildQuickBooksInvoiceLines({
         itemId,
         lineItems: invoice.lineItems.map((lineItem) => ({
@@ -1234,6 +1251,15 @@ export async function syncQuickBooksInvoice(invoiceId: string) {
 
 export async function syncQuickBooksVendorBill(vendorPayableId: string) {
   const vendorPayable = await loadVendorPayableContext(vendorPayableId);
+
+  // Prevent double sync
+  if (vendorPayable.quickbooksBillId) {
+    return {
+      quickbooksBillId: vendorPayable.quickbooksBillId,
+      message: "Vendor payable was already synced to QuickBooks.",
+    };
+  }
+
   const connection = await ensureQuickBooksConnectionForCompany(
     vendorPayable.practice.companyId!,
   );
@@ -1259,6 +1285,14 @@ export async function syncQuickBooksVendorBill(vendorPayableId: string) {
       );
 
       const accountId = await ensureQuickBooksExpenseAccount(prisma, connection);
+      
+      if (vendorPayable.lineItems.length === 0) {
+        throw new QuickBooksServiceError(
+          400,
+          "Vendor payable must have at least one line item before syncing to QuickBooks.",
+        );
+      }
+
       const qbLines = buildQuickBooksBillLines({
         accountId,
         lineItems: vendorPayable.lineItems.map((lineItem) => ({

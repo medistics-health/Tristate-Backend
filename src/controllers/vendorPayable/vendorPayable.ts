@@ -85,6 +85,53 @@ export async function releaseVendorPayable(
   }
 }
 
+export async function createVendorPayable(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const { vendorId, practiceId, totalAmount, description } = req.body;
+
+    if (!vendorId || !practiceId || !totalAmount) {
+      return res.status(400).json({ message: "vendorId, practiceId and totalAmount are required." });
+    }
+
+    const payable = await prisma.vendorPayable.create({
+      data: {
+        vendorId,
+        practiceId,
+        totalAmount,
+        currency: "USD",
+        status: "DRAFT",
+        lineItems: {
+          create: [
+            {
+              description: description || "Manual payable",
+              quantity: 1,
+              unitCost: totalAmount,
+              totalCost: totalAmount,
+            },
+          ],
+        },
+      },
+    });
+
+    return res.status(201).json({
+      message: "Vendor payable created successfully.",
+      payable,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to create vendor payable.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function syncVendorPayableToQuickBooks(
   req: AuthenticatedRequest,
   res: Response,
@@ -135,7 +182,7 @@ export async function generateVendorStatement(
 
     return res.status(200).json({
       message: "Vendor statement generated successfully.",
-      statementUrl: `https://tristate-docs.s3.amazonaws.com/statements/stmt_${id}.pdf`,
+      id, // Return the ID so the frontend can show the preview
     });
   } catch (error) {
     return res.status(500).json({
