@@ -522,6 +522,22 @@ async function processStripeWebhookEvent(event: any) {
         },
       });
 
+      // PRINCE TASK: Automate Vendor Payable Release
+      // If the invoice is fully paid, release related vendor payables that are on hold
+      if (stripeInvoice.amount_paid >= stripeInvoice.amount_due) {
+        await prisma.vendorPayable.updateMany({
+          where: {
+            invoiceId: invoice.id,
+            status: "ON_HOLD",
+            releasePolicy: "ON_CLIENT_PAYMENT",
+          },
+          data: {
+            status: "RELEASED",
+            releasedAt: new Date(),
+          },
+        });
+      }
+
       const amountPaid = Number(stripeInvoice.amount_paid || 0) / 100;
       if (amountPaid > 0) {
         const existingPayment = await prisma.payment.findFirst({
