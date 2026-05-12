@@ -6,6 +6,8 @@ import {
   getAllInvoices,
   updateInvoice,
   deleteInvoice,
+  getInvoiceStripeEvents,
+  resendStripeInvoice,
 } from "../controllers/invoice/invoice";
 import {
   createInvoiceLineItem,
@@ -34,5 +36,9 @@ invoiceRouter.delete("/line-items/:id", deleteInvoiceLineItem);
 invoiceRouter.get("/:id", getInvoice);
 invoiceRouter.patch("/:id", updateInvoice);
 invoiceRouter.delete("/:id", deleteInvoice);
+
+// Stripe flow routes
+invoiceRouter.get("/:id/stripe-events", getInvoiceStripeEvents);
+invoiceRouter.post("/:id/resend", resendStripeInvoice);
 
 export default invoiceRouter;
