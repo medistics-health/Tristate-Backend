@@ -392,7 +392,7 @@ export async function createDocusealSubmission(
             personId,
             docusealSubmissionId:
               docusealSubmissionData.submitters[0].submission_id,
-            url: docusealSubmissionData.submitters?.[0]?.url || null,
+            // url: docusealSubmissionData.submitters?.[0]?.url || null,
           },
         });
       } else {
