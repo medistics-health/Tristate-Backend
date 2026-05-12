@@ -11,6 +11,8 @@ import {
   syncQuickBooksVendorBillHandler,
   syncQuickBooksVendorBillPaymentHandler,
   syncQuickBooksVendorHandler,
+  getExternalSyncLogsHandler,
+  retryExternalSyncHandler,
 } from "../controllers/quickbooks/quickbooks";
 
 const quickBooksRouter = Router();
@@ -31,5 +33,9 @@ quickBooksRouter.post(
   syncQuickBooksVendorBillPaymentHandler,
 );
 quickBooksRouter.post("/payments/:paymentId/sync", syncQuickBooksPaymentHandler);
+
+// External Sync Jobs
+quickBooksRouter.get("/sync-logs", getExternalSyncLogsHandler);
+quickBooksRouter.post("/sync-logs/:jobId/retry", retryExternalSyncHandler);
 
 export { quickBooksRouter, quickBooksCallbackRouter };
