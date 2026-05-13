@@ -836,41 +836,52 @@ async function ensureQuickBooksCustomer(
     return customerId;
   } catch (err: any) {
     const errorMessage = err?.message || "";
-    if (errorMessage.includes("6240") || errorMessage.includes("Duplicate Name Exists")) {
-      const retryCustomer = await findQuickBooksRecordByName(
-        db,
-        connection,
-        "Customer",
-        "DisplayName",
-        trimmedName,
+    if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
+      // 1. Try to find as a Customer (Broad Search)
+      const cQuery = `SELECT * FROM Customer MAXRESULTS 1000`;
+      const allCustomers = await queryQuickBooks<any>(db, connection, cQuery);
+      const cList = allCustomers.Customer || [];
+      const foundCustomer = cList.find((c: any) => 
+        c.DisplayName.trim().toLowerCase() === trimmedName.toLowerCase() ||
+        (c.CompanyName && c.CompanyName.trim().toLowerCase() === trimmedName.toLowerCase())
       );
-      if (retryCustomer?.Id) {
+
+      if (foundCustomer) {
         await prisma.practice.update({
           where: { id: practiceId },
-          data: { quickbooksCustomerId: retryCustomer.Id },
+          data: { quickbooksCustomerId: foundCustomer.Id },
         });
-        return retryCustomer.Id as string;
+        return foundCustomer.Id as string;
       }
 
-      // Check for Vendor conflict
-      const conflictVendor = await findQuickBooksRecordByName(
-        db,
-        connection,
-        "Vendor",
-        "DisplayName",
-        trimmedName,
+      // 2. Try to find as a Vendor (Broad Search)
+      const vQuery = `SELECT * FROM Vendor MAXRESULTS 1000`;
+      const allVendors = await queryQuickBooks<any>(db, connection, vQuery);
+      const vList = allVendors.Vendor || [];
+      const foundVendor = vList.find((v: any) => 
+        v.DisplayName.trim().toLowerCase() === trimmedName.toLowerCase() ||
+        (v.CompanyName && v.CompanyName.trim().toLowerCase() === trimmedName.toLowerCase())
       );
 
-      if (conflictVendor?.Id) {
+      if (foundVendor) {
         throw new QuickBooksServiceError(
           400,
-          `QuickBooks Conflict: '${trimmedName}' already exists as a VENDOR in QuickBooks. You cannot have a Customer and Vendor with the same name. Please rename the Practice in TriState or the Vendor in QuickBooks.`,
+          `QuickBooks Conflict: '${trimmedName}' already exists as a VENDOR in QuickBooks. QBO does not allow duplicate names across Customers and Vendors. Please rename the Practice in TriState (e.g., '${trimmedName} (Practice)') or rename the Vendor in QuickBooks.`,
+        );
+      }
+
+      // 3. Check for Account conflict (just in case)
+      const conflictAccount = await findQuickBooksRecordByName(db, connection, "Account", "Name", trimmedName);
+      if (conflictAccount) {
+        throw new QuickBooksServiceError(
+          400,
+          `QuickBooks Conflict: '${trimmedName}' already exists as an ACCOUNT in QuickBooks. Please use a unique name for this Practice in TriState.`,
         );
       }
 
       throw new QuickBooksServiceError(
         400,
-        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks but could not be linked. Please rename it in TriState to something unique.`,
+        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks (possibly as an Employee or Other Name) but could not be automatically linked. Please rename it in TriState to something unique.`,
       );
     }
     throw err;
@@ -961,30 +972,13 @@ async function ensureQuickBooksVendor(
     } catch (logErr) {}
 
     if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
-      // 1. Try to find as a Vendor again
-      const retryVendor = await findQuickBooksRecordByName(
-        db,
-        connection,
-        "Vendor",
-        "DisplayName",
-        trimmedName,
-      );
-      if (retryVendor?.Id) {
-        await prisma.vendor.update({
-          where: { id: vendorId },
-          data: { quickbooksVendorId: retryVendor.Id },
-        });
-        return retryVendor.Id as string;
-      }
-
-      // Try with case-insensitive search if possible or slightly relaxed
-      // Note: QBO SELECT is case-insensitive usually, but let's try to find it via a broader search
-      const query = `SELECT * FROM Vendor MAXRESULTS 1000`;
-      const allVendors = await queryQuickBooks<any>(db, connection, query);
-      const list = allVendors.Vendor || [];
-      const foundVendor = list.find((v: any) => 
+      // 1. Try to find as a Vendor (Broad Search)
+      const vQuery = `SELECT * FROM Vendor MAXRESULTS 1000`;
+      const allVendors = await queryQuickBooks<any>(db, connection, vQuery);
+      const vList = allVendors.Vendor || [];
+      const foundVendor = vList.find((v: any) => 
         v.DisplayName.trim().toLowerCase() === trimmedName.toLowerCase() ||
-        v.CompanyName?.trim().toLowerCase() === trimmedName.toLowerCase()
+        (v.CompanyName && v.CompanyName.trim().toLowerCase() === trimmedName.toLowerCase())
       );
 
       if (foundVendor) {
@@ -995,25 +989,34 @@ async function ensureQuickBooksVendor(
         return foundVendor.Id as string;
       }
 
-      // 2. Try to find as a Customer
-      const conflictCustomer = await findQuickBooksRecordByName(
-        db,
-        connection,
-        "Customer",
-        "DisplayName",
-        trimmedName,
+      // 2. Try to find as a Customer (Broad Search)
+      const cQuery = `SELECT * FROM Customer MAXRESULTS 1000`;
+      const allCustomers = await queryQuickBooks<any>(db, connection, cQuery);
+      const cList = allCustomers.Customer || [];
+      const foundCustomer = cList.find((c: any) => 
+        c.DisplayName.trim().toLowerCase() === trimmedName.toLowerCase() ||
+        (c.CompanyName && c.CompanyName.trim().toLowerCase() === trimmedName.toLowerCase())
       );
 
-      if (conflictCustomer?.Id) {
+      if (foundCustomer) {
         throw new QuickBooksServiceError(
           400,
-          `QuickBooks Conflict: '${trimmedName}' already exists as a CUSTOMER in QuickBooks. You cannot have a Vendor and Customer with the same name. Please rename the Vendor in TriState (e.g. '${trimmedName} (Vendor)') or rename the Customer in QuickBooks.`,
+          `QuickBooks Conflict: '${trimmedName}' already exists as a CUSTOMER in QuickBooks. QBO does not allow duplicate names across Vendors and Customers. Please rename the Vendor in TriState (e.g., '${trimmedName} (Vendor)') or rename the Customer in QuickBooks.`,
+        );
+      }
+
+      // 3. Check for Account conflict (just in case)
+      const conflictAccount = await findQuickBooksRecordByName(db, connection, "Account", "Name", trimmedName);
+      if (conflictAccount) {
+        throw new QuickBooksServiceError(
+          400,
+          `QuickBooks Conflict: '${trimmedName}' already exists as an ACCOUNT in QuickBooks. Please use a unique name for this Vendor in TriState.`,
         );
       }
 
       throw new QuickBooksServiceError(
         400,
-        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks but could not be automatically linked. Please check if this name is used for an Account, Employee, or Other Name list in QuickBooks.`,
+        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks (possibly as an Employee or Other Name) but could not be automatically linked. Please rename it in TriState to something unique.`,
       );
     }
     throw err;
