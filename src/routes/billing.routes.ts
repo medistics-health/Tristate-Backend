@@ -9,6 +9,7 @@ import {
   getBillingRunHandler,
   listBillingRunsHandler,
   postBillingRunHandler,
+  deleteBillingRunHandler,
   recordManualPaymentHandler,
 } from "../controllers/billing/billing";
 
@@ -24,6 +25,7 @@ billingRouter.post("/runs/:id/snapshots", addBillingRunSnapshotsHandler);
 billingRouter.post("/runs/:id/calculate", calculateBillingRunHandler);
 billingRouter.post("/runs/:id/approve", approveBillingRunHandler);
 billingRouter.post("/runs/:id/post", postBillingRunHandler);
+billingRouter.delete("/runs/:id", deleteBillingRunHandler);
 billingRouter.post("/payments/record", recordManualPaymentHandler);
 
 export default billingRouter;

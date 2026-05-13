@@ -13,6 +13,7 @@ import {
   syncQuickBooksVendorBillPayment,
   syncQuickBooksVendorForCompany,
 } from "../../services/quickbooks/quickbooks.service";
+import { prisma } from "../../lib/prisma";
 
 type QuickBooksConnectBody = {
   companyId?: string;
@@ -63,6 +64,8 @@ export async function startQuickBooksConnectionHandler(
       userId: req.user.sub,
       isSandbox: isSandbox === true || isSandbox === undefined, // Default to true if not specified
     });
+
+    console.log("Generated QuickBooks Auth URL:", result.authUrl);
 
     return res.status(200).json({
       message: "QuickBooks authorization URL generated successfully.",
@@ -410,19 +413,20 @@ export async function getExternalSyncLogsHandler(
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const { prisma } = require("../../lib/prisma");
-
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
     const skip = (page - 1) * limit;
 
+    const where: any = {};
+
     const [logs, total] = await Promise.all([
       prisma.externalSyncJob.findMany({
+        where,
         orderBy: { updatedAt: "desc" },
         skip,
         take: limit,
       }),
-      prisma.externalSyncJob.count(),
+      prisma.externalSyncJob.count({ where }),
     ]);
 
     return res.status(200).json({
@@ -457,8 +461,6 @@ export async function retryExternalSyncHandler(
       return res.status(400).json({ message: "jobId is required." });
     }
 
-    const { prisma } = require("../../lib/prisma");
-    
     const job = await prisma.externalSyncJob.findFirst({
       where: { id: jobId }
     });
@@ -473,8 +475,7 @@ export async function retryExternalSyncHandler(
       case "INVOICE":
         result = await syncQuickBooksInvoice(job.entityId);
         break;
-      case "VENDOR_BILL":
-      case "VENDOR_PAYABLE":
+      case "BILL":
         result = await syncQuickBooksVendorBill(job.entityId);
         break;
       case "PAYMENT":

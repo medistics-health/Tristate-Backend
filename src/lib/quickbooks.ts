@@ -81,7 +81,7 @@ export function buildQuickBooksAuthUrl(params: {
   url.searchParams.set("state", state);
   url.searchParams.set("prompt", "select_account");
 
-  return url.toString().replace(/\+/g, "%20");
+  return url.toString();
 }
 
 export function encodeQuickBooksState(payload: QuickBooksStatePayload) {
