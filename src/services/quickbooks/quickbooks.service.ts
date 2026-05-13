@@ -369,6 +369,10 @@ async function requestQuickBooks<T>(
   }
 
   try {
+    console.log(`[QB-REQUEST] ${options.method} ${url.toString()}`);
+    if (options.body) {
+      console.log(`[QB-PAYLOAD] ${JSON.stringify(options.body).substring(0, 500)}`);
+    }
     const response = await fetch(url.toString(), {
       method: options.method,
       headers: {
@@ -648,16 +652,25 @@ async function ensureQuickBooksIncomeAccount(
 
   if (!account?.Id) {
     // Auto-create a default income account if none found
-    const createdAccount = await requestQuickBooks<any>(db, connection, {
-      method: "POST",
-      path: "/account",
-      body: {
-        Name: "Tristate Service Revenue",
-        AccountType: "Income",
-        AccountSubType: "ServiceFeeIncome",
-      },
-    });
-    account = createdAccount.Account || createdAccount;
+    try {
+      const createdAccount = await requestQuickBooks<any>(db, connection, {
+        method: "POST",
+        path: "/account",
+        body: {
+          Name: "Tristate Service Revenue",
+          AccountType: "Income",
+          AccountSubType: "ServiceFeeIncome",
+        },
+      });
+      account = createdAccount.Account || createdAccount;
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("6240") || msg.includes("Duplicate Name Exists")) {
+        account = await findQuickBooksRecordByName(db, connection, "Account", "Name", "Tristate Service Revenue");
+      } else {
+        throw err;
+      }
+    }
   }
 
   if (!account?.Id) {
@@ -683,32 +696,38 @@ async function ensureQuickBooksIncomeAccount(
     return existingItem.Id as string;
   }
 
-  const createdItem = await requestQuickBooks<any>(db, connection, {
-    method: "POST",
-    path: "/item",
-    body: {
-      Name: itemName,
-      Type: "Service",
-      IncomeAccountRef: { value: account.Id },
-      Taxable: false,
-      TrackQtyOnHand: false,
-    },
-  });
+  try {
+    const createdItem = await requestQuickBooks<any>(db, connection, {
+      method: "POST",
+      path: "/item",
+      body: {
+        Name: itemName,
+        Type: "Service",
+        IncomeAccountRef: { value: account.Id },
+        Taxable: false,
+        TrackQtyOnHand: false,
+      },
+    });
 
-  if (!createdItem?.Item?.Id && !createdItem?.Id) {
-    throw new QuickBooksServiceError(
-      500,
-      "QuickBooks did not return an item identifier.",
-    );
+    const qbItemId = (createdItem.Item?.Id || createdItem.Id) as string;
+    await updateQuickBooksConnectionFields(connection.id, {
+      defaultIncomeItemId: qbItemId,
+    });
+    return qbItemId;
+  } catch (err: any) {
+    const msg = err?.message || "";
+    if (msg.includes("6240") || msg.includes("Duplicate Name Exists")) {
+      const retryItem = await findQuickBooksRecordByName(db, connection, "Item", "Name", itemName);
+      if (retryItem?.Id) {
+        await updateQuickBooksConnectionFields(connection.id, {
+          defaultIncomeItemId: String(retryItem.Id),
+        });
+        return retryItem.Id as string;
+      }
+    }
+    throw err;
   }
 
-  const itemId = (createdItem.Item?.Id || createdItem.Id) as string;
-
-  await updateQuickBooksConnectionFields(connection.id, {
-    defaultIncomeItemId: itemId,
-  });
-
-  return itemId;
 }
 
 async function ensureQuickBooksExpenseAccount(
@@ -731,16 +750,25 @@ async function ensureQuickBooksExpenseAccount(
 
   if (!account?.Id) {
     // Auto-create a default expense account if none found
-    const createdAccount = await requestQuickBooks<any>(db, connection, {
-      method: "POST",
-      path: "/account",
-      body: {
-        Name: "Tristate Operating Expense",
-        AccountType: "Expense",
-        AccountSubType: "AdvertisingPromotional", // Generic fallback
-      },
-    });
-    account = createdAccount.Account || createdAccount;
+    try {
+      const createdAccount = await requestQuickBooks<any>(db, connection, {
+        method: "POST",
+        path: "/account",
+        body: {
+          Name: "Tristate Operating Expense",
+          AccountType: "Expense",
+          AccountSubType: "AdvertisingPromotional", // Generic fallback
+        },
+      });
+      account = createdAccount.Account || createdAccount;
+    } catch (err: any) {
+      const msg = err?.message || "";
+      if (msg.includes("6240") || msg.includes("Duplicate Name Exists")) {
+        account = await findQuickBooksRecordByName(db, connection, "Account", "Name", "Tristate Operating Expense");
+      } else {
+        throw err;
+      }
+    }
   }
 
   if (!account?.Id) {
@@ -806,6 +834,7 @@ async function ensureQuickBooksCustomer(
   }
 
   try {
+    console.log(`[QB-DEBUG] Attempting to create Customer: ${trimmedName}`);
     const createdCustomer = await requestQuickBooks<any>(db, connection, {
       method: "POST",
       path: "/customer",
@@ -836,9 +865,17 @@ async function ensureQuickBooksCustomer(
     return customerId;
   } catch (err: any) {
     const errorMessage = err?.message || "";
+    console.log(`[QB-DEBUG] Caught error in ensureQuickBooksCustomer: ${errorMessage}`);
+    
+    try {
+      require('fs').appendFileSync('c:/Tristate/backend_debug.log', `[${new Date().toISOString()}] ensureQuickBooksCustomer catch for ${trimmedName}: ${errorMessage}\n`);
+    } catch (e) {}
+
     if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
+      console.log(`[QB-DEBUG] Identified 6240 error for ${trimmedName}. Starting retry logic...`);
       // 1. Try to find as a Customer (Broad Search)
       const cQuery = `SELECT * FROM Customer MAXRESULTS 1000`;
+      console.log(`[QB-DEBUG] Running broad Customer search...`);
       const allCustomers = await queryQuickBooks<any>(db, connection, cQuery);
       const cList = allCustomers.Customer || [];
       const foundCustomer = cList.find((c: any) => 
@@ -847,6 +884,7 @@ async function ensureQuickBooksCustomer(
       );
 
       if (foundCustomer) {
+        console.log(`[QB-DEBUG] Found existing Customer in QBO: ${foundCustomer.Id}`);
         await prisma.practice.update({
           where: { id: practiceId },
           data: { quickbooksCustomerId: foundCustomer.Id },
@@ -855,6 +893,7 @@ async function ensureQuickBooksCustomer(
       }
 
       // 2. Try to find as a Vendor (Broad Search)
+      console.log(`[QB-DEBUG] Broad Customer search failed. Running broad Vendor search...`);
       const vQuery = `SELECT * FROM Vendor MAXRESULTS 1000`;
       const allVendors = await queryQuickBooks<any>(db, connection, vQuery);
       const vList = allVendors.Vendor || [];
@@ -864,26 +903,29 @@ async function ensureQuickBooksCustomer(
       );
 
       if (foundVendor) {
+        console.log(`[QB-DEBUG] Found conflicting Vendor in QBO: ${foundVendor.Id}`);
         throw new QuickBooksServiceError(
           400,
-          `QuickBooks Conflict: '${trimmedName}' already exists as a VENDOR in QuickBooks. QBO does not allow duplicate names across Customers and Vendors. Please rename the Practice in TriState (e.g., '${trimmedName} (Practice)') or rename the Vendor in QuickBooks.`,
+          `[QB-CONFLICT-DETECTION-V3] QuickBooks Conflict: '${trimmedName}' already exists as a VENDOR in QuickBooks. QBO does not allow duplicate names across Customers and Vendors. Please rename the Practice in TriState (e.g., '${trimmedName} (Practice)') or rename the Vendor in QuickBooks.`,
         );
       }
 
       // 3. Check for Account conflict (just in case)
+      console.log(`[QB-DEBUG] Broad Vendor search failed. Checking Accounts...`);
       const conflictAccount = await findQuickBooksRecordByName(db, connection, "Account", "Name", trimmedName);
       if (conflictAccount) {
         throw new QuickBooksServiceError(
           400,
-          `QuickBooks Conflict: '${trimmedName}' already exists as an ACCOUNT in QuickBooks. Please use a unique name for this Practice in TriState.`,
+          `[QB-CONFLICT-DETECTION-V3] QuickBooks Conflict: '${trimmedName}' already exists as an ACCOUNT in QuickBooks. Please use a unique name for this Practice in TriState.`,
         );
       }
 
       throw new QuickBooksServiceError(
         400,
-        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks (possibly as an Employee or Other Name) but could not be automatically linked. Please rename it in TriState to something unique.`,
+        `[QB-CONFLICT-DETECTION-V3] QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks (possibly as an Employee or Other Name) but could not be automatically linked. Please rename it in TriState to something unique.`,
       );
     }
+    console.log(`[QB-DEBUG] Error did not match 6240 criteria. Re-throwing.`);
     throw err;
   }
 }
@@ -935,6 +977,7 @@ async function ensureQuickBooksVendor(
   }
 
   try {
+    console.log(`[QB-DEBUG] Attempting to create Vendor: ${trimmedName}`);
     const createdVendor = await requestQuickBooks<any>(db, connection, {
       method: "POST",
       path: "/vendor",
@@ -965,15 +1008,17 @@ async function ensureQuickBooksVendor(
     return qbVendorId;
   } catch (err: any) {
     const errorMessage = err?.message || String(err);
+    console.log(`[QB-DEBUG] Caught error in ensureQuickBooksVendor: ${errorMessage}`);
     
-    // TEMPORARY DEBUG LOG
     try {
-      require('fs').appendFileSync('c:/Tristate/backend_debug.log', `[${new Date().toISOString()}] Error in ensureQuickBooksVendor for ${displayName}: ${errorMessage}\n`);
-    } catch (logErr) {}
+      require('fs').appendFileSync('c:/Tristate/backend_debug.log', `[${new Date().toISOString()}] ensureQuickBooksVendor catch for ${trimmedName}: ${errorMessage}\n`);
+    } catch (e) {}
 
     if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
+      console.log(`[QB-DEBUG] Identified 6240 error for ${trimmedName}. Starting retry logic...`);
       // 1. Try to find as a Vendor (Broad Search)
       const vQuery = `SELECT * FROM Vendor MAXRESULTS 1000`;
+      console.log(`[QB-DEBUG] Running broad Vendor search...`);
       const allVendors = await queryQuickBooks<any>(db, connection, vQuery);
       const vList = allVendors.Vendor || [];
       const foundVendor = vList.find((v: any) => 
@@ -982,6 +1027,7 @@ async function ensureQuickBooksVendor(
       );
 
       if (foundVendor) {
+        console.log(`[QB-DEBUG] Found existing Vendor in QBO: ${foundVendor.Id}`);
         await prisma.vendor.update({
           where: { id: vendorId },
           data: { quickbooksVendorId: foundVendor.Id },
@@ -990,6 +1036,7 @@ async function ensureQuickBooksVendor(
       }
 
       // 2. Try to find as a Customer (Broad Search)
+      console.log(`[QB-DEBUG] Broad Vendor search failed. Running broad Customer search...`);
       const cQuery = `SELECT * FROM Customer MAXRESULTS 1000`;
       const allCustomers = await queryQuickBooks<any>(db, connection, cQuery);
       const cList = allCustomers.Customer || [];
@@ -999,26 +1046,29 @@ async function ensureQuickBooksVendor(
       );
 
       if (foundCustomer) {
+        console.log(`[QB-DEBUG] Found conflicting Customer in QBO: ${foundCustomer.Id}`);
         throw new QuickBooksServiceError(
           400,
-          `QuickBooks Conflict: '${trimmedName}' already exists as a CUSTOMER in QuickBooks. QBO does not allow duplicate names across Vendors and Customers. Please rename the Vendor in TriState (e.g., '${trimmedName} (Vendor)') or rename the Customer in QuickBooks.`,
+          `[QB-CONFLICT-DETECTION-V3] QuickBooks Conflict: '${trimmedName}' already exists as a CUSTOMER in QuickBooks. QBO does not allow duplicate names across Vendors and Customers. Please rename the Vendor in TriState (e.g., '${trimmedName} (Vendor)') or rename the Customer in QuickBooks.`,
         );
       }
 
       // 3. Check for Account conflict (just in case)
+      console.log(`[QB-DEBUG] Broad Customer search failed. Checking Accounts...`);
       const conflictAccount = await findQuickBooksRecordByName(db, connection, "Account", "Name", trimmedName);
       if (conflictAccount) {
         throw new QuickBooksServiceError(
           400,
-          `QuickBooks Conflict: '${trimmedName}' already exists as an ACCOUNT in QuickBooks. Please use a unique name for this Vendor in TriState.`,
+          `[QB-CONFLICT-DETECTION-V3] QuickBooks Conflict: '${trimmedName}' already exists as an ACCOUNT in QuickBooks. Please use a unique name for this Vendor in TriState.`,
         );
       }
 
       throw new QuickBooksServiceError(
         400,
-        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks (possibly as an Employee or Other Name) but could not be automatically linked. Please rename it in TriState to something unique.`,
+        `[QB-CONFLICT-DETECTION-V3] QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks (possibly as an Employee or Other Name) but could not be automatically linked. Please rename it in TriState to something unique.`,
       );
     }
+    console.log(`[QB-DEBUG] Error did not match 6240 criteria. Re-throwing.`);
     throw err;
   }
 }

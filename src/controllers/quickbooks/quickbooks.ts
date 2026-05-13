@@ -1,3 +1,4 @@
+import { PaymentStatus } from "../../../generated/prisma/client";
 import type { Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import {
@@ -400,6 +401,76 @@ export async function syncQuickBooksVendorBillPaymentHandler(
       res,
       error,
       "Unable to sync QuickBooks bill payment.",
+    );
+  }
+}
+
+export async function quickSyncInvoicePaymentHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const invoiceId = resolveString(req.params.invoiceId);
+    if (!invoiceId) {
+      return res.status(400).json({ message: "invoiceId is required." });
+    }
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        paymentAllocations: true,
+        practice: true,
+      },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({ message: "Invoice not found." });
+    }
+
+    if (invoice.status !== "PAID") {
+       return res.status(400).json({ message: "Invoice must be in PAID status to quick sync payment." });
+    }
+
+    let paymentId: string;
+
+    if (invoice.paymentAllocations && invoice.paymentAllocations.length > 0) {
+      paymentId = invoice.paymentAllocations[0].paymentId;
+    } else {
+      // Create a dummy payment record in TriState to represent this payment
+      const payment = await prisma.payment.create({
+        data: {
+          practiceId: invoice.practiceId,
+          amount: invoice.totalAmount,
+          paymentDate: new Date(),
+          status: PaymentStatus.SUCCEEDED,
+          paymentMethod: "MANUAL",
+          currency: invoice.currency || "USD",
+          allocations: {
+            create: {
+              invoiceId: invoice.id,
+              allocatedAmount: invoice.totalAmount,
+            }
+          }
+        }
+      });
+      paymentId = payment.id;
+    }
+
+    const result = await syncQuickBooksPayment(paymentId);
+
+    return res.status(200).json({
+      message: "QuickBooks payment synced successfully via quick-sync.",
+      ...result,
+    });
+  } catch (error) {
+    return handleQuickBooksError(
+      res,
+      error,
+      "Unable to quick-sync QuickBooks payment.",
     );
   }
 }
