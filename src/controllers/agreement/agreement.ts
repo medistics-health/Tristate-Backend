@@ -1,4 +1,5 @@
 import {
+  DealStage,
   AgreementStatus,
   AgreementType,
 } from "../../../generated/prisma/client";
@@ -43,6 +44,87 @@ type SendAgreementEmailBody = {
   subject?: string;
   message?: string;
 };
+
+async function resolveInitialPacketTemplateIds(agreementId: string) {
+  const agreement = await prisma.agreement.findFirst({
+    where: { id: agreementId },
+    include: {
+      docusealSubmissions: {
+        select: {
+          templateId: true,
+        },
+      },
+    },
+  });
+
+  if (!agreement) {
+    return { error: "Agreement not found." as const };
+  }
+
+  const templateIds = agreement.docusealSubmissions
+    .map((submission) => submission.templateId)
+    .filter((value): value is number => value !== null);
+
+  const uniqueTemplateIds = [...new Set(templateIds)];
+
+  if (uniqueTemplateIds.length === 0) {
+    return {
+      error:
+        "No DocuSeal templates were found on this agreement. Pass templateId explicitly or create the agreement with docusealSubmissions first.",
+    };
+  }
+
+  return {
+    agreement,
+    templateIds: uniqueTemplateIds,
+  };
+}
+
+async function updateDealAfterAgreementSend(agreementId: string) {
+  const agreement = await prisma.agreement.findUnique({
+    where: { id: agreementId },
+    select: { dealId: true },
+  });
+
+  if (!agreement?.dealId) {
+    return;
+  }
+
+  await prisma.deal.update({
+    where: { id: agreement.dealId },
+    data: {
+      stage: DealStage.AGREEMENT_SENT,
+      lastActivityAt: new Date(),
+      activityCount: {
+        increment: 1,
+      },
+      nextTaskTitle: "Awaiting agreement signatures",
+    },
+  });
+}
+
+async function updateDealAfterAgreementSigned(agreementId: string) {
+  const agreement = await prisma.agreement.findUnique({
+    where: { id: agreementId },
+    select: { dealId: true },
+  });
+
+  if (!agreement?.dealId) {
+    return;
+  }
+
+  await prisma.deal.update({
+    where: { id: agreement.dealId },
+    data: {
+      stage: DealStage.ONBOARDING,
+      lastActivityAt: new Date(),
+      activityCount: {
+        increment: 1,
+      },
+      nextTaskTitle: "Rate finalization pending",
+    },
+  });
+}
 
 export async function handleDocusealWebhook(req: Request, res: Response) {
   try {
@@ -129,8 +211,12 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
         where: { docusealSubmissionId: externalId },
         // include: { signers: true },
       });
-      if (!dbSubmission) return;
-      if (dbSubmission.status === "completed") return;
+      if (!dbSubmission) {
+        return res.status(200).send("OK");
+      }
+      if (dbSubmission.status === "completed") {
+        return res.status(200).send("OK");
+      }
 
       await prisma.docusealSubmission.update({
         where: { docusealSubmissionId: externalId },
@@ -150,8 +236,10 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
         if (allCompleted) {
           await prisma.agreement.update({
             where: { id: dbSubmission.agreementId },
-            data: { status: AgreementStatus.ACTIVE },
+            data: { status: AgreementStatus.SIGNED },
           });
+
+          await updateDealAfterAgreementSigned(dbSubmission.agreementId);
 
           const person = await prisma.person.findFirst({
             where: { id: dbSubmission.personId },
@@ -191,13 +279,17 @@ export async function createDocusealSubmission(
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    if (!agreementId || !personId || !templateId) {
+    if (!agreementId || !personId) {
       return res.status(400).json({
-        message: "agreementId, personId and templateId are required.",
+        message: "agreementId and personId are required.",
       });
     }
 
-    const templateIds = Array.isArray(templateId) ? templateId : [templateId];
+    let templateIds = Array.isArray(templateId)
+      ? templateId
+      : templateId !== undefined
+        ? [templateId]
+        : [];
 
     const agreement = await prisma.agreement.findFirst({
       where: { id: agreementId },
@@ -206,6 +298,16 @@ export async function createDocusealSubmission(
 
     if (!agreement) {
       return res.status(404).json({ message: "Agreement not found." });
+    }
+
+    if (templateIds.length === 0) {
+      const resolved = await resolveInitialPacketTemplateIds(agreementId);
+
+      if ("error" in resolved) {
+        return res.status(400).json({ message: resolved.error });
+      }
+
+      templateIds = resolved.templateIds;
     }
 
     const person = await prisma.person.findFirst({
@@ -290,7 +392,7 @@ export async function createDocusealSubmission(
             personId,
             docusealSubmissionId:
               docusealSubmissionData.submitters[0].submission_id,
-            url: docusealSubmissionData.submitters?.[0]?.url || null,
+            // url: docusealSubmissionData.submitters?.[0]?.url || null,
           },
         });
       } else {
@@ -508,6 +610,8 @@ export async function sendAgreementEmail(
     `;
 
     await sendOutlookEmail(person.email, emailSubject, emailBody);
+
+    await updateDealAfterAgreementSend(agreementId);
 
     return res.status(200).json({
       message: "Agreement email sent successfully.",

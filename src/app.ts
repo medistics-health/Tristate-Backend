@@ -17,12 +17,16 @@ import practiceGroupRouter from "./routes/practiceGroup.routes";
 import taxIdRouter from "./routes/taxId.routes";
 import groupNpiRouter from "./routes/groupNpi.routes";
 import onboardingRouter from "./routes/onboarding.routes";
+import monthlyReportRouter from "./routes/monthlyReport.routes";
 import vendorRouter from "./routes/vendor.routes";
 import billingRouter from "./routes/billing.routes";
 import vendorPayableRouter from "./routes/vendorPayable.routes";
 import portalRouter from "./routes/portal.routes";
 import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
-import { quickBooksRouter, quickBooksCallbackRouter } from "./routes/quickbooks.routes";
+import {
+  quickBooksRouter,
+  quickBooksCallbackRouter,
+} from "./routes/quickbooks.routes";
 import userRouter from "./routes/user.routes";
 import settingsRouter from "./routes/settings.routes";
 import cors from "cors";
@@ -61,11 +65,13 @@ app.use("/api/v1/practice-groups", practiceGroupRouter);
 app.use("/api/v1/tax-ids", taxIdRouter);
 app.use("/api/v1/group-npis", groupNpiRouter);
 app.use("/api/v1/onboardings", onboardingRouter);
+app.use("/api/v1/monthly-reports", monthlyReportRouter);
 app.use("/api/v1/portal", portalRouter);
 app.use("/api/v1/stripe", stripeRouter);
 app.use("/api/v1/quickbooks/callback", quickBooksCallbackRouter);
 app.use("/api/v1/quickbooks", quickBooksRouter);
 app.use("/api/v1/users", userRouter);
+app.use("/api/v1/deals", dealRouter);
 app.use("/api/v1/settings", settingsRouter);
 
 export default app;
