@@ -100,7 +100,7 @@ export async function getAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const audit = await prisma.audit.findFirst({
-      where: { id,  },
+      where: { id },
       include: { practice: true, deal: true },
     });
 
@@ -141,7 +141,7 @@ export async function updateAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingAudit = await prisma.audit.findFirst({
-      where: { id,  },
+      where: { id },
     });
 
     if (!existingAudit) {
@@ -281,7 +281,7 @@ export async function deleteAudit(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingAudit = await prisma.audit.findFirst({
-      where: { id,  },
+      where: { id },
     });
 
     if (!existingAudit) {
