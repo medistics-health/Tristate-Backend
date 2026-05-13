@@ -33,7 +33,8 @@ export async function listUsers(req: AuthenticatedRequest, res: Response) {
 
 export async function updateUser(req: AuthenticatedRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) return res.status(400).json({ message: "User id is required." });
     const { firstName, lastName, email, role } = req.body;
 
     const user = await prisma.user.update({
@@ -103,7 +104,8 @@ export async function createUser(req: AuthenticatedRequest, res: Response) {
 
 export async function deleteUser(req: AuthenticatedRequest, res: Response) {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) return res.status(400).json({ message: "User id is required." });
 
     // Prevent self-deletion if needed, but for now allow all
     await prisma.user.delete({ where: { id } });
