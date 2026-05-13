@@ -6,6 +6,7 @@ import {
   syncVendorPayableToQuickBooks,
   generateVendorStatement,
   createVendorPayable,
+  deleteVendorPayable,
 } from "../controllers/vendorPayable/vendorPayable";
 
 const vendorPayableRouter = Router();
@@ -17,5 +18,6 @@ vendorPayableRouter.post("/", createVendorPayable);
 vendorPayableRouter.post("/:id/release", releaseVendorPayable);
 vendorPayableRouter.post("/:id/sync-qb", syncVendorPayableToQuickBooks);
 vendorPayableRouter.post("/:id/statement", generateVendorStatement);
+vendorPayableRouter.delete("/:id", deleteVendorPayable);
 
 export default vendorPayableRouter;

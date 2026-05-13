@@ -163,6 +163,11 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
         lineItems: true,
         purchaseOrders: true,
         vendorPayables: true,
+        paymentAllocations: {
+          include: {
+            payment: true,
+          },
+        },
       },
     });
 

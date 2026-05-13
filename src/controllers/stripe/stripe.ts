@@ -528,7 +528,7 @@ async function processStripeWebhookEvent(event: any) {
         await prisma.vendorPayable.updateMany({
           where: {
             invoiceId: invoice.id,
-            status: "ON_HOLD",
+            status: { in: ["APPROVED", "ON_HOLD", "DRAFT"] },
             releasePolicy: "ON_CLIENT_PAYMENT",
           },
           data: {

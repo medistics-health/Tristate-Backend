@@ -1195,8 +1195,8 @@ async function refreshInvoiceStatus(db: DbClient, invoiceId: string) {
 }
 
 function generateDocumentNumber(prefix: "INV" | "PAY") {
-  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "").slice(2, 12);
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `${prefix}-${stamp}-${suffix}`;
 }
 
@@ -1268,7 +1268,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         },
       },
     });
-  });
+  }, { timeout: 30000 });
 }
 
 export async function upsertBillingRunSnapshots(
@@ -2019,6 +2019,67 @@ export async function recordManualPayment(body: RecordPaymentBody) {
       payment,
       allocations: createdAllocations,
     };
+  });
+}
+
+export async function deleteBillingRun(billingRunId: string) {
+  return prisma.$transaction(async (tx) => {
+    const run = await tx.billingRun.findUnique({
+      where: { id: billingRunId },
+      include: {
+        items: true,
+      },
+    });
+
+    if (!run) {
+      throw new BillingServiceError(404, "Billing run not found.");
+    }
+
+    if (
+      run.status === BillingRunStatus.POSTED ||
+      run.status === BillingRunStatus.CLOSED
+    ) {
+      throw new BillingServiceError(
+        400,
+        "Cannot delete a billing run that has already been posted or closed.",
+      );
+    }
+
+    // Cleanup related entities
+    const itemIds = run.items.map((item) => item.id);
+
+    // Delete exception events
+    await tx.exceptionEvent.deleteMany({
+      where: {
+        OR: [
+          { entityType: ApprovalEntityType.BILLING_RUN, entityId: billingRunId },
+          {
+            entityType: ApprovalEntityType.BILLING_RUN_ITEM,
+            entityId: { in: itemIds },
+          },
+        ],
+      },
+    });
+
+    // Delete approval decisions
+    await tx.approvalDecision.deleteMany({
+      where: {
+        entityType: ApprovalEntityType.BILLING_RUN,
+        entityId: billingRunId,
+      },
+    });
+
+    // Delete input snapshots
+    await tx.billingInputSnapshot.deleteMany({
+      where: { billingRunId },
+    });
+
+    // The rest (items, components) are handled by database cascade deletion
+    await tx.billingRun.delete({
+      where: { id: billingRunId },
+    });
+
+    return { id: billingRunId };
   });
 }
 

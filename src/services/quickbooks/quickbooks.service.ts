@@ -46,6 +46,7 @@ type QuickBooksRequestOptions = {
 };
 
 type QuickBooksSyncJobParams = {
+  companyId?: string;
   entityType: ExternalEntityType;
   entityId: string;
   externalId?: string | null;
@@ -633,7 +634,7 @@ async function ensureQuickBooksIncomeAccount(
     return connection.defaultIncomeItemId;
   }
 
-  const account =
+  let account =
     (await findPreferredQuickBooksAccount(db, connection, [
       "Service/Fee Income",
       "Sales of Product Income",
@@ -642,12 +643,27 @@ async function ensureQuickBooksIncomeAccount(
     (await findPreferredQuickBooksAccount(db, connection, [
       "Service Income",
       "Other Income",
+      "Other Common Income",
     ]));
+
+  if (!account?.Id) {
+    // Auto-create a default income account if none found
+    const createdAccount = await requestQuickBooks<any>(db, connection, {
+      method: "POST",
+      path: "/account",
+      body: {
+        Name: "Tristate Service Revenue",
+        AccountType: "Income",
+        AccountSubType: "ServiceFeeIncome",
+      },
+    });
+    account = createdAccount.Account || createdAccount;
+  }
 
   if (!account?.Id) {
     throw new QuickBooksServiceError(
       400,
-      "No suitable income account was found in QuickBooks.",
+      "Unable to find or create a suitable income account in QuickBooks.",
     );
   }
 
@@ -703,7 +719,7 @@ async function ensureQuickBooksExpenseAccount(
     return connection.defaultExpenseAccountId;
   }
 
-  const account =
+  let account =
     (await findPreferredQuickBooksAccount(db, connection, [
       "Cost of Goods Sold",
       "Expenses",
@@ -714,9 +730,23 @@ async function ensureQuickBooksExpenseAccount(
     ]));
 
   if (!account?.Id) {
+    // Auto-create a default expense account if none found
+    const createdAccount = await requestQuickBooks<any>(db, connection, {
+      method: "POST",
+      path: "/account",
+      body: {
+        Name: "Tristate Operating Expense",
+        AccountType: "Expense",
+        AccountSubType: "AdvertisingPromotional", // Generic fallback
+      },
+    });
+    account = createdAccount.Account || createdAccount;
+  }
+
+  if (!account?.Id) {
     throw new QuickBooksServiceError(
       400,
-      "No suitable expense account was found in QuickBooks.",
+      "Unable to find or create a suitable expense account in QuickBooks.",
     );
   }
 
@@ -740,15 +770,31 @@ async function ensureQuickBooksCustomer(
   });
 
   if (existing?.quickbooksCustomerId) {
-    return existing.quickbooksCustomerId;
+    try {
+      // Verify the ID is valid for the current QuickBooks connection
+      await requestQuickBooks(db, connection, {
+        method: "GET",
+        path: `/customer/${existing.quickbooksCustomerId}`,
+      });
+      return existing.quickbooksCustomerId;
+    } catch (err) {
+      // If it fails (e.g. 400 Invalid ID or 404 Not Found), 
+      // it means the ID is from a different company or was deleted.
+      // We clear it and proceed to find/create it for the current company.
+      await prisma.practice.update({
+        where: { id: practiceId },
+        data: { quickbooksCustomerId: null },
+      });
+    }
   }
 
-  const customer = await findQuickBooksRecordByName(
+  const trimmedName = displayName.trim();
+  let customer = await findQuickBooksRecordByName(
     db,
     connection,
     "Customer",
     "DisplayName",
-    displayName,
+    trimmedName,
   );
 
   if (customer?.Id) {
@@ -759,34 +805,76 @@ async function ensureQuickBooksCustomer(
     return customer.Id as string;
   }
 
-  const createdCustomer = await requestQuickBooks<any>(db, connection, {
-    method: "POST",
-    path: "/customer",
-    body: {
-      DisplayName: displayName,
-      CompanyName: displayName,
-      PrimaryEmailAddr: email ? { Address: email } : undefined,
-      Active: true,
-    },
-  });
+  try {
+    const createdCustomer = await requestQuickBooks<any>(db, connection, {
+      method: "POST",
+      path: "/customer",
+      body: {
+        DisplayName: trimmedName,
+        CompanyName: trimmedName,
+        PrimaryEmailAddr: email ? { Address: email } : undefined,
+        Active: true,
+      },
+    });
 
-  const customerId = (createdCustomer.Customer?.Id || createdCustomer.Id) as
-    | string
-    | undefined;
+    const customerId = (createdCustomer.Customer?.Id || createdCustomer.Id) as
+      | string
+      | undefined;
 
-  if (!customerId) {
-    throw new QuickBooksServiceError(
-      500,
-      "QuickBooks did not return a customer identifier.",
-    );
+    if (!customerId) {
+      throw new QuickBooksServiceError(
+        500,
+        "QuickBooks did not return a customer identifier.",
+      );
+    }
+
+    await prisma.practice.update({
+      where: { id: practiceId },
+      data: { quickbooksCustomerId: customerId },
+    });
+
+    return customerId;
+  } catch (err: any) {
+    const errorMessage = err?.message || "";
+    if (errorMessage.includes("6240") || errorMessage.includes("Duplicate Name Exists")) {
+      const retryCustomer = await findQuickBooksRecordByName(
+        db,
+        connection,
+        "Customer",
+        "DisplayName",
+        trimmedName,
+      );
+      if (retryCustomer?.Id) {
+        await prisma.practice.update({
+          where: { id: practiceId },
+          data: { quickbooksCustomerId: retryCustomer.Id },
+        });
+        return retryCustomer.Id as string;
+      }
+
+      // Check for Vendor conflict
+      const conflictVendor = await findQuickBooksRecordByName(
+        db,
+        connection,
+        "Vendor",
+        "DisplayName",
+        trimmedName,
+      );
+
+      if (conflictVendor?.Id) {
+        throw new QuickBooksServiceError(
+          400,
+          `QuickBooks Conflict: '${trimmedName}' already exists as a VENDOR in QuickBooks. You cannot have a Customer and Vendor with the same name. Please rename the Practice in TriState or the Vendor in QuickBooks.`,
+        );
+      }
+
+      throw new QuickBooksServiceError(
+        400,
+        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks but could not be linked. Please rename it in TriState to something unique.`,
+      );
+    }
+    throw err;
   }
-
-  await prisma.practice.update({
-    where: { id: practiceId },
-    data: { quickbooksCustomerId: customerId },
-  });
-
-  return customerId;
 }
 
 async function ensureQuickBooksVendor(
@@ -802,53 +890,134 @@ async function ensureQuickBooksVendor(
   });
 
   if (existing?.quickbooksVendorId) {
-    return existing.quickbooksVendorId;
+    try {
+      // Verify the ID is valid for the current QuickBooks connection
+      await requestQuickBooks(db, connection, {
+        method: "GET",
+        path: `/vendor/${existing.quickbooksVendorId}`,
+      });
+      return existing.quickbooksVendorId;
+    } catch (err) {
+      // If it fails, clear it and proceed to find/create it for the current company.
+      await prisma.vendor.update({
+        where: { id: vendorId },
+        data: { quickbooksVendorId: null },
+      });
+    }
   }
 
-  const vendor = await findQuickBooksRecordByName(
+  const trimmedName = displayName.trim();
+  const vendorRecord = await findQuickBooksRecordByName(
     db,
     connection,
     "Vendor",
     "DisplayName",
-    displayName,
+    trimmedName,
   );
 
-  if (vendor?.Id) {
+  if (vendorRecord?.Id) {
     await prisma.vendor.update({
       where: { id: vendorId },
-      data: { quickbooksVendorId: vendor.Id },
+      data: { quickbooksVendorId: vendorRecord.Id },
     });
-    return vendor.Id as string;
+    return vendorRecord.Id as string;
   }
 
-  const createdVendor = await requestQuickBooks<any>(db, connection, {
-    method: "POST",
-    path: "/vendor",
-    body: {
-      DisplayName: displayName,
-      CompanyName: displayName,
-      PrimaryEmailAddr: email ? { Address: email } : undefined,
-      Active: true,
-    },
-  });
+  try {
+    const createdVendor = await requestQuickBooks<any>(db, connection, {
+      method: "POST",
+      path: "/vendor",
+      body: {
+        DisplayName: trimmedName,
+        CompanyName: trimmedName,
+        PrimaryEmailAddr: email ? { Address: email } : undefined,
+        Active: true,
+      },
+    });
 
-  const qbVendorId = (createdVendor.Vendor?.Id || createdVendor.Id) as
-    | string
-    | undefined;
+    const qbVendorId = (createdVendor.Vendor?.Id || createdVendor.Id) as
+      | string
+      | undefined;
 
-  if (!qbVendorId) {
-    throw new QuickBooksServiceError(
-      500,
-      "QuickBooks did not return a vendor identifier.",
-    );
+    if (!qbVendorId) {
+      throw new QuickBooksServiceError(
+        500,
+        "QuickBooks did not return a vendor identifier.",
+      );
+    }
+
+    await prisma.vendor.update({
+      where: { id: vendorId },
+      data: { quickbooksVendorId: qbVendorId },
+    });
+
+    return qbVendorId;
+  } catch (err: any) {
+    const errorMessage = err?.message || String(err);
+    
+    // TEMPORARY DEBUG LOG
+    try {
+      require('fs').appendFileSync('c:/Tristate/backend_debug.log', `[${new Date().toISOString()}] Error in ensureQuickBooksVendor for ${displayName}: ${errorMessage}\n`);
+    } catch (logErr) {}
+
+    if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
+      // 1. Try to find as a Vendor again
+      const retryVendor = await findQuickBooksRecordByName(
+        db,
+        connection,
+        "Vendor",
+        "DisplayName",
+        trimmedName,
+      );
+      if (retryVendor?.Id) {
+        await prisma.vendor.update({
+          where: { id: vendorId },
+          data: { quickbooksVendorId: retryVendor.Id },
+        });
+        return retryVendor.Id as string;
+      }
+
+      // Try with case-insensitive search if possible or slightly relaxed
+      // Note: QBO SELECT is case-insensitive usually, but let's try to find it via a broader search
+      const query = `SELECT * FROM Vendor MAXRESULTS 1000`;
+      const allVendors = await queryQuickBooks<any>(db, connection, query);
+      const list = allVendors.Vendor || [];
+      const foundVendor = list.find((v: any) => 
+        v.DisplayName.trim().toLowerCase() === trimmedName.toLowerCase() ||
+        v.CompanyName?.trim().toLowerCase() === trimmedName.toLowerCase()
+      );
+
+      if (foundVendor) {
+        await prisma.vendor.update({
+          where: { id: vendorId },
+          data: { quickbooksVendorId: foundVendor.Id },
+        });
+        return foundVendor.Id as string;
+      }
+
+      // 2. Try to find as a Customer
+      const conflictCustomer = await findQuickBooksRecordByName(
+        db,
+        connection,
+        "Customer",
+        "DisplayName",
+        trimmedName,
+      );
+
+      if (conflictCustomer?.Id) {
+        throw new QuickBooksServiceError(
+          400,
+          `QuickBooks Conflict: '${trimmedName}' already exists as a CUSTOMER in QuickBooks. You cannot have a Vendor and Customer with the same name. Please rename the Vendor in TriState (e.g. '${trimmedName} (Vendor)') or rename the Customer in QuickBooks.`,
+        );
+      }
+
+      throw new QuickBooksServiceError(
+        400,
+        `QuickBooks Conflict: '${trimmedName}' already exists in QuickBooks but could not be automatically linked. Please check if this name is used for an Account, Employee, or Other Name list in QuickBooks.`,
+      );
+    }
+    throw err;
   }
-
-  await prisma.vendor.update({
-    where: { id: vendorId },
-    data: { quickbooksVendorId: qbVendorId },
-  });
-
-  return qbVendorId;
 }
 
 function buildQuickBooksInvoiceLines(params: {
@@ -1073,6 +1242,7 @@ export async function syncQuickBooksCustomer(practiceId: string) {
 
   return syncQuickBooksJob(
     {
+      companyId: practice.companyId!,
       entityType: ExternalEntityType.CUSTOMER,
       entityId: practiceId,
       externalId: practice.quickbooksCustomerId,
@@ -1112,6 +1282,7 @@ export async function syncQuickBooksVendorForCompany(
 
   return syncQuickBooksJob(
     {
+      companyId,
       entityType: ExternalEntityType.VENDOR,
       entityId: vendorId,
       externalId: vendor.quickbooksVendorId,
@@ -1158,6 +1329,7 @@ export async function syncQuickBooksInvoice(invoiceId: string) {
 
   return syncQuickBooksJob(
     {
+      companyId: invoice.practice.companyId!,
       entityType: ExternalEntityType.INVOICE,
       entityId: invoiceId,
       externalId: invoice.quickbooksInvoiceId,
@@ -1177,7 +1349,7 @@ export async function syncQuickBooksInvoice(invoiceId: string) {
       );
 
       const itemId = await ensureQuickBooksIncomeAccount(prisma, connection);
-      
+
       if (invoice.lineItems.length === 0) {
         throw new QuickBooksServiceError(
           400,
@@ -1266,6 +1438,7 @@ export async function syncQuickBooksVendorBill(vendorPayableId: string) {
 
   return syncQuickBooksJob(
     {
+      companyId: vendorPayable.practice.companyId!,
       entityType: ExternalEntityType.BILL,
       entityId: vendorPayableId,
       externalId: vendorPayable.quickbooksBillId,
@@ -1285,7 +1458,7 @@ export async function syncQuickBooksVendorBill(vendorPayableId: string) {
       );
 
       const accountId = await ensureQuickBooksExpenseAccount(prisma, connection);
-      
+
       if (vendorPayable.lineItems.length === 0) {
         throw new QuickBooksServiceError(
           400,
@@ -1357,6 +1530,7 @@ export async function syncQuickBooksPayment(paymentId: string) {
 
   return syncQuickBooksJob(
     {
+      companyId: payment.practice.companyId!,
       entityType: ExternalEntityType.PAYMENT,
       entityId: paymentId,
       externalId: payment.quickbooksPaymentId,
@@ -1458,6 +1632,7 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
 
   return syncQuickBooksJob(
     {
+      companyId: vendorPayable.practice.companyId!,
       entityType: ExternalEntityType.BILL_PAYMENT,
       entityId: vendorPayableId,
       externalId: vendorPayable.quickbooksBillPaymentId,

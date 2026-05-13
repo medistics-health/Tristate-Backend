@@ -13,6 +13,7 @@ import {
   BillingServiceError,
   calculateBillingRun,
   createBillingRun,
+  deleteBillingRun,
   getBillingReadiness,
   getBillingRun,
   listBillingRuns,
@@ -288,5 +289,30 @@ export async function recordManualPaymentHandler(
     });
   } catch (error) {
     return handleBillingError(res, error, "Unable to record payment.");
+  }
+}
+
+export async function deleteBillingRunHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const billingRunId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!billingRunId) {
+      return res.status(400).json({ message: "Billing run id is required." });
+    }
+
+    const result = await deleteBillingRun(billingRunId);
+
+    return res.status(200).json({
+      message: "Billing run deleted successfully.",
+      ...result,
+    });
+  } catch (error) {
+    return handleBillingError(res, error, "Unable to delete billing run.");
   }
 }
