@@ -11,7 +11,9 @@ import {
   syncQuickBooksVendorBillHandler,
   syncQuickBooksVendorBillPaymentHandler,
   syncQuickBooksVendorHandler,
+  quickSyncInvoicePaymentHandler,
   getExternalSyncLogsHandler,
+  getQuickBooksSyncSummaryHandler,
   retryExternalSyncHandler,
 } from "../controllers/quickbooks/quickbooks";
 
@@ -33,9 +35,11 @@ quickBooksRouter.post(
   syncQuickBooksVendorBillPaymentHandler,
 );
 quickBooksRouter.post("/payments/:paymentId/sync", syncQuickBooksPaymentHandler);
+quickBooksRouter.post("/invoices/:invoiceId/quick-sync-payment", quickSyncInvoicePaymentHandler);
 
 // External Sync Jobs
 quickBooksRouter.get("/sync-logs", getExternalSyncLogsHandler);
+quickBooksRouter.get("/sync-summary", getQuickBooksSyncSummaryHandler);
 quickBooksRouter.post("/sync-logs/:jobId/retry", retryExternalSyncHandler);
 
 export { quickBooksRouter, quickBooksCallbackRouter };
