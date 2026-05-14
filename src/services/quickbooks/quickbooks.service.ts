@@ -397,24 +397,31 @@ async function requestQuickBooks<T>(
       error instanceof QuickBooksServiceError && error.statusCode === 401;
 
     if (isUnauthorized && !retrying) {
-      const refreshed = await refreshQuickBooksTokens({
-        refreshToken: connection.refreshToken,
-        realmId: connection.realmId,
-      });
+      try {
+        const refreshed = await refreshQuickBooksTokens({
+          refreshToken: connection.refreshToken,
+          realmId: connection.realmId,
+        });
 
-      const updatedConnection = await persistQuickBooksTokens(connection.id, {
-        accessToken: refreshed.accessToken,
-        refreshToken: refreshed.refreshToken,
-        accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
-        refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
-      });
+        const updatedConnection = await persistQuickBooksTokens(connection.id, {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+          refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
+        });
 
-      return requestQuickBooks<T>(
-        db,
-        updatedConnection as QuickBooksConnectionRecord,
-        options,
-        true,
-      );
+        return requestQuickBooks<T>(
+          db,
+          updatedConnection as QuickBooksConnectionRecord,
+          options,
+          true,
+        );
+      } catch (refreshError) {
+        throw new QuickBooksServiceError(
+          401,
+          "QuickBooks session expired or connection was revoked. Please re-connect your QuickBooks account in settings.",
+        );
+      }
     }
 
     throw error;
@@ -433,7 +440,7 @@ async function queryQuickBooks<T>(
     path: "/query",
     query: {
       query,
-      minorversion: "75",
+      minorversion: "65",
     },
   });
 
@@ -868,7 +875,6 @@ async function ensureQuickBooksCustomer(
     console.log(`[QB-DEBUG] Caught error in ensureQuickBooksCustomer: ${errorMessage}`);
     
     try {
-      require('fs').appendFileSync('c:/Tristate/backend_debug.log', `[${new Date().toISOString()}] ensureQuickBooksCustomer catch for ${trimmedName}: ${errorMessage}\n`);
     } catch (e) {}
 
     if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
@@ -1011,7 +1017,6 @@ async function ensureQuickBooksVendor(
     console.log(`[QB-DEBUG] Caught error in ensureQuickBooksVendor: ${errorMessage}`);
     
     try {
-      require('fs').appendFileSync('c:/Tristate/backend_debug.log', `[${new Date().toISOString()}] ensureQuickBooksVendor catch for ${trimmedName}: ${errorMessage}\n`);
     } catch (e) {}
 
     if (errorMessage.match(/6240/) || errorMessage.includes("Duplicate Name Exists")) {
@@ -1677,6 +1682,38 @@ export async function syncQuickBooksPayment(paymentId: string) {
   );
 }
 
+async function ensureQuickBooksPaymentAccount(
+  db: DbClient,
+  connection: QuickBooksConnectionRecord,
+): Promise<{ id: string; type: "Check" | "CreditCard" }> {
+  // 1. Try to find a "Bank" type account first
+  const bankQuery = "SELECT * FROM Account WHERE AccountType = 'Bank' MAXRESULTS 1";
+  const bankResponse = await queryQuickBooks<any>(db, connection, bankQuery);
+  if (bankResponse.Account?.[0]?.Id) {
+    return { id: bankResponse.Account[0].Id, type: "Check" };
+  }
+
+  // 2. Try "Credit Card"
+  const ccQuery = "SELECT * FROM Account WHERE AccountType = 'Credit Card' MAXRESULTS 1";
+  const ccResponse = await queryQuickBooks<any>(db, connection, ccQuery);
+  if (ccResponse.Account?.[0]?.Id) {
+    return { id: ccResponse.Account[0].Id, type: "CreditCard" };
+  }
+
+  // 3. If still not found, fetch available types to help user debug
+  const debugQuery = "SELECT * FROM Account MAXRESULTS 5";
+  const debugResponse = await queryQuickBooks<any>(db, connection, debugQuery);
+  const foundTypes =
+    debugResponse.Account?.map(
+      (a: any) => `${a.Name} (${a.AccountType})`,
+    ).join(", ") || "No accounts found";
+
+  throw new QuickBooksServiceError(
+    400,
+    `Invalid Account Configuration: QuickBooks strictly requires a 'Bank' or 'Credit Card' account for bill payments. We found: [${foundTypes}]. Please ensure you have an account with the 'Type' set to 'Bank' or 'Credit Card' in your QuickBooks Chart of Accounts.`,
+  );
+}
+
 export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
   const vendorPayable = await loadVendorPayableContext(vendorPayableId);
   const connection = await ensureQuickBooksConnectionForCompany(
@@ -1702,11 +1739,16 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
         );
       }
 
+      const paymentDate = vendorPayable.paidAt || new Date();
+
       if (!vendorPayable.paidAt) {
-        throw new QuickBooksServiceError(
-          400,
-          "Vendor payable must have a paidAt date before syncing a bill payment.",
-        );
+        await prisma.vendorPayable.update({
+          where: { id: vendorPayableId },
+          data: {
+            paidAt: paymentDate,
+            status: "PAID",
+          },
+        });
       }
 
       const qbVendorId = await ensureQuickBooksVendor(
@@ -1717,12 +1759,44 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
         vendorPayable.vendor.remitEmail || null,
       );
 
-      const payload = {
+      // --- Mismatch Detection ---
+      // Fetch the Bill from QuickBooks to verify its current balance
+      const qbBillResponse = await requestQuickBooks<any>(prisma, connection, {
+        method: "GET",
+        path: `/bill/${vendorPayable.quickbooksBillId}`,
+      });
+      const qbBill = qbBillResponse.Bill;
+
+      if (!qbBill) {
+        throw new QuickBooksServiceError(
+          404,
+          `The linked Bill (ID: ${vendorPayable.quickbooksBillId}) was not found in QuickBooks. It may have been deleted.`,
+        );
+      }
+
+      const qbBalance = Number(qbBill.Balance ?? 0);
+      const localAmount = Number(vendorPayable.totalAmount);
+
+      // If the local amount is significantly different from the QB balance, warn or prevent
+      // Allow a small epsilon for rounding
+      if (localAmount > qbBalance + 0.01) {
+        throw new QuickBooksServiceError(
+          400,
+          `Amount Mismatch: This bill has an open balance of ${qbBalance.toFixed(2)} in QuickBooks, but the local payment amount is ${localAmount.toFixed(2)}. Please ensure the amounts match before syncing.`,
+        );
+      }
+      // --------------------------
+
+      const { id: accountId, type: payType } =
+        await ensureQuickBooksPaymentAccount(prisma, connection);
+
+      const payload: any = {
         VendorRef: {
           value: qbVendorId,
         },
         TotalAmt: roundMoney(Number(vendorPayable.totalAmount)),
-        TxnDate: toQuickBooksDate(vendorPayable.paidAt),
+        TxnDate: toQuickBooksDate(paymentDate),
+        PayType: payType,
         Line: [
           {
             Amount: roundMoney(Number(vendorPayable.totalAmount)),
@@ -1736,11 +1810,29 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
         ],
       };
 
-      const createdBillPayment = await requestQuickBooks<any>(prisma, connection, {
-        method: "POST",
-        path: "/billpayment",
-        body: payload,
-      });
+      if (payType === "Check") {
+        payload.CheckPayment = {
+          BankAccountRef: {
+            value: accountId,
+          },
+        };
+      } else {
+        payload.CreditCardPayment = {
+          CCAccountRef: {
+            value: accountId,
+          },
+        };
+      }
+
+      const createdBillPayment = await requestQuickBooks<any>(
+        prisma,
+        connection,
+        {
+          method: "POST",
+          path: "/billpayment",
+          body: payload,
+        },
+      );
 
       const qbBillPaymentId = (
         createdBillPayment.BillPayment?.Id || createdBillPayment.Id

@@ -1,4 +1,8 @@
-import { PaymentStatus } from "../../../generated/prisma/client";
+import { 
+  PaymentStatus, 
+  ExternalSystem, 
+  ExternalSyncStatus 
+} from "../../../generated/prisma/client";
 import type { Request, Response } from "express";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import {
@@ -566,6 +570,48 @@ export async function retryExternalSyncHandler(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to retry sync.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getQuickBooksSyncSummaryHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const stats = await prisma.externalSyncJob.groupBy({
+      by: ["status"],
+      where: {
+        system: ExternalSystem.QUICKBOOKS,
+        updatedAt: {
+          gte: thirtyDaysAgo,
+        },
+      },
+      _count: true,
+    });
+
+    const summary = {
+      COMPLETED: stats.find((s: any) => s.status === ExternalSyncStatus.SYNCED)?._count || 0,
+      FAILED: stats.find((s: any) => s.status === ExternalSyncStatus.FAILED)?._count || 0,
+      IN_PROGRESS: stats.find((s: any) => s.status === ExternalSyncStatus.IN_PROGRESS)?._count || 0,
+      total: stats.reduce((acc: number, curr: any) => acc + curr._count, 0),
+    };
+
+    return res.status(200).json({
+      message: "Sync summary fetched successfully.",
+      summary,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch sync summary.",
       error: error instanceof Error ? error.message : error,
     });
   }

@@ -1,7 +1,7 @@
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
-import { syncQuickBooksVendorBill } from "../../services/quickbooks/quickbooks.service";
+import { syncQuickBooksVendorBill, syncQuickBooksVendorBillPayment } from "../../services/quickbooks/quickbooks.service";
 
 export async function getAllVendorPayables(
   req: AuthenticatedRequest,
@@ -153,7 +153,8 @@ export async function syncVendorPayableToQuickBooks(
       result,
     });
   } catch (error) {
-    return res.status(500).json({
+    const status = (error as any).statusCode || 500;
+    return res.status(status).json({
       message: "Unable to sync to QuickBooks.",
       error: error instanceof Error ? error.message : error,
     });
@@ -220,6 +221,34 @@ export async function deleteVendorPayable(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to delete vendor payable.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+export async function syncBillPaymentToQuickBooks(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) {
+      return res.status(400).json({ message: "id is required." });
+    }
+
+    const result = await syncQuickBooksVendorBillPayment(id);
+
+    return res.status(200).json({
+      message: "Bill payment synced to QuickBooks successfully.",
+      result,
+    });
+  } catch (error) {
+    const status = (error as any).statusCode || 500;
+    return res.status(status).json({
+      message: "Unable to sync bill payment to QuickBooks.",
       error: error instanceof Error ? error.message : error,
     });
   }

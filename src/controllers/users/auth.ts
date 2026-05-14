@@ -176,7 +176,10 @@ export async function authenticateMe(req: any, res: Response) {
     return res.status(200).json({
       id: user.id,
       name: user.userName,
+      firstName: user.firstName,
+      lastName: user.lastName,
       email: user.email,
+      role: user.role,
     });
   } catch (error) {
     return res.status(500).json({
