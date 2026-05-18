@@ -435,8 +435,8 @@ export async function createOnboarding(
                 credentialingFor: body.credentialing.credentialingFor,
                 payersToEnroll: body.credentialing.payersToEnroll,
                 caqhMaintained: body.credentialing.caqhMaintained,
-                currentCredentialingIssues:
-                  body.credentialing.currentCredentialingIssues as any,
+                currentCredentialingIssues: body.credentialing
+                  .currentCredentialingIssues as any,
                 medicarePtanAvailable: body.credentialing.medicarePtanAvailable,
                 medicaidEnrollmentActive:
                   body.credentialing.medicaidEnrollmentActive,
@@ -518,8 +518,7 @@ export async function createOnboarding(
                   body.careProgram.currentEnrolledPatients,
                 patientEnrollmentHandler:
                   body.careProgram.patientEnrollmentHandler,
-                monthlyFollowUpHandler:
-                  body.careProgram.monthlyFollowUpHandler,
+                monthlyFollowUpHandler: body.careProgram.monthlyFollowUpHandler,
                 consentFormsInPlace: body.careProgram.consentFormsInPlace,
                 existingCarePlanWorkflow:
                   body.careProgram.existingCarePlanWorkflow,
@@ -528,19 +527,23 @@ export async function createOnboarding(
               },
             }
           : undefined,
-        marketing: body.marketing
+        OnboardingMarketing: body.marketing
           ? {
               create: {
                 websiteUrl: body.marketing.websiteUrl,
                 socialMediaChannels: body.marketing.socialMediaChannels || [],
-                currentMarketingChannels: body.marketing.currentMarketingChannels || [],
-                targetPatientDemographics: body.marketing.targetPatientDemographics,
+                currentMarketingChannels:
+                  body.marketing.currentMarketingChannels || [],
+                targetPatientDemographics:
+                  body.marketing.targetPatientDemographics,
                 monthlyMarketingBudget: body.marketing.monthlyMarketingBudget,
                 existingBrandAssets: body.marketing.existingBrandAssets,
-                googleBusinessProfileClaimed: body.marketing.googleBusinessProfileClaimed,
+                googleBusinessProfileClaimed:
+                  body.marketing.googleBusinessProfileClaimed,
                 patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
                 aiToolsUsed: body.marketing.aiToolsUsed,
-                additionalMarketingNotes: body.marketing.additionalMarketingNotes,
+                additionalMarketingNotes:
+                  body.marketing.additionalMarketingNotes,
               },
             }
           : undefined,
@@ -561,7 +564,7 @@ export async function createOnboarding(
         labPharmacy: true,
         compliance: true,
         careProgram: true,
-        marketing: true,
+        OnboardingMarketing: true,
       },
     });
 
@@ -686,7 +689,7 @@ export async function getOnboarding(req: AuthenticatedRequest, res: Response) {
         labPharmacy: true,
         compliance: true,
         careProgram: true,
-        marketing: true,
+        OnboardingMarketing: true,
       },
     });
 
@@ -743,7 +746,7 @@ export async function updateOnboarding(
         labPharmacy: true,
         compliance: true,
         careProgram: true,
-        marketing: true,
+        OnboardingMarketing: true,
       },
     });
 
@@ -841,34 +844,44 @@ export async function updateOnboarding(
                 },
               }
           : undefined,
-        marketing: body.marketing
-          ? existing.marketing
+        OnboardingMarketing: body.marketing
+          ? existing.OnboardingMarketing
             ? {
                 update: {
                   websiteUrl: body.marketing.websiteUrl,
                   socialMediaChannels: body.marketing.socialMediaChannels || [],
-                  currentMarketingChannels: body.marketing.currentMarketingChannels || [],
-                  targetPatientDemographics: body.marketing.targetPatientDemographics,
+                  currentMarketingChannels:
+                    body.marketing.currentMarketingChannels || [],
+                  targetPatientDemographics:
+                    body.marketing.targetPatientDemographics,
                   monthlyMarketingBudget: body.marketing.monthlyMarketingBudget,
                   existingBrandAssets: body.marketing.existingBrandAssets,
-                  googleBusinessProfileClaimed: body.marketing.googleBusinessProfileClaimed,
-                  patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
+                  googleBusinessProfileClaimed:
+                    body.marketing.googleBusinessProfileClaimed,
+                  patientAcquisitionGoals:
+                    body.marketing.patientAcquisitionGoals,
                   aiToolsUsed: body.marketing.aiToolsUsed,
-                  additionalMarketingNotes: body.marketing.additionalMarketingNotes,
+                  additionalMarketingNotes:
+                    body.marketing.additionalMarketingNotes,
                 },
               }
             : {
                 create: {
                   websiteUrl: body.marketing.websiteUrl,
                   socialMediaChannels: body.marketing.socialMediaChannels || [],
-                  currentMarketingChannels: body.marketing.currentMarketingChannels || [],
-                  targetPatientDemographics: body.marketing.targetPatientDemographics,
+                  currentMarketingChannels:
+                    body.marketing.currentMarketingChannels || [],
+                  targetPatientDemographics:
+                    body.marketing.targetPatientDemographics,
                   monthlyMarketingBudget: body.marketing.monthlyMarketingBudget,
                   existingBrandAssets: body.marketing.existingBrandAssets,
-                  googleBusinessProfileClaimed: body.marketing.googleBusinessProfileClaimed,
-                  patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
+                  googleBusinessProfileClaimed:
+                    body.marketing.googleBusinessProfileClaimed,
+                  patientAcquisitionGoals:
+                    body.marketing.patientAcquisitionGoals,
                   aiToolsUsed: body.marketing.aiToolsUsed,
-                  additionalMarketingNotes: body.marketing.additionalMarketingNotes,
+                  additionalMarketingNotes:
+                    body.marketing.additionalMarketingNotes,
                 },
               }
           : undefined,
@@ -889,7 +902,7 @@ export async function updateOnboarding(
         labPharmacy: true,
         compliance: true,
         careProgram: true,
-        marketing: true,
+        OnboardingMarketing: true,
       },
     });
 
