@@ -29,6 +29,7 @@ import {
 } from "./routes/quickbooks.routes";
 import userRouter from "./routes/user.routes";
 import settingsRouter from "./routes/settings.routes";
+import mercuryRouter from "./routes/mercury.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
@@ -73,5 +74,6 @@ app.use("/api/v1/quickbooks", quickBooksRouter);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/deals", dealRouter);
 app.use("/api/v1/settings", settingsRouter);
+app.use("/api/v1/mercury", mercuryRouter);
 
 export default app;
