@@ -622,6 +622,15 @@ export async function getOnboardings(req: AuthenticatedRequest, res: Response) {
               providers: true,
             },
           },
+          billing: true,
+          careProgram: true,
+          compliance: true,
+          credentialing: true,
+          documents: true,
+          labPharmacy: true,
+          OnboardingMarketing: true,
+          outreach: true,
+          technology: true,
           _count: {
             select: {
               practices: true,
