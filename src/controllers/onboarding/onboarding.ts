@@ -736,6 +736,10 @@ export async function updateOnboarding(
     const body = req.body as OnboardingBody;
 
     const toEnum = (v: string) => (v === "" ? undefined : v);
+    const toDate = (v: string | Date | undefined) =>
+      !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
+    const toDateValue = (v: string | Date | undefined) =>
+      !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
 
     const existing = await prisma.onboarding.findFirst({
       where: { id },
@@ -797,13 +801,13 @@ export async function updateOnboarding(
         additionalSpecialties: body.additionalSpecialties,
         requestedServices: body.requestedServices as any,
         primaryServiceToLaunch: body.primaryServiceToLaunch,
-        requestedGoLiveDate: body.requestedGoLiveDate,
+        requestedGoLiveDate: toDate(body.requestedGoLiveDate),
         priorityLevel: body.priorityLevel,
         servicesForAllPractices: body.servicesForAllPractices,
         selectedPractices: body.selectedPractices,
         replacingExistingVendor: body.replacingExistingVendor,
         currentVendorName: body.currentVendorName,
-        currentVendorEndDate: body.currentVendorEndDate,
+        currentVendorEndDate: toDate(body.currentVendorEndDate),
         engagementGoals: body.engagementGoals,
         informationAccurate: body.informationAccurate,
         authorizeUse: body.authorizeUse,
@@ -814,6 +818,305 @@ export async function updateOnboarding(
             ? new Date()
             : existing.submissionDate,
         status: body.status as OnboardingStatus,
+        contacts: body.contacts
+          ? {
+              deleteMany: {},
+              create: body.contacts.map((c) => ({
+                fullName: c.fullName,
+                jobTitle: c.jobTitle,
+                contactRole: c.contactRole as any,
+                email: c.email,
+                phone: c.phone,
+                extension: c.extension,
+                preferredContactMethod: c.preferredContactMethod,
+                bestTimeToReach: c.bestTimeToReach,
+                isPrimaryDecisionMaker: c.isPrimaryDecisionMaker,
+                canSignAgreements: c.canSignAgreements,
+                additionalResponsibilities: c.additionalResponsibilities,
+              })),
+            }
+          : undefined,
+        practices: body.practices
+          ? {
+              deleteMany: {},
+              create: body.practices.map((p) => ({
+                practiceName: p.practiceName,
+                practiceDbaName: p.practiceDbaName,
+                isPartOfParentCompany: p.isPartOfParentCompany,
+                practiceType: p.practiceType as any,
+                additionalSpecialtyAreas: p.additionalSpecialtyAreas,
+                groupNpi: p.groupNpi,
+                taxIdEin: p.taxIdEin,
+                approximateNumberOfProviders: p.approximateNumberOfProviders,
+                approximateNumberOfLocations: p.approximateNumberOfLocations,
+                approximateMonthlyPatientVolume:
+                  p.approximateMonthlyPatientVolume,
+                approximateMedicarePatientVolume:
+                  p.approximateMedicarePatientVolume,
+                approximateMedicaidPatientVolume:
+                  p.approximateMedicaidPatientVolume,
+                approximateCommercialPatientVolume:
+                  p.approximateCommercialPatientVolume,
+                offersCareManagementServices: p.offersCareManagementServices,
+                currentServicesOffered: p.currentServicesOffered,
+                operationalPainPoints: p.operationalPainPoints,
+                additionalNotes: p.additionalNotes,
+                locations: p.locations
+                  ? {
+                      create: p.locations.map((l) => ({
+                        locationName: l.locationName,
+                        isPrimaryLocation: l.isPrimaryLocation,
+                        addressLine1: l.addressLine1,
+                        addressLine2: l.addressLine2,
+                        city: l.city,
+                        state: l.state,
+                        zipCode: l.zipCode,
+                        mainPhoneNumber: l.mainPhoneNumber,
+                        mainFaxNumber: l.mainFaxNumber,
+                        officeEmail: l.officeEmail,
+                        hoursOfOperation: l.hoursOfOperation,
+                        officeManagerName: l.officeManagerName,
+                        patientOutreachManaged: l.patientOutreachManaged,
+                        billingManaged: l.billingManaged,
+                        notes: l.notes,
+                      })),
+                    }
+                  : undefined,
+                providers: p.providers
+                  ? {
+                      create: p.providers.map((pr) => ({
+                        firstName: pr.firstName,
+                        lastName: pr.lastName,
+                        credentials: pr.credentials,
+                        providerType: pr.providerType,
+                        specialty: pr.specialty,
+                        npi: pr.npi,
+                        caqhId: pr.caqhId,
+                        stateLicenseNumber: pr.stateLicenseNumber,
+                        deaNumber: pr.deaNumber,
+                        boardCertified: pr.boardCertified,
+                        employmentStatus: pr.employmentStatus,
+                        participatingLocations: pr.participatingLocations,
+                        credentialingNeeded: pr.credentialingNeeded,
+                        recredentialingNeeded: pr.recredentialingNeeded,
+                        notes: pr.notes,
+                      })),
+                    }
+                  : undefined,
+              })),
+            }
+          : undefined,
+        documents: body.documents
+          ? {
+              deleteMany: {},
+              create: body.documents.map((d) => ({
+                documentType: (d.documentType || []) as any,
+                fileName: d.fileName,
+                fileUrl: d.fileUrl,
+                required: d.required,
+                status: d.status as any,
+                dateRequested: toDateValue(d.dateRequested),
+                dateReceived: toDateValue(d.dateReceived),
+                notes: d.notes,
+              })),
+            }
+          : undefined,
+        billing: body.billing
+          ? existing.billing
+            ? {
+                update: {
+                  currentBillingModel: body.billing.currentBillingModel,
+                  billingCompanyName: body.billing.billingCompanyName,
+                  mainBillingContactName: body.billing.mainBillingContactName,
+                  mainBillingContactEmail: body.billing.mainBillingContactEmail,
+                  mainBillingContactPhone: body.billing.mainBillingContactPhone,
+                  currentlyBilledServices: body.billing.currentlyBilledServices,
+                  activePayers: body.billing.activePayers,
+                  eftEraSetup: body.billing.eftEraSetup,
+                  invoiceRecipient: body.billing.invoiceRecipient,
+                  invoiceEmail: body.billing.invoiceEmail,
+                  preferredReportingCadence:
+                    body.billing.preferredReportingCadence,
+                  billingPainPoints: body.billing.billingPainPoints,
+                  additionalNotes: body.billing.additionalNotes,
+                },
+              }
+            : {
+                create: {
+                  currentBillingModel: body.billing.currentBillingModel,
+                  billingCompanyName: body.billing.billingCompanyName,
+                  mainBillingContactName: body.billing.mainBillingContactName,
+                  mainBillingContactEmail: body.billing.mainBillingContactEmail,
+                  mainBillingContactPhone: body.billing.mainBillingContactPhone,
+                  currentlyBilledServices: body.billing.currentlyBilledServices,
+                  activePayers: body.billing.activePayers,
+                  eftEraSetup: body.billing.eftEraSetup,
+                  invoiceRecipient: body.billing.invoiceRecipient,
+                  invoiceEmail: body.billing.invoiceEmail,
+                  preferredReportingCadence:
+                    body.billing.preferredReportingCadence,
+                  billingPainPoints: body.billing.billingPainPoints,
+                  additionalNotes: body.billing.additionalNotes,
+                },
+              }
+          : undefined,
+        credentialing: body.credentialing
+          ? existing.credentialing
+            ? {
+                update: {
+                  credentialingNeeded: body.credentialing.credentialingNeeded,
+                  credentialingFor: body.credentialing.credentialingFor,
+                  payersToEnroll: body.credentialing.payersToEnroll,
+                  caqhMaintained: body.credentialing.caqhMaintained,
+                  currentCredentialingIssues: body.credentialing
+                    .currentCredentialingIssues as any,
+                  medicarePtanAvailable:
+                    body.credentialing.medicarePtanAvailable,
+                  medicaidEnrollmentActive:
+                    body.credentialing.medicaidEnrollmentActive,
+                  additionalNotes: body.credentialing.additionalNotes,
+                },
+              }
+            : {
+                create: {
+                  credentialingNeeded: body.credentialing.credentialingNeeded,
+                  credentialingFor: body.credentialing.credentialingFor,
+                  payersToEnroll: body.credentialing.payersToEnroll,
+                  caqhMaintained: body.credentialing.caqhMaintained,
+                  currentCredentialingIssues: body.credentialing
+                    .currentCredentialingIssues as any,
+                  medicarePtanAvailable:
+                    body.credentialing.medicarePtanAvailable,
+                  medicaidEnrollmentActive:
+                    body.credentialing.medicaidEnrollmentActive,
+                  additionalNotes: body.credentialing.additionalNotes,
+                },
+              }
+          : undefined,
+        technology: body.technology
+          ? existing.technology
+            ? {
+                update: {
+                  ehrSystem: body.technology.ehrSystem,
+                  practiceManagementSystem:
+                    body.technology.practiceManagementSystem,
+                  patientPortalAvailable: body.technology.patientPortalAvailable,
+                  patientListExportable: body.technology.patientListExportable,
+                  appointmentListExportable:
+                    body.technology.appointmentListExportable,
+                  apiAccessAvailable: body.technology.apiAccessAvailable,
+                  clearinghouse: body.technology.clearinghouse,
+                  faxPlatform: body.technology.faxPlatform,
+                  phonePlatform: body.technology.phonePlatform,
+                  currentCareManagementPlatform:
+                    body.technology.currentCareManagementPlatform,
+                  itContactName: body.technology.itContactName,
+                  itContactEmail: body.technology.itContactEmail,
+                  additionalTechnicalNotes:
+                    body.technology.additionalTechnicalNotes,
+                },
+              }
+            : {
+                create: {
+                  ehrSystem: body.technology.ehrSystem,
+                  practiceManagementSystem:
+                    body.technology.practiceManagementSystem,
+                  patientPortalAvailable: body.technology.patientPortalAvailable,
+                  patientListExportable: body.technology.patientListExportable,
+                  appointmentListExportable:
+                    body.technology.appointmentListExportable,
+                  apiAccessAvailable: body.technology.apiAccessAvailable,
+                  clearinghouse: body.technology.clearinghouse,
+                  faxPlatform: body.technology.faxPlatform,
+                  phonePlatform: body.technology.phonePlatform,
+                  currentCareManagementPlatform:
+                    body.technology.currentCareManagementPlatform,
+                  itContactName: body.technology.itContactName,
+                  itContactEmail: body.technology.itContactEmail,
+                  additionalTechnicalNotes:
+                    body.technology.additionalTechnicalNotes,
+                },
+              }
+          : undefined,
+        outreach: body.outreach
+          ? existing.outreach
+            ? {
+                update: {
+                  preferredChannels: body.outreach.preferredChannels,
+                  patientTextConsent: body.outreach.patientTextConsent,
+                  preferredLanguages: body.outreach.preferredLanguages,
+                  interpreterServices: body.outreach.interpreterServices,
+                  outreachFromPractice: body.outreach.outreachFromPractice,
+                  approvedOutreachHours: body.outreach.approvedOutreachHours,
+                  messagingRequirements: body.outreach.messagingRequirements,
+                },
+              }
+            : {
+                create: {
+                  preferredChannels: body.outreach.preferredChannels,
+                  patientTextConsent: body.outreach.patientTextConsent,
+                  preferredLanguages: body.outreach.preferredLanguages,
+                  interpreterServices: body.outreach.interpreterServices,
+                  outreachFromPractice: body.outreach.outreachFromPractice,
+                  approvedOutreachHours: body.outreach.approvedOutreachHours,
+                  messagingRequirements: body.outreach.messagingRequirements,
+                },
+              }
+          : undefined,
+        labPharmacy: body.labPharmacy
+          ? existing.labPharmacy
+            ? {
+                update: {
+                  preferredLab: body.labPharmacy.preferredLab,
+                  existingLabRelationship:
+                    body.labPharmacy.existingLabRelationship,
+                  labInterfaceStatus: body.labPharmacy.labInterfaceStatus,
+                  labContactName: body.labPharmacy.labContactName,
+                  labContactEmail: body.labPharmacy.labContactEmail,
+                  pharmacyPartnerName: body.labPharmacy.pharmacyPartnerName,
+                  pharmacyPartnerInvolved:
+                    body.labPharmacy.pharmacyPartnerInvolved,
+                  additionalNotes: body.labPharmacy.additionalNotes,
+                },
+              }
+            : {
+                create: {
+                  preferredLab: body.labPharmacy.preferredLab,
+                  existingLabRelationship:
+                    body.labPharmacy.existingLabRelationship,
+                  labInterfaceStatus: body.labPharmacy.labInterfaceStatus,
+                  labContactName: body.labPharmacy.labContactName,
+                  labContactEmail: body.labPharmacy.labContactEmail,
+                  pharmacyPartnerName: body.labPharmacy.pharmacyPartnerName,
+                  pharmacyPartnerInvolved:
+                    body.labPharmacy.pharmacyPartnerInvolved,
+                  additionalNotes: body.labPharmacy.additionalNotes,
+                },
+              }
+          : undefined,
+        compliance: body.compliance
+          ? existing.compliance
+            ? {
+                update: {
+                  hipaaContactName: body.compliance.hipaaContactName,
+                  hipaaContactEmail: body.compliance.hipaaContactEmail,
+                  baaRequired: body.compliance.baaRequired,
+                  securityQuestionnaire: body.compliance.securityQuestionnaire,
+                  currentConcerns: body.compliance.currentConcerns,
+                  additionalNotes: body.compliance.additionalNotes,
+                },
+              }
+            : {
+                create: {
+                  hipaaContactName: body.compliance.hipaaContactName,
+                  hipaaContactEmail: body.compliance.hipaaContactEmail,
+                  baaRequired: body.compliance.baaRequired,
+                  securityQuestionnaire: body.compliance.securityQuestionnaire,
+                  currentConcerns: body.compliance.currentConcerns,
+                  additionalNotes: body.compliance.additionalNotes,
+                },
+              }
+          : undefined,
         careProgram: body.careProgram
           ? existing.careProgram
             ? {
@@ -920,6 +1223,7 @@ export async function updateOnboarding(
       onboarding,
     });
   } catch (error) {
+    console.log(error);
     return res.status(500).json({
       message: "Unable to update onboarding.",
       error: error instanceof Error ? error.message : error,
