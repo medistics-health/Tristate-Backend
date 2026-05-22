@@ -7,6 +7,7 @@ import {
   deleteAgreement,
   sendAgreementEmail,
   createDocusealSubmission,
+  resubmitDocusealSubmission,
   getDocusealTemplates,
   getDocusealFormBySlug,
   handleDocusealWebhook,
@@ -37,6 +38,7 @@ agreementRouter.use(verifyAuthToken);
 agreementRouter.post("/", createAgreement);
 agreementRouter.post("/send-email", sendAgreementEmail);
 agreementRouter.post("/docuseal/submission", createDocusealSubmission);
+agreementRouter.post("/docuseal/submission/resubmit", resubmitDocusealSubmission);
 agreementRouter.get("/docuseal/templates", getDocusealTemplates);
 
 // Agreement Version routes
