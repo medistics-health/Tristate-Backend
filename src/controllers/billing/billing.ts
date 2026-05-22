@@ -1,5 +1,6 @@
 import {
   BillingRunStatus,
+  InvoiceStatus,
 } from "../../../generated/prisma/client";
 import type { Response } from "express";
 import type {
@@ -16,11 +17,120 @@ import {
   deleteBillingRun,
   getBillingReadiness,
   getBillingRun,
+  importSnapshotsFromMonthlyReports,
   listBillingRuns,
   postBillingRun,
   recordManualPayment,
   upsertBillingRunSnapshots,
 } from "../../services/billing/billing.service";
+import { stripe } from "../../lib/stripe";
+import { prisma } from "../../lib/prisma";
+
+function toStripeMinorUnit(amount: number | string) {
+  return Math.round(Number(amount) * 100);
+}
+
+function normalizeStripeCurrency(currency?: string | null) {
+  return (currency || "USD").toLowerCase();
+}
+
+async function syncFinalizeAndSendInvoice(invoiceId: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      practice: { include: { company: true } },
+      lineItems: { include: { service: true } },
+    },
+  });
+
+  if (!invoice) {
+    return { invoiceId, error: "Invoice not found." };
+  }
+
+  const currency = normalizeStripeCurrency(
+    invoice.currency || invoice.practice?.defaultCurrency,
+  );
+
+  let stripeCustomerId = invoice.practice?.stripeCustomerId ?? null;
+
+  if (!stripeCustomerId) {
+    const customer = await stripe.customers.create({
+      name: invoice.practice.name,
+      email: invoice.practice.company?.email || undefined,
+      metadata: { practiceId: invoice.practice.id },
+    });
+    stripeCustomerId = customer.id;
+    await prisma.practice.update({
+      where: { id: invoice.practice.id },
+      data: { stripeCustomerId: customer.id },
+    });
+  }
+
+  if (invoice.stripeInvoiceId) {
+    return {
+      invoiceId,
+      stripeInvoiceId: invoice.stripeInvoiceId,
+      status: "already_synced",
+    };
+  }
+
+  for (const lineItem of invoice.lineItems) {
+    await stripe.invoiceItems.create({
+      customer: stripeCustomerId,
+      currency,
+      amount: toStripeMinorUnit(lineItem.totalPrice.toString()),
+      description:
+        lineItem.description ||
+        lineItem.service?.code ||
+        lineItem.service?.name ||
+        "Service",
+      metadata: {
+        localInvoiceId: invoice.id,
+        localInvoiceLineItemId: lineItem.id,
+        serviceId: lineItem.serviceId,
+      },
+    });
+  }
+
+  const stripeInvoice = await stripe.invoices.create({
+    customer: stripeCustomerId,
+    currency,
+    auto_advance: false,
+    collection_method: "send_invoice",
+    due_date: invoice.dueDate
+      ? Math.floor(invoice.dueDate.getTime() / 1000)
+      : undefined,
+    days_until_due: invoice.dueDate ? undefined : 30,
+    metadata: {
+      localInvoiceId: invoice.id,
+      practiceId: invoice.practiceId,
+      agreementId: invoice.agreementId || "",
+    },
+  });
+
+  await prisma.invoice.update({
+    where: { id: invoice.id },
+    data: {
+      stripeInvoiceId: stripeInvoice.id,
+      stripeHostedInvoiceUrl: stripeInvoice.hosted_invoice_url,
+      stripeInvoicePdfUrl: stripeInvoice.invoice_pdf,
+    },
+  });
+
+  await stripe.invoices.finalizeInvoice(stripeInvoice.id);
+  const sent = await stripe.invoices.sendInvoice(stripeInvoice.id);
+
+  await prisma.invoice.update({
+    where: { id: invoice.id },
+    data: {
+      status: InvoiceStatus.SENT,
+      stripeHostedInvoiceUrl: sent.hosted_invoice_url,
+      stripeInvoicePdfUrl: sent.invoice_pdf,
+    },
+  });
+
+  return { invoiceId, stripeInvoiceId: sent.id, status: "sent" };
+}
 
 function parseBillingRunStatus(value?: string) {
   if (!value) {
@@ -263,12 +373,58 @@ export async function postBillingRunHandler(
 
     const result = await postBillingRun(billingRunId, req.user.sub);
 
+    if (req.body?.autoSyncStripe) {
+      const stripeResults = await Promise.allSettled(
+        result.invoices.map((invoice) => syncFinalizeAndSendInvoice(invoice.id)),
+      );
+
+      const stripeSync = stripeResults.map((outcome, index) => ({
+        invoiceId: result.invoices[index].id,
+        ...(outcome.status === "fulfilled"
+          ? outcome.value
+          : { error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason) }),
+      }));
+
+      return res.status(200).json({
+        message: "Billing run posted and invoices synced to Stripe.",
+        ...result,
+        stripeSync,
+      });
+    }
+
     return res.status(200).json({
       message: "Billing run posted successfully.",
       ...result,
     });
   } catch (error) {
     return handleBillingError(res, error, "Unable to post billing run.");
+  }
+}
+
+export async function importSnapshotsFromReportsHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const billingRunId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!billingRunId) {
+      return res.status(400).json({ message: "Billing run id is required." });
+    }
+
+    const replaceExisting = Boolean(req.body?.replaceExisting);
+
+    const result = await importSnapshotsFromMonthlyReports(billingRunId, { replaceExisting });
+
+    return res.status(200).json({
+      message: "Snapshots imported from monthly reports successfully.",
+      ...result,
+    });
+  } catch (error) {
+    return handleBillingError(res, error, "Unable to import snapshots from monthly reports.");
   }
 }
 

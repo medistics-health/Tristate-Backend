@@ -7,6 +7,7 @@ import {
   createBillingRunHandler,
   getBillingReadinessHandler,
   getBillingRunHandler,
+  importSnapshotsFromReportsHandler,
   listBillingRunsHandler,
   postBillingRunHandler,
   deleteBillingRunHandler,
@@ -22,6 +23,7 @@ billingRouter.get("/runs", listBillingRunsHandler);
 billingRouter.post("/runs", createBillingRunHandler);
 billingRouter.get("/runs/:id", getBillingRunHandler);
 billingRouter.post("/runs/:id/snapshots", addBillingRunSnapshotsHandler);
+billingRouter.post("/runs/:id/snapshots-from-reports", importSnapshotsFromReportsHandler);
 billingRouter.post("/runs/:id/calculate", calculateBillingRunHandler);
 billingRouter.post("/runs/:id/approve", approveBillingRunHandler);
 billingRouter.post("/runs/:id/post", postBillingRunHandler);
