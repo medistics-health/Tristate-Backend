@@ -268,6 +268,41 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
   }
 }
 
+function buildAutoFillValues(
+  fields: Array<{ name: string }>,
+  person: { firstName: string; lastName: string; email?: string | null; phone?: string | null },
+  agreement: { effectiveDate?: Date | null; practice: { name: string; npi?: string | null } },
+): Record<string, string> {
+  const fullName = `${person.firstName} ${person.lastName}`;
+  const effectiveDate = agreement.effectiveDate?.toISOString().split("T")[0] || "";
+
+  const values: Record<string, string> = {};
+  for (const field of fields) {
+    const name = field.name.toLowerCase();
+
+    if (name.includes("first")) {
+      values[field.name] = person.firstName;
+    } else if (name.includes("last")) {
+      values[field.name] = person.lastName;
+    } else if (name.includes("email")) {
+      values[field.name] = person.email ?? "";
+    } else if (name.includes("phone")) {
+      values[field.name] = person.phone ?? "";
+    } else if (name.includes("client") || name.includes("practice") || name.includes("clinic")) {
+      values[field.name] = agreement.practice.name;
+    } else if (name.includes("npi")) {
+      values[field.name] = agreement.practice.npi ?? "";
+    } else if (name.includes("effective")) {
+      values[field.name] = effectiveDate;
+    } else if (name.includes("name") || name.includes("full")) {
+      values[field.name] = fullName;
+    } else if (name.includes("date")) {
+      values[field.name] = effectiveDate;
+    }
+  }
+  return values;
+}
+
 export async function createDocusealSubmission(
   req: AuthenticatedRequest,
   res: Response,
@@ -330,6 +365,14 @@ export async function createDocusealSubmission(
     const newSubmissions = [];
 
     for (const tid of templateIds) {
+      const template = await docuseal.getTemplate(parseInt(tid));
+
+      const autoFillValues = buildAutoFillValues(
+        template.fields || [],
+        person,
+        agreement,
+      );
+
       const submission: any = await docuseal.createSubmission({
         template_id: parseInt(tid),
         send_email: false,
@@ -338,6 +381,7 @@ export async function createDocusealSubmission(
             role: "First Party",
             email: person.email,
             name: `${person.firstName} ${person.lastName}`,
+            values: autoFillValues,
           },
           {
             role: "Second Party",
@@ -434,6 +478,188 @@ export async function createDocusealSubmission(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to create Docuseal submission.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function resubmitDocusealSubmission(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    const { agreementId, personId, templateId, fieldValues } = req.body as {
+      agreementId: string;
+      personId: string;
+      templateId: number;
+      fieldValues?: Record<string, string>;
+    };
+
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    if (!agreementId || !personId || !templateId) {
+      return res.status(400).json({
+        message: "agreementId, personId, and templateId are required.",
+      });
+    }
+
+    const agreement = await prisma.agreement.findFirst({
+      where: { id: agreementId },
+      include: { practice: true },
+    });
+
+    if (!agreement) {
+      return res.status(404).json({ message: "Agreement not found." });
+    }
+
+    const person = await prisma.person.findFirst({
+      where: {
+        id: personId,
+        practices: {
+          some: {
+            practiceId: agreement.practiceId,
+          },
+        },
+      },
+    });
+
+    if (!person || !person.email) {
+      return res.status(404).json({
+        message: "Person not found for this practice or has no email address.",
+      });
+    }
+
+    const template = await docuseal.getTemplate(templateId);
+
+    const autoFillValues = buildAutoFillValues(
+      template.fields || [],
+      person,
+      agreement,
+    );
+
+    const mergedValues = { ...autoFillValues, ...fieldValues };
+
+    const submission: any = await docuseal.createSubmission({
+      template_id: templateId,
+      send_email: false,
+      submitters: [
+        {
+          role: "First Party",
+          email: person.email,
+          name: `${person.firstName} ${person.lastName}`,
+          values: mergedValues,
+        },
+        {
+          role: "Second Party",
+          email: "nmelchiorre@tristatemso.com",
+          name: "TristateMSO",
+        },
+      ],
+    });
+
+    const docusealSubmissionData = Array.isArray(submission)
+      ? submission[0]
+      : submission;
+
+    const existingSubmission = await prisma.docusealSubmission.findFirst({
+      where: {
+        agreementId,
+        templateId,
+      },
+    });
+
+    let newSubmission;
+    if (existingSubmission) {
+      await prisma.docuSigner.deleteMany({
+        where: { submissionId: existingSubmission.id },
+      });
+
+      for (let i = 0; i < docusealSubmissionData.submitters.length; i++) {
+        const sub = docusealSubmissionData.submitters[i];
+        await prisma.docuSigner.create({
+          data: {
+            submissionId: existingSubmission.id,
+            externalId: sub.id,
+            signerUuid: sub.uuid,
+            role: sub.role,
+            name: sub.name,
+            email: sub.email,
+            status: sub.status,
+            submissionSlug: sub.slug,
+            signedUrl: sub.url,
+            order: i,
+          },
+        });
+      }
+
+      newSubmission = await prisma.docusealSubmission.update({
+        where: { id: existingSubmission.id },
+        data: {
+          personId,
+          docusealSubmissionId:
+            docusealSubmissionData.submitters[0].submission_id,
+        },
+      });
+    } else {
+      newSubmission = await prisma.docusealSubmission.create({
+        data: {
+          agreementId,
+          personId,
+          docusealSubmissionId:
+            docusealSubmissionData.submitters[0].submission_id,
+          url: docusealSubmissionData.submitters?.[0]?.url || null,
+          templateId,
+          signers: {
+            create: docusealSubmissionData.submitters.map(
+              (sub: any, index: number) => ({
+                signerUuid: sub.uuid,
+                role: sub.role,
+                name: sub.name,
+                email: sub.email,
+                status: sub.status,
+                signedUrl: sub.url,
+                order: index,
+              }),
+            ),
+          },
+        },
+        include: {
+          signers: true,
+        },
+      });
+    }
+
+    const practiceName = agreement.practice?.name || "Unknown Practice";
+    const templateName = template.name || `Template #${templateId}`;
+    const emailSubject = `Updated Document Ready for Signature - ${agreement.type} - ${practiceName}`;
+    const signingLink = docusealSubmissionData.submitters?.find(
+      (s: any) => s.role === "First Party",
+    )?.slug
+      ? `${process.env.FRONTEND_URL || "http://localhost:5173"}/sign/${docusealSubmissionData.submitters.find((s: any) => s.role === "First Party").slug}`
+      : "";
+
+    const emailBody = `
+      <p>Hello ${person.firstName || "there"},</p>
+      <p>The document <strong>${templateName}</strong> for your agreement
+      <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
+      has been updated.</p>
+      <p>Please click the link below to review and sign the updated document:</p>
+      ${signingLink ? `<p><a href="${signingLink}" target="_blank">Review and Sign Updated Document</a></p>` : ""}
+      <p>If you have any questions, please contact your representative.</p>
+      <p>Best regards,<br/>The Tristate Team</p>
+    `;
+
+    await sendOutlookEmail(person.email, emailSubject, emailBody);
+
+    return res.status(200).json({
+      message: "Docuseal submission re-created and email sent successfully.",
+      submission: newSubmission,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to resubmit Docuseal submission.",
       error: error instanceof Error ? error.message : error,
     });
   }
