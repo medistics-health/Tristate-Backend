@@ -1504,6 +1504,31 @@ enum ExceptionStatus {
 enum ExternalSystem {
   STRIPE
   QUICKBOOKS
+  MERCURY
+}
+
+model MercuryTransaction {
+  id                  String   @id @default(uuid()) @db.Uuid
+  mercuryTransactionId String  @unique @map("mercury_transaction_id")
+  accountId           String   @map("account_id")
+  amount              Decimal  @db.Decimal(15, 2)
+  direction           String   // CREDIT | DEBIT
+  status              String   // PENDING | SENT | FAILED | CANCELLED
+  description         String?
+  counterpartyName    String?  @map("counterparty_name")
+  postedAt            DateTime? @map("posted_at")
+  rawPayloadJson      Json?    @map("raw_payload_json")
+  matchedEntityType   String?  @map("matched_entity_type")
+  matchedEntityId     String?  @map("matched_entity_id") @db.Uuid
+  reconciliationStatus String  @default("UNMATCHED") @map("reconciliation_status")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([accountId])
+  @@index([status])
+  @@index([reconciliationStatus])
+  @@index([postedAt])
+  @@map("mercury_transactions")
 }
 
 enum ExternalEntityType {

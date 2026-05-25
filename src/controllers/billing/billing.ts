@@ -22,6 +22,8 @@ import {
   upsertBillingRunSnapshots,
 } from "../../services/billing/billing.service";
 
+import { processAndEmailInvoice } from "../invoice/invoice";
+
 function parseBillingRunStatus(value?: string) {
   if (!value) {
     return undefined;
@@ -262,6 +264,14 @@ export async function postBillingRunHandler(
     }
 
     const result = await postBillingRun(billingRunId, req.user.sub);
+
+    if (result.invoices && result.invoices.length > 0) {
+      for (const inv of result.invoices) {
+        processAndEmailInvoice(inv.id).catch((err) => {
+          console.error(`Error processing and emailing invoice ${inv.id}:`, err);
+        });
+      }
+    }
 
     return res.status(200).json({
       message: "Billing run posted successfully.",
