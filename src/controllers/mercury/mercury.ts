@@ -4,7 +4,7 @@ import axios from "axios";
 
 const isSandbox = process.env.MERCURY_ENV === "sandbox";
 const MERCURY_BASE_URL = isSandbox 
-  ? "https://backend.mercury.com/api/v1" 
+  ? "https://api-sandbox.mercury.com/api/v1" 
   : "https://api.mercury.com/api/v1";
 const MERCURY_API_KEY = process.env.MERCURY_API_KEY ?? "";
 
@@ -39,6 +39,15 @@ export async function getMercuryAccountsHandler(req: Request, res: Response) {
     });
   } catch (error: any) {
     const status = error?.response?.status ?? 500;
+    const isAuthError = status === 401 || status === 403;
+    if (isAuthError) {
+      return res.status(200).json({
+        accounts: [],
+        configured: false,
+        environment: process.env.MERCURY_ENV || "production",
+        message: "Invalid Mercury API key.",
+      });
+    }
     const message = error?.response?.data?.message ?? error?.message ?? "Failed to fetch Mercury accounts";
     return res.status(status < 500 ? status : 502).json({ error: message });
   }
@@ -71,12 +80,13 @@ export async function getMercuryTransactionsHandler(req: Request, res: Response)
     }
 
     const params: Record<string, string> = { limit, offset };
+    if (accountId) params.accountId = accountId;
     if (status) params.status = status;
     if (start) params.start = start;
     if (end) params.end = end;
 
     const response = await axios.get(
-      `${MERCURY_BASE_URL}/account/${accountId}/transactions`,
+      `${MERCURY_BASE_URL}/transactions`,
       { headers: mercuryHeaders(), params }
     );
 
@@ -128,13 +138,14 @@ export async function getMercuryTransactionsHandler(req: Request, res: Response)
       const total = await prisma.mercuryTransaction.count({
         where: accountId ? { accountId } : undefined,
       });
+      const isAuthError = error?.response?.status === 401 || error?.response?.status === 403;
       return res.status(200).json({
         transactions,
         total,
-        configured: true,
+        configured: !isAuthError,
         environment: process.env.MERCURY_ENV || "production",
         fromCache: true,
-        warning: "Mercury API unavailable, showing cached transactions.",
+        warning: isAuthError ? "Invalid Mercury API key, showing cached transactions." : "Mercury API unavailable, showing cached transactions.",
       });
     } catch {
       const status = error?.response?.status ?? 500;
@@ -247,8 +258,8 @@ export async function syncMercuryTransactionsHandler(req: Request, res: Response
 
     for (const acctId of accountIds) {
       const response = await axios.get(
-        `${MERCURY_BASE_URL}/account/${acctId}/transactions`,
-        { headers: mercuryHeaders(), params: { limit: "500", offset: "0" } }
+        `${MERCURY_BASE_URL}/transactions`,
+        { headers: mercuryHeaders(), params: { accountId: acctId, limit: "500", offset: "0" } }
       );
 
       const rawTxns: any[] = response.data?.transactions ?? [];
@@ -287,7 +298,10 @@ export async function syncMercuryTransactionsHandler(req: Request, res: Response
     });
   } catch (error: any) {
     const status = error?.response?.status ?? 500;
-    const message = error?.response?.data?.message ?? error?.message ?? "Mercury sync failed";
-    return res.status(status < 500 ? status : 502).json({ error: message });
+    const isAuthError = status === 401 || status === 403;
+    const message = isAuthError
+      ? "Invalid or expired Mercury API key. Please check your credentials in the environment."
+      : (error?.response?.data?.message ?? error?.message ?? "Mercury sync failed");
+    return res.status(isAuthError ? 400 : (status < 500 ? status : 502)).json({ error: message });
   }
 }
