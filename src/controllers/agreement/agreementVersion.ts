@@ -15,7 +15,10 @@ function asOptionalDate(value: unknown, fieldName: string) {
   return parsed;
 }
 
-export async function getAgreementVersions(req: AuthenticatedRequest, res: Response) {
+export async function getAgreementVersions(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -68,7 +71,10 @@ export async function getAgreementVersions(req: AuthenticatedRequest, res: Respo
   }
 }
 
-export async function getAgreementVersion(req: AuthenticatedRequest, res: Response) {
+export async function getAgreementVersion(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
 
@@ -76,15 +82,15 @@ export async function getAgreementVersion(req: AuthenticatedRequest, res: Respon
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const version = await prisma.agreementVersion.findUnique({
-      where: { id },
+    const version = await prisma.agreementVersion.findMany({
+      where: { agreementId: id },
       include: {
         agreement: true,
         serviceTerms: {
           include: {
             service: true,
             vendor: true,
-          }
+          },
         },
       },
     });
@@ -105,7 +111,10 @@ export async function getAgreementVersion(req: AuthenticatedRequest, res: Respon
   }
 }
 
-export async function createAgreementVersion(req: AuthenticatedRequest, res: Response) {
+export async function createAgreementVersion(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const {
       agreementId,
@@ -203,16 +212,14 @@ export async function createAgreementVersion(req: AuthenticatedRequest, res: Res
   }
 }
 
-export async function updateAgreementVersion(req: AuthenticatedRequest, res: Response) {
+export async function updateAgreementVersion(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
-    const {
-      versionNumber,
-      isCurrent,
-      effectiveDate,
-      endDate,
-      notes,
-    } = req.body;
+    const { versionNumber, isCurrent, effectiveDate, endDate, notes } =
+      req.body;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -299,7 +306,10 @@ export async function updateAgreementVersion(req: AuthenticatedRequest, res: Res
   }
 }
 
-export async function deleteAgreementVersion(req: AuthenticatedRequest, res: Response) {
+export async function deleteAgreementVersion(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
 
