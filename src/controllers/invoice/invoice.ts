@@ -3,6 +3,8 @@ import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { stripe } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { sendOutlookEmail } from "../../utils/outlook";
+
 
 type InvoiceBody = {
   practiceId?: string;
@@ -426,6 +428,200 @@ export async function getInvoiceStripeEvents(req: AuthenticatedRequest, res: Res
   }
 }
 
+export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      practice: {
+        include: {
+          company: {
+            include: {
+              persons: {
+                include: {
+                  person: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!invoice || !invoice.practice) {
+    throw new Error("Invoice or practice not found");
+  }
+
+  let stripeInvoiceId: string | null = invoice.stripeInvoiceId || null;
+  let hostedUrl: string | null = invoice.stripeHostedInvoiceUrl || null;
+  let pdfUrl: string | null = invoice.stripeInvoicePdfUrl || null;
+
+  if (!stripeInvoiceId) {
+    // 1. Get or create Stripe Customer
+    let customerId = invoice.practice.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        name: invoice.practice.name,
+        email: "billing@" + invoice.practice.name.toLowerCase().replace(/[^a-z0-9]/g, "") + ".com",
+        metadata: { practiceId: invoice.practice.id },
+      });
+      customerId = customer.id;
+      await prisma.practice.update({
+        where: { id: invoice.practice.id },
+        data: { stripeCustomerId: customerId },
+      });
+    }
+
+    // 2. Create Invoice Item
+    await stripe.invoiceItems.create({
+      customer: customerId,
+      amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
+      currency: "usd",
+      description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
+    });
+
+    // 3. Create Invoice
+    const stripeInvoice = await stripe.invoices.create({
+      customer: customerId,
+      auto_advance: false,
+      collection_method: "send_invoice",
+      days_until_due: 30,
+      pending_invoice_items_behavior: "include",
+      metadata: { invoiceId: invoice.id },
+    });
+
+    stripeInvoiceId = stripeInvoice.id;
+  }
+
+  // Finalize the invoice if it needs to be finalized
+  if (stripeInvoiceId && !hostedUrl) {
+    let finalizedInvoice;
+    try {
+      finalizedInvoice = await stripe.invoices.finalizeInvoice(stripeInvoiceId);
+    } catch (err: any) {
+      // If it's already finalized, just retrieve it
+      if (err.message && err.message.includes("can only be finalized in draft")) {
+        finalizedInvoice = await stripe.invoices.retrieve(stripeInvoiceId);
+      } else {
+        throw err;
+      }
+    }
+
+    hostedUrl = finalizedInvoice.hosted_invoice_url || null;
+    pdfUrl = finalizedInvoice.invoice_pdf || null;
+
+    // Update DB with the finalized URL
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        stripeInvoiceId,
+        stripeHostedInvoiceUrl: hostedUrl,
+        stripeInvoicePdfUrl: pdfUrl,
+      },
+    });
+
+    // Log the event
+    await prisma.stripeEventLog.create({
+      data: {
+        invoiceId: invoice.id,
+        eventType: "invoice.sent",
+        stripeEventId: "evt_resend_" + Date.now(),
+        payload: { action: "Sent payment email with Stripe link" },
+      },
+    });
+  }
+
+  // Update status to SENT if it was DRAFT
+  if (invoice.status === "DRAFT") {
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { status: "SENT" },
+    });
+  }
+
+  // Fetch recipient emails
+  const emails = invoice.practice.company?.persons
+    ?.map(cp => cp.person?.email)
+    .filter((email): email is string => typeof email === 'string' && email.includes('@')) || [];
+
+  let recipientEmails = [...new Set(emails)];
+  if (recipientEmails.length === 0 && invoice.practice.company?.email) {
+    recipientEmails.push(invoice.practice.company.email);
+  }
+
+  if (recipientEmails.length > 0 && hostedUrl) {
+    const practiceName = invoice.practice.name;
+    const invoiceNumber = invoice.invoiceNumber || invoice.id.slice(0, 8);
+    const billingPeriodStart = invoice.billingPeriodStart ? new Date(invoice.billingPeriodStart).toLocaleDateString() : "N/A";
+    const billingPeriodEnd = invoice.billingPeriodEnd ? new Date(invoice.billingPeriodEnd).toLocaleDateString() : "N/A";
+    const billingPeriod = `${billingPeriodStart} to ${billingPeriodEnd}`;
+    const dueDate = invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : "N/A";
+    const totalAmount = Number(invoice.totalAmount).toFixed(2);
+
+    const emailSubject = `Payment Required: Invoice ${invoiceNumber} for ${practiceName}`;
+    const emailBody = `
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0ece6; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
+  <div style="border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px;">
+    <h2 style="margin: 0; color: #6366f1;">Tristate MSO</h2>
+    <span style="font-size: 14px; color: #94a3b8;">Invoice Payment Request</span>
+  </div>
+  
+  <p style="font-size: 16px; line-height: 1.5; color: #334155; margin-bottom: 20px;">
+    Hello,
+  </p>
+  <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-bottom: 20px;">
+    An invoice has been generated for <strong>${practiceName}</strong>. Please find the invoice details and the payment link below:
+  </p>
+
+  <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #475569;">
+      <tr>
+        <td style="padding: 6px 0; font-weight: bold; width: 40%;">Invoice Number:</td>
+        <td style="padding: 6px 0;">${invoiceNumber}</td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; font-weight: bold;">Billing Period:</td>
+        <td style="padding: 6px 0;">${billingPeriod}</td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; font-weight: bold;">Total Amount:</td>
+        <td style="padding: 6px 0; font-weight: bold; color: #1e293b; font-size: 16px;">$${totalAmount}</td>
+      </tr>
+      <tr>
+        <td style="padding: 6px 0; font-weight: bold;">Due Date:</td>
+        <td style="padding: 6px 0;">${dueDate}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div style="text-align: center; margin-bottom: 30px;">
+    <a href="${hostedUrl}" target="_blank" style="display: inline-block; background-color: #6366f1; color: #ffffff; text-decoration: none; padding: 12px 28px; font-size: 15px; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1);">
+      Pay Invoice with Stripe
+    </a>
+  </div>
+
+  <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin-bottom: 0;">
+    If you have any questions regarding this invoice, please reach out to our billing team.
+  </p>
+  <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin-top: 15px; margin-bottom: 0;">
+    Best regards,<br/>
+    <strong>The Tristate Team</strong>
+  </p>
+</div>
+    `;
+
+    for (const email of recipientEmails) {
+      try {
+        await sendOutlookEmail(email, emailSubject, emailBody);
+      } catch (emailErr) {
+        console.error(`Failed to send outlook email to ${email}:`, emailErr);
+      }
+    }
+  } else {
+    console.warn(`No recipient emails found or no hosted Stripe url available for invoice ${invoiceId}`);
+  }
+}
+
 export async function resendStripeInvoice(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -438,102 +634,10 @@ export async function resendStripeInvoice(req: AuthenticatedRequest, res: Respon
       return res.status(400).json({ message: "Invoice id is required." });
     }
 
-    const invoice = await prisma.invoice.findFirst({
-      where: { id },
-      include: { practice: true },
-    });
-
-    if (!invoice || !invoice.practice) {
-      return res.status(404).json({ message: "Invoice or practice not found." });
-    }
-
-    let stripeInvoiceId: string | null = invoice.stripeInvoiceId || null;
-    let hostedUrl: string | null = invoice.stripeHostedInvoiceUrl || null;
-
-    if (!stripeInvoiceId) {
-      // 1. Get or create Stripe Customer
-      let customerId = invoice.practice.stripeCustomerId;
-      if (!customerId) {
-        const customer = await stripe.customers.create({
-          name: invoice.practice.name,
-          email: "billing@" + invoice.practice.name.toLowerCase().replace(/[^a-z0-9]/g, "") + ".com",
-          metadata: { practiceId: invoice.practice.id },
-        });
-        customerId = customer.id;
-        await prisma.practice.update({
-          where: { id: invoice.practice.id },
-          data: { stripeCustomerId: customerId },
-        });
-      }
-
-      // 2. Create Invoice Item
-      await stripe.invoiceItems.create({
-        customer: customerId,
-        amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
-        currency: "usd",
-        description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
-      });
-
-      // 3. Create Invoice
-      const stripeInvoice = await stripe.invoices.create({
-        customer: customerId,
-        auto_advance: false,
-        collection_method: "send_invoice",
-        days_until_due: 30,
-        pending_invoice_items_behavior: "include",
-        metadata: { invoiceId: invoice.id },
-      });
-
-      stripeInvoiceId = stripeInvoice.id;
-    }
-
-    // Finalize the invoice if it needs to be finalized
-    if (stripeInvoiceId) {
-      let finalizedInvoice;
-      try {
-        finalizedInvoice = await stripe.invoices.finalizeInvoice(stripeInvoiceId);
-      } catch (err: any) {
-        // If it's already finalized, just retrieve it
-        if (err.message && err.message.includes("can only be finalized in draft")) {
-          finalizedInvoice = await stripe.invoices.retrieve(stripeInvoiceId);
-        } else {
-          throw err;
-        }
-      }
-
-      hostedUrl = finalizedInvoice.hosted_invoice_url || null;
-
-      // Update DB with the finalized URL
-      await prisma.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          stripeInvoiceId,
-          stripeHostedInvoiceUrl: hostedUrl,
-          stripeInvoicePdfUrl: finalizedInvoice.invoice_pdf || null,
-        },
-      });
-
-      // Log the event
-      await prisma.stripeEventLog.create({
-        data: {
-          invoiceId: id,
-          eventType: "invoice.sent",
-          stripeEventId: "evt_resend_" + Date.now(),
-          payload: { action: "Resent invoice via Stripe SDK" },
-        },
-      });
-
-      // Update status to SENT if it was DRAFT
-      if (invoice.status === "DRAFT") {
-        await prisma.invoice.update({
-          where: { id },
-          data: { status: "SENT" },
-        });
-      }
-    }
+    await processAndEmailInvoice(id);
 
     return res.status(200).json({
-      message: "Invoice resent successfully via Stripe.",
+      message: "Invoice payment email sent successfully.",
     });
   } catch (error) {
     return res.status(500).json({

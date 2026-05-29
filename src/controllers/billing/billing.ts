@@ -132,6 +132,8 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
   return { invoiceId, stripeInvoiceId: sent.id, status: "sent" };
 }
 
+import { processAndEmailInvoice } from "../invoice/invoice";
+
 function parseBillingRunStatus(value?: string) {
   if (!value) {
     return undefined;
@@ -373,23 +375,12 @@ export async function postBillingRunHandler(
 
     const result = await postBillingRun(billingRunId, req.user.sub);
 
-    if (req.body?.autoSyncStripe) {
-      const stripeResults = await Promise.allSettled(
-        result.invoices.map((invoice) => syncFinalizeAndSendInvoice(invoice.id)),
-      );
-
-      const stripeSync = stripeResults.map((outcome, index) => ({
-        invoiceId: result.invoices[index].id,
-        ...(outcome.status === "fulfilled"
-          ? outcome.value
-          : { error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason) }),
-      }));
-
-      return res.status(200).json({
-        message: "Billing run posted and invoices synced to Stripe.",
-        ...result,
-        stripeSync,
-      });
+    if (result.invoices && result.invoices.length > 0) {
+      for (const inv of result.invoices) {
+        processAndEmailInvoice(inv.id).catch((err) => {
+          console.error(`Error processing and emailing invoice ${inv.id}:`, err);
+        });
+      }
     }
 
     return res.status(200).json({

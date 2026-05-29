@@ -139,11 +139,13 @@ export async function login(req: Request, res: Response) {
       { expiresIn: "7d" },
     );
 
+    const isProduction = process.env.NODE_ENV === "production" || (process.env.FRONTEND_URL?.startsWith("https://") ?? false);
+
     return res
       .cookie("token", token, {
         httpOnly: true, // prevents JS access
-        secure: true, // only over HTTPS (use false in local dev)
-        sameSite: "none", // CSRF protection
+        secure: isProduction, // only over HTTPS (use false in local dev)
+        sameSite: isProduction ? "none" : "lax", // CSRF protection
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       })
       .status(200)
