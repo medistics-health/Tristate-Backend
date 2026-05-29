@@ -122,6 +122,7 @@ model Practice {
   invoices              Invoice[]
   MonthlyReport       MonthlyReport[]
   payments              Payment[]
+  onboardings           Onboarding[]
   persons               PracticePerson[]
   billToTaxId           TaxId?                 @relation("PracticeBillToTaxId", fields: [billToTaxIdId], references: [id])
   company               Company?               @relation(fields: [companyId], references: [id])
@@ -214,6 +215,7 @@ model Person {
   companies           CompanyPerson[]
   deals               Deal[]
   docusealSubmissions DocusealSubmission[]
+  onboardings         Onboarding[]
   practices           PracticePerson[]
 
   @@map("contacts")
@@ -781,6 +783,8 @@ model Assessment {
 
 model Onboarding {
   id                            String                   @id @default(uuid()) @db.Uuid
+  practiceId                    String?                  @map("practice_id") @db.Uuid
+  personId                      String?                  @map("person_id") @db.Uuid
   onboardingType                OnboardingType?          @map("onboarding_type")
   isAuthorizedPerson            Boolean?                 @map("is_authorized_person")
   nonAuthorizedRole             String?                  @map("non_authorized_role")
@@ -837,9 +841,13 @@ model Onboarding {
   labPharmacy                   OnboardingLabPharmacy?
   OnboardingMarketing          OnboardingMarketing?
   outreach                      OnboardingOutreach?
+  person                        Person?                  @relation(fields: [personId], references: [id], onDelete: SetNull)
+  practice                      Practice?                @relation(fields: [practiceId], references: [id], onDelete: SetNull)
   practices                     OnboardingPractice[]
   technology                    OnboardingTechnology?
 
+  @@index([practiceId])
+  @@index([personId])
   @@map("onboardings")
 }
 
