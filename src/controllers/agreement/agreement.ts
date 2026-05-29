@@ -185,9 +185,17 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
                 ${agreement?.type || "agreement"}
                 ${agreement?.practice ? ` for ${agreement.practice.name}` : ""}.
               </p>
-
               <p>
-                <a href="${link}" target="_blank">Review and sign the agreement</a>
+                 <strong>Important:</strong>
+                 The signing link will expire in 48 hours.
+              </p>
+              <p>
+              ${decodeURIComponent(
+                dbSubmission?.url?.split("/").pop() || "",
+              ).replace(
+                ".pdf",
+                "",
+              )}: <a href="${link}" target="_blank">Review and sign the agreement</a>
               </p>
               <p>Best regards,<br/>The Tristate Team</p>
             `;
@@ -391,6 +399,8 @@ export async function createDocusealSubmission(
         person,
         agreement,
       );
+      const expireAt = new Date();
+      expireAt.setHours(expireAt.getHours() + 48);
 
       const submission: any = await docuseal.createSubmission({
         template_id: parseInt(tid),
@@ -409,6 +419,7 @@ export async function createDocusealSubmission(
             name: "TristateMSO",
           },
         ],
+        expire_at: expireAt.toISOString(),
       });
 
       console.log(submission);
@@ -560,7 +571,8 @@ export async function resubmitDocusealSubmission(
     );
 
     const mergedValues = { ...autoFillValues, ...fieldValues };
-
+    const expireAt = new Date();
+    expireAt.setHours(expireAt.getHours() + 48);
     const submission: any = await docuseal.createSubmission({
       template_id: templateId,
       send_email: false,
@@ -578,6 +590,7 @@ export async function resubmitDocusealSubmission(
           name: "TristateMSO",
         },
       ],
+      expire_at: expireAt.toISOString(),
     });
 
     const docusealSubmissionData = Array.isArray(submission)
@@ -667,6 +680,10 @@ export async function resubmitDocusealSubmission(
       <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
       has been updated.</p>
       <p>Please click the link below to review and sign the updated document:</p>
+      <p>
+         <strong>Important:</strong>
+         The signing link will expire in 48 hours.
+      </p>
       ${signingLink ? `<p><a href="${signingLink}" target="_blank">Review and Sign Updated Document</a></p>` : ""}
       <p>If you have any questions, please contact your representative.</p>
       <p>Best regards,<br/>The Tristate Team</p>
@@ -823,7 +840,9 @@ export async function sendAgreementEmail(
 
             return `
             <p>
-              <a href="${link}" target="_blank">
+             ${decodeURIComponent(
+               submission?.url?.split("/").pop() || "",
+             ).replace(".pdf", "")}: <a href="${link}" target="_blank">
                 Sign Document
               </a>
             </p>
@@ -844,6 +863,11 @@ export async function sendAgreementEmail(
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
 
       <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
+
+      <p>
+         <strong>Important:</strong>
+         The signing link will expire in 48 hours.
+      </p>
 
       <p><strong>Documents:</strong></p>
       ${submissionLinks}
