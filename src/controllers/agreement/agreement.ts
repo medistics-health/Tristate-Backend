@@ -34,6 +34,7 @@ type AgreementBody = {
   dealId?: string | null;
   type?: string;
   status?: string;
+  approvalStatus?: string;
   effectiveDate?: string;
   renewalDate?: string;
   docusealSubmissions?: DocusealSubmissionInput[];
@@ -45,6 +46,14 @@ type SendAgreementEmailBody = {
   subject?: string;
   message?: string;
 };
+
+const AGREEMENT_APPROVAL_STATUSES = [
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "REJECTED",
+] as const;
+
+type AgreementApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
 
 async function resolveInitialPacketTemplateIds(agreementId: string) {
   const agreement = await prisma.agreement.findFirst({
@@ -970,6 +979,14 @@ function isAgreementStatus(status: string): status is AgreementStatus {
   return Object.values(AgreementStatus).includes(status as AgreementStatus);
 }
 
+function isAgreementApprovalStatus(
+  status: string,
+): status is AgreementApprovalStatus {
+  return AGREEMENT_APPROVAL_STATUSES.includes(
+    status as AgreementApprovalStatus,
+  );
+}
+
 export async function createAgreement(
   req: AuthenticatedRequest,
   res: Response,
@@ -1043,6 +1060,7 @@ export async function createAgreement(
             templateId: s.templateId,
             docSlug: s.slug,
             fieldValues: s.fieldValues,
+            approval_status: "PENDING_APPROVAL",
             signers: {
               create: s?.submitters?.map((init: any, index: number) => ({
                 signerUuid: init.uuid,
@@ -1226,7 +1244,7 @@ export async function updateAgreement(
 ) {
   try {
     const { id } = req.params as { id: string };
-    const { dealId, type, status, effectiveDate, renewalDate } =
+    const { dealId, type, status, approvalStatus, effectiveDate, renewalDate } =
       req.body as AgreementBody;
 
     if (!req.user?.sub) {
@@ -1248,6 +1266,16 @@ export async function updateAgreement(
       return res.status(400).json({
         message: "Invalid agreement status.",
         allowedStatuses: Object.values(AgreementStatus),
+      });
+    }
+
+    if (
+      approvalStatus !== undefined &&
+      !isAgreementApprovalStatus(approvalStatus)
+    ) {
+      return res.status(400).json({
+        message: "Invalid agreement approvalStatus.",
+        allowedStatuses: [...AGREEMENT_APPROVAL_STATUSES],
       });
     }
 
@@ -1274,12 +1302,17 @@ export async function updateAgreement(
       }
     }
 
+    const isApprovalStatusUpdate =
+      approvalStatus !== undefined && isAgreementApprovalStatus(approvalStatus);
+
     const agreement = await prisma.agreement.update({
       where: { id },
       data: {
         ...(dealId !== undefined ? { dealId: dealId || null } : {}),
         ...(type !== undefined ? { type: type as AgreementType } : {}),
-        ...(status !== undefined ? { status: status as AgreementStatus } : {}),
+        ...(status !== undefined && isAgreementStatus(status)
+          ? { status: status as AgreementStatus }
+          : {}),
         ...(effectiveDate !== undefined
           ? { effectiveDate: effectiveDate ? new Date(effectiveDate) : null }
           : {}),
@@ -1288,6 +1321,13 @@ export async function updateAgreement(
           : {}),
       },
     });
+
+    if (isApprovalStatusUpdate) {
+      await prisma.docusealSubmission.updateMany({
+        where: { agreementId: id },
+        data: { approval_status: approvalStatus },
+      });
+    }
 
     return res.status(200).json({
       message: "Agreement updated successfully.",

@@ -283,6 +283,7 @@ model DocusealSubmission {
   signedDocUrl         String?      @map("signed_doc_url")
   auditLogUrl          String?      @map("audit_log_url")
   status               String?
+  approval_status      String?
   templateId           Int?         @map("template_id")
   fieldValues          Json?        @map("field_values")
   createdAt            DateTime     @default(now()) @map("created_at")
@@ -1233,6 +1234,7 @@ model OnboardingMarketing {
 }
 
 enum UserRoles {
+  ADMIN
   SALES
   ACCOUNTMANAGER
   OPERATIONS
