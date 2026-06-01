@@ -25,7 +25,8 @@ type DocusealSubmissionInput = {
   url?: string;
   templateId?: number;
   slug?: string;
-  submitters?: [{ role: string; uuid: string }];
+  fieldValues?: Record<string, string>;
+  submitters?: Array<{ role: string; uuid: string }>;
 };
 
 type AgreementBody = {
@@ -78,6 +79,24 @@ async function resolveInitialPacketTemplateIds(agreementId: string) {
     agreement,
     templateIds: uniqueTemplateIds,
   };
+}
+
+function normalizeFieldValues(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.entries(value).reduce<Record<string, string>>(
+    (acc, [key, currentValue]) => {
+      if (typeof currentValue === "string") {
+        acc[key] = currentValue;
+      } else if (currentValue !== null && currentValue !== undefined) {
+        acc[key] = String(currentValue);
+      }
+      return acc;
+    },
+    {},
+  );
 }
 
 async function updateDealAfterAgreementSend(agreementId: string) {
@@ -335,7 +354,19 @@ export async function createDocusealSubmission(
   res: Response,
 ) {
   try {
-    const { agreementId, personId, templateId } = req.body;
+    const {
+      agreementId,
+      personId,
+      templateId,
+      fieldValues,
+      fieldValuesByTemplateId,
+    } = req.body as {
+      agreementId: string;
+      personId: string;
+      templateId?: number | number[];
+      fieldValues?: Record<string, string>;
+      fieldValuesByTemplateId?: Record<string, Record<string, string>>;
+    };
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -355,7 +386,15 @@ export async function createDocusealSubmission(
 
     const agreement = await prisma.agreement.findFirst({
       where: { id: agreementId },
-      include: { practice: true },
+      include: {
+        practice: true,
+        docusealSubmissions: {
+          select: {
+            templateId: true,
+            fieldValues: true,
+          },
+        },
+      },
     });
 
     if (!agreement) {
@@ -392,25 +431,40 @@ export async function createDocusealSubmission(
     const newSubmissions = [];
 
     for (const tid of templateIds) {
-      const template = await docuseal.getTemplate(parseInt(tid));
+      const templateIdNumber = Number(tid);
+      const template = await docuseal.getTemplate(templateIdNumber);
+      const storedDraftSubmission = agreement.docusealSubmissions.find(
+        (submission) => submission.templateId === templateIdNumber,
+      );
 
       const autoFillValues = buildAutoFillValues(
         template.fields || [],
         person,
         agreement,
       );
+      const persistedFieldValues = normalizeFieldValues(
+        storedDraftSubmission?.fieldValues,
+      );
+      const requestFieldValues = normalizeFieldValues(
+        fieldValuesByTemplateId?.[String(templateIdNumber)] ?? fieldValues,
+      );
+      const mergedValues = {
+        ...autoFillValues,
+        ...persistedFieldValues,
+        ...requestFieldValues,
+      };
       const expireAt = new Date();
       expireAt.setHours(expireAt.getHours() + 48);
 
       const submission: any = await docuseal.createSubmission({
-        template_id: parseInt(tid),
+        template_id: templateIdNumber,
         send_email: false,
         submitters: [
           {
             role: "First Party",
             email: person.email,
             name: `${person.firstName} ${person.lastName}`,
-            values: autoFillValues,
+            values: mergedValues,
           },
           {
             role: "Second Party",
@@ -433,7 +487,7 @@ export async function createDocusealSubmission(
       const existingSubmission = await prisma.docusealSubmission.findFirst({
         where: {
           agreementId,
-          templateId: parseInt(tid),
+          templateId: templateIdNumber,
         },
       });
 
@@ -468,6 +522,7 @@ export async function createDocusealSubmission(
             docusealSubmissionId:
               docusealSubmissionData.submitters[0].submission_id,
             // url: docusealSubmissionData.submitters?.[0]?.url || null,
+            fieldValues: mergedValues,
           },
         });
       } else {
@@ -478,7 +533,8 @@ export async function createDocusealSubmission(
             docusealSubmissionId:
               docusealSubmissionData.submitters[0].submission_id,
             url: docusealSubmissionData.submitters?.[0]?.url || null,
-            templateId: parseInt(tid),
+            templateId: templateIdNumber,
+            fieldValues: mergedValues,
             signers: {
               create: docusealSubmissionData.submitters.map(
                 (sub: any, index: number) => ({
@@ -563,6 +619,16 @@ export async function resubmitDocusealSubmission(
     }
 
     const template = await docuseal.getTemplate(templateId);
+    const existingSubmission = await prisma.docusealSubmission.findFirst({
+      where: {
+        agreementId,
+        templateId,
+      },
+      select: {
+        id: true,
+        fieldValues: true,
+      },
+    });
 
     const autoFillValues = buildAutoFillValues(
       template.fields || [],
@@ -570,7 +636,11 @@ export async function resubmitDocusealSubmission(
       agreement,
     );
 
-    const mergedValues = { ...autoFillValues, ...fieldValues };
+    const mergedValues = {
+      ...autoFillValues,
+      ...normalizeFieldValues(existingSubmission?.fieldValues),
+      ...fieldValues,
+    };
     const expireAt = new Date();
     expireAt.setHours(expireAt.getHours() + 48);
     const submission: any = await docuseal.createSubmission({
@@ -596,13 +666,6 @@ export async function resubmitDocusealSubmission(
     const docusealSubmissionData = Array.isArray(submission)
       ? submission[0]
       : submission;
-
-    const existingSubmission = await prisma.docusealSubmission.findFirst({
-      where: {
-        agreementId,
-        templateId,
-      },
-    });
 
     let newSubmission;
     if (existingSubmission) {
@@ -634,6 +697,8 @@ export async function resubmitDocusealSubmission(
           personId,
           docusealSubmissionId:
             docusealSubmissionData.submitters[0].submission_id,
+          // url: docusealSubmissionData.submitters?.[0]?.url || null,
+          fieldValues: mergedValues,
         },
       });
     } else {
@@ -645,6 +710,7 @@ export async function resubmitDocusealSubmission(
             docusealSubmissionData.submitters[0].submission_id,
           url: docusealSubmissionData.submitters?.[0]?.url || null,
           templateId,
+          fieldValues: mergedValues,
           signers: {
             create: docusealSubmissionData.submitters.map(
               (sub: any, index: number) => ({
@@ -918,7 +984,6 @@ export async function createAgreement(
       renewalDate,
       docusealSubmissions,
     } = req.body as AgreementBody;
-    console.log(docusealSubmissions);
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -974,10 +1039,10 @@ export async function createAgreement(
         renewalDate: renewalDate ? new Date(renewalDate) : undefined,
         docusealSubmissions: {
           create: docusealSubmissions?.map((s) => ({
-            // docusealSubmissionId: null,
             url: s.url,
             templateId: s.templateId,
             docSlug: s.slug,
+            fieldValues: s.fieldValues,
             signers: {
               create: s?.submitters?.map((init: any, index: number) => ({
                 signerUuid: init.uuid,
