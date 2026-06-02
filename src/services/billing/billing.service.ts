@@ -1140,10 +1140,40 @@ export async function getBillingReadiness(params: {
     activeServiceTermCount += activeTerms.length;
 
     if (activeTerms.length === 0) {
+      const activeTermsOutsidePeriod = agreement.serviceTerms.filter((term) => {
+        if (!term.isActive) {
+          return false;
+        }
+        return !datesOverlap(term.effectiveDate, term.endDate, periodStart, periodEnd);
+      });
+
+      let message =
+        "Active agreement has no active service terms for the requested billing period.";
+
+      if (activeTermsOutsidePeriod.length > 0) {
+        const serviceRanges = Array.from(
+          new Set(
+            activeTermsOutsidePeriod.map((term) => {
+              const serviceName = term.service?.name ?? `Service term ${term.id}`;
+              const start = term.effectiveDate
+                ? term.effectiveDate.toISOString().split("T")[0]
+                : "unknown";
+              const end = term.endDate
+                ? term.endDate.toISOString().split("T")[0]
+                : "ongoing";
+              return `${serviceName}: ${start} - ${end}`;
+            }),
+          ),
+        );
+
+        if (serviceRanges.length > 0) {
+          message += ` Active service terms are available only for these service date ranges: ${serviceRanges.join("; ")}.`;
+        }
+      }
+
       issues.push({
         code: "NO_ACTIVE_SERVICE_TERMS",
-        message:
-          "Active agreement has no active service terms for the requested billing period.",
+        message,
         severity: "ERROR",
         agreementId: agreement.id,
       });
