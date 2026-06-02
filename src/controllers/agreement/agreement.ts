@@ -1043,6 +1043,8 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
     const search = (req.query.search as string) || "";
     const type = (req.query.type as string) || "";
     const status = (req.query.status as string) || "";
+    const practiceId = (req.query.practiceId as string) || "";
+    const dealId = (req.query.dealId as string) || "";
 
     const skip = (page - 1) * limit;
 
@@ -1072,6 +1074,14 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
         });
       }
       where.status = status as AgreementStatus;
+    }
+
+    if (practiceId) {
+      where.practiceId = practiceId;
+    }
+
+    if (dealId) {
+      where.dealId = dealId;
     }
 
     const [agreements, totalRecords] = await Promise.all([

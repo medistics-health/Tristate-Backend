@@ -330,6 +330,85 @@ function buildTieredAmount(quantity: number, tiersValue: unknown) {
   };
 }
 
+function computeCptPricing(
+  config: JsonObject,
+  snapshots: SnapshotMetric[],
+  serviceId: string,
+  label: string,
+) {
+  const cptCodes = Array.isArray(config.cptCodes) ? config.cptCodes : [];
+  const components: ComputedComponent[] = [];
+  const metricResolutions: MetricResolution[] = [];
+  const exceptionFlags: string[] = [];
+  let amount = 0;
+
+  if (cptCodes.length === 0) {
+    exceptionFlags.push(`MISSING_CPT_CODES_${PricingModel.PER_CPT_CODE}`);
+    return { amount: 0, components, metricResolutions, exceptionFlags };
+  }
+
+  for (const cptValue of cptCodes) {
+    if (!cptValue || typeof cptValue !== "object") {
+      exceptionFlags.push("INVALID_CPT_CONFIGURATION");
+      continue;
+    }
+
+    const cptConfig = cptValue as JsonObject;
+    const code = String(cptConfig.code ?? "").trim();
+    const rate = getNumberValue(cptConfig.rate);
+    const description =
+      typeof cptConfig.description === "string" && cptConfig.description.trim()
+        ? cptConfig.description.trim()
+        : code;
+
+    if (!code || rate === null) {
+      exceptionFlags.push("INVALID_CPT_CONFIGURATION");
+      continue;
+    }
+
+    const matchingSnapshots = snapshots.filter(
+      (snapshot) =>
+        snapshot.metricKey === code && metricMatchesService(snapshot.serviceId, serviceId),
+    );
+
+    const quantity = matchingSnapshots.reduce(
+      (sum, snapshot) => sum + (snapshot.metricValue ?? 0),
+      0,
+    );
+
+    if (matchingSnapshots.length === 0) {
+      exceptionFlags.push(`MISSING_METRIC_CPT_${code}`);
+      continue;
+    }
+
+    metricResolutions.push({
+      metricKey: code,
+      quantity,
+      snapshots: matchingSnapshots,
+    });
+
+    const componentAmount = roundMoney(quantity * rate);
+    amount = roundMoney(amount + componentAmount);
+    components.push({
+      componentType: PricingModel.PER_CPT_CODE,
+      description: `${label} (${description})`,
+      quantity,
+      rate,
+      amount: componentAmount,
+      metadata: {
+        cptCode: code,
+      },
+    });
+  }
+
+  return {
+    amount,
+    components,
+    metricResolutions,
+    exceptionFlags: [...new Set(exceptionFlags)],
+  };
+}
+
 function computePricingFromModel(params: {
   pricingModel: PricingModel;
   config: JsonObject;
@@ -388,7 +467,7 @@ function computePricingFromModel(params: {
     case PricingModel.PER_PROVIDER:
     case PricingModel.PER_SITE: {
       const metric = resolveMetric(config, snapshots, serviceId, pricingModel);
-      const rate = getNumberValue(config.rate);
+      const rate = getNumberValue(config.rate ?? config.unitRate);
 
       if (!metric) {
         exceptionFlags.push(`MISSING_METRIC_${pricingModel}`);
@@ -416,6 +495,15 @@ function computePricingFromModel(params: {
       break;
     }
 
+    case PricingModel.PER_CPT_CODE: {
+      const cptResult = computeCptPricing(config, snapshots, serviceId, componentLabel);
+      amount = cptResult.amount;
+      components.push(...cptResult.components);
+      metricResolutions.push(...cptResult.metricResolutions);
+      exceptionFlags.push(...cptResult.exceptionFlags);
+      break;
+    }
+
     case PricingModel.PERCENT_COLLECTIONS:
     case PricingModel.PERCENT_REVENUE:
     case PricingModel.PERCENT_PROFIT:
@@ -425,7 +513,7 @@ function computePricingFromModel(params: {
           ? PricingModel.PERCENT_COLLECTIONS
           : pricingModel;
       const metric = resolveMetric(config, snapshots, serviceId, percentMetricModel);
-      const rate = getNumberValue(config.ratePercent ?? config.rate);
+      const rate = getNumberValue(config.ratePercent ?? config.percentage ?? config.rate);
 
       if (!metric) {
         exceptionFlags.push(`MISSING_METRIC_${pricingModel}`);
@@ -529,6 +617,40 @@ function computePricingFromModel(params: {
 
       if (subComponents.length === 0) {
         exceptionFlags.push(`MISSING_COMPONENTS_${pricingModel}`);
+        break;
+      }
+
+      const hasNestedPricingModel = subComponents.some(
+        (componentValue) =>
+          !!componentValue &&
+          typeof componentValue === "object" &&
+          typeof (componentValue as JsonObject).pricingModel === "string",
+      );
+
+      if (!hasNestedPricingModel) {
+        for (const componentValue of subComponents) {
+          if (!componentValue || typeof componentValue !== "object") {
+            exceptionFlags.push("INVALID_COMPONENT_VALUE");
+            continue;
+          }
+
+          const componentConfig = componentValue as JsonObject;
+          const componentAmount = getNumberValue(componentConfig.value);
+          if (componentAmount === null) {
+            exceptionFlags.push("INVALID_COMPONENT_VALUE");
+            continue;
+          }
+
+          amount = roundMoney(amount + componentAmount);
+          components.push({
+            componentType: pricingModel,
+            description:
+              typeof componentConfig.type === "string"
+                ? componentConfig.type
+                : componentLabel,
+            amount: roundMoney(componentAmount),
+          });
+        }
         break;
       }
 
@@ -656,7 +778,18 @@ function validatePricingConfigForReadiness(params: {
     case PricingModel.PER_PATIENT:
     case PricingModel.PER_PROVIDER:
     case PricingModel.PER_SITE:
-      requireKey("rate", "Volume-based service term is missing rate.");
+      if (
+        getNumberValue(pricingConfig.rate) === null &&
+        getNumberValue(pricingConfig.unitRate) === null
+      ) {
+        issues.push({
+          code: "MISSING_RATE",
+          message: "Volume-based service term is missing rate.",
+          severity: "ERROR",
+          agreementId,
+          agreementServiceTermId,
+        });
+      }
       if (
         getStringList(pricingConfig.metricKey).length === 0 &&
         getStringList(pricingConfig.metricKeys).length === 0 &&
@@ -671,11 +804,52 @@ function validatePricingConfigForReadiness(params: {
         });
       }
       break;
+    case PricingModel.PER_CPT_CODE:
+      if (!Array.isArray(pricingConfig.cptCodes) || pricingConfig.cptCodes.length === 0) {
+        issues.push({
+          code: "MISSING_CPT_CODES",
+          message: "CPT-based service term is missing CPT codes.",
+          severity: "ERROR",
+          agreementId,
+          agreementServiceTermId,
+        });
+        break;
+      }
+
+      for (const row of pricingConfig.cptCodes) {
+        if (!row || typeof row !== "object") {
+          issues.push({
+            code: "INVALID_CPT_CONFIGURATION",
+            message: "CPT-based service term has an invalid CPT row.",
+            severity: "ERROR",
+            agreementId,
+            agreementServiceTermId,
+          });
+          continue;
+        }
+
+        const cptRow = row as JsonObject;
+        if (
+          !String(cptRow.code ?? "").trim() ||
+          getNumberValue(cptRow.rate) === null
+        ) {
+          issues.push({
+            code: "INVALID_CPT_CONFIGURATION",
+            message: "Each CPT row must include a CPT code and rate.",
+            severity: "ERROR",
+            agreementId,
+            agreementServiceTermId,
+          });
+          break;
+        }
+      }
+      break;
     case PricingModel.PERCENT_COLLECTIONS:
     case PricingModel.PERCENT_REVENUE:
     case PricingModel.PERCENT_PROFIT:
     case PricingModel.SUCCESS_FEE:
       if (
+        getNumberValue(pricingConfig.percentage) === null &&
         getNumberValue(pricingConfig.ratePercent) === null &&
         getNumberValue(pricingConfig.rate) === null
       ) {
@@ -830,7 +1004,12 @@ async function createSnapshotsForRun(
   return createdSnapshots;
 }
 
-async function getActiveAgreementTermsForRun(db: DbClient, practiceId: string, periodEnd: Date) {
+async function getActiveAgreementTermsForRun(
+  db: DbClient,
+  practiceId: string,
+  periodStart: Date,
+  periodEnd: Date,
+) {
   return db.agreementServiceTerm.findMany({
     where: {
       isActive: true,
@@ -838,16 +1017,12 @@ async function getActiveAgreementTermsForRun(db: DbClient, practiceId: string, p
         practiceId,
         status: "ACTIVE",
       },
-      OR: [
-        { effectiveDate: null },
-        { effectiveDate: { lte: periodEnd } },
-      ],
       AND: [
         {
-          OR: [
-            { endDate: null },
-            { endDate: { gte: periodEnd } },
-          ],
+          OR: [{ effectiveDate: null }, { effectiveDate: { lte: periodEnd } }],
+        },
+        {
+          OR: [{ endDate: null }, { endDate: { gte: periodStart } }],
         },
       ],
     },
@@ -1438,7 +1613,12 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
     );
   }
 
-  const runTerms = await getActiveAgreementTermsForRun(db, run.practiceId, run.periodEnd);
+  const runTerms = await getActiveAgreementTermsForRun(
+    db,
+    run.practiceId,
+    run.periodStart,
+    run.periodEnd,
+  );
   const snapshots = run.inputSnapshots.map(toSnapshotMetric);
 
   const oldItemIds = (

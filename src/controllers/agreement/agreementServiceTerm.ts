@@ -164,6 +164,27 @@ export async function createAgreementServiceTerm(
       });
     }
 
+    if (typeof pricingConfig !== "object" || pricingConfig === null || Array.isArray(pricingConfig)) {
+      return res.status(400).json({
+        message: "pricingConfig must be a valid object.",
+      });
+    }
+
+    const pricingValidation = validatePricingConfig(
+      pricingModel,
+      pricingConfig as Record<string, unknown>,
+    );
+
+    if (!pricingValidation.valid) {
+      return res.status(400).json({ message: pricingValidation.message });
+    }
+
+    if (minimumFee !== undefined && minimumFee !== null && asNonNegativeNumber(minimumFee) === null) {
+      return res.status(400).json({
+        message: "Vendor rate must be 0 or greater.",
+      });
+    }
+
     const agreement = await prisma.agreement.findUnique({
       where: { id: agreementId as string },
       include: {
@@ -236,6 +257,24 @@ export async function createAgreementServiceTerm(
         message:
           "Service term endDate cannot end before the agreement version effectiveDate.",
       });
+    }
+
+    if (isActive ?? true) {
+      const overlappingTerm = await findOverlappingActiveTerm({
+        agreementId: agreementId as string,
+        serviceId: serviceId as string,
+        vendorId: (vendorId as string) || null,
+        pricingModel,
+        effectiveDate: parsedEffectiveDate,
+        endDate: parsedEndDate,
+      });
+
+      if (overlappingTerm) {
+        return res.status(400).json({
+          message:
+            "An active pricing term with overlapping effective dates already exists for this agreement, service, vendor, and pricing model.",
+        });
+      }
     }
 
     const term = await prisma.agreementServiceTerm.create({
@@ -315,6 +354,42 @@ export async function updateAgreementServiceTerm(
       return res
         .status(404)
         .json({ message: "Agreement service term not found." });
+    }
+
+    const nextPricingModel = pricingModel ?? existingTerm.pricingModel;
+    const nextPricingConfig =
+      pricingConfig !== undefined
+        ? pricingConfig
+        : (existingTerm.pricingConfig as Record<string, unknown>);
+
+    if (
+      typeof nextPricingConfig !== "object" ||
+      nextPricingConfig === null ||
+      Array.isArray(nextPricingConfig)
+    ) {
+      return res.status(400).json({
+        message: "pricingConfig must be a valid object.",
+      });
+    }
+
+    const pricingValidation = validatePricingConfig(
+      nextPricingModel,
+      nextPricingConfig as Record<string, unknown>,
+    );
+
+    if (!pricingValidation.valid) {
+      return res.status(400).json({ message: pricingValidation.message });
+    }
+
+    const nextMinimumFee = minimumFee !== undefined ? minimumFee : existingTerm.minimumFee;
+    if (
+      nextMinimumFee !== undefined &&
+      nextMinimumFee !== null &&
+      asNonNegativeNumber(nextMinimumFee) === null
+    ) {
+      return res.status(400).json({
+        message: "Vendor rate must be 0 or greater.",
+      });
     }
 
     const nextAgreementVersionId =
@@ -400,12 +475,36 @@ export async function updateAgreementServiceTerm(
       });
     }
 
+    const nextServiceId = serviceId ? (serviceId as string) : existingTerm.serviceId;
+    const nextVendorId =
+      vendorId !== undefined ? ((vendorId as string) || null) : existingTerm.vendorId;
+    const nextIsActive = isActive ?? existingTerm.isActive;
+
+    if (nextIsActive) {
+      const overlappingTerm = await findOverlappingActiveTerm({
+        agreementId: existingTerm.agreementId,
+        serviceId: nextServiceId,
+        vendorId: nextVendorId,
+        pricingModel: nextPricingModel,
+        effectiveDate: nextEffectiveDate ?? undefined,
+        endDate: nextEndDate ?? undefined,
+        excludeId: id,
+      });
+
+      if (overlappingTerm) {
+        return res.status(400).json({
+          message:
+            "An active pricing term with overlapping effective dates already exists for this agreement, service, vendor, and pricing model.",
+        });
+      }
+    }
+
     const term = await prisma.agreementServiceTerm.update({
       where: { id },
       data: {
         agreementVersionId: nextAgreementVersionId,
         serviceId: serviceId ? (serviceId as string) : undefined,
-        vendorId: vendorId !== undefined ? (vendorId as string) : undefined,
+        vendorId: vendorId !== undefined ? ((vendorId as string) || null) : undefined,
         pricingModel: pricingModel ?? undefined,
         pricingConfig: pricingConfig ?? undefined,
         currency: currency ?? undefined,

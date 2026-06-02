@@ -1273,9 +1273,64 @@ export async function completeQuickBooksConnection(params: {
 export async function getQuickBooksConnectionStatus(companyId: string) {
   const connection = await loadQuickBooksConnectionForCompany(companyId);
 
+  if (!connection) {
+    return {
+      connected: false,
+      connection: null,
+      accountInfo: null,
+      tokenExpiresAt: null,
+      lastSyncAt: null,
+      lastError: null,
+    };
+  }
+
+  let accountInfo = null;
+  try {
+    // Fetch Company Info from QuickBooks
+    const companyInfoResponse = await requestQuickBooks<any>(
+      prisma,
+      connection,
+      {
+        method: "GET",
+        path: "/companyinfo/" + connection.realmId,
+      },
+    );
+
+    if (companyInfoResponse?.CompanyInfo) {
+      const info = companyInfoResponse.CompanyInfo;
+      accountInfo = {
+        id: info.Id,
+        name: info.CompanyName,
+        legalName: info.LegalAddr?.Line1 || null,
+        email: info.PrimaryEmailAddr?.Address || null,
+        phone: info.PrimaryPhone?.FreeFormNumber || null,
+        country: info.PrimaryAddr?.CountrySubDivisionCode || null,
+        fiscalYearStartMonth: info.FiscalYearStartMonth || null,
+      };
+    }
+  } catch (err) {
+    console.log(
+      "[QB-STATUS] Could not fetch account info, but connection is still valid:",
+      err instanceof Error ? err.message : err,
+    );
+    // Connection is valid, just couldn't fetch account info right now
+  }
+
+  const summary = summarizeQuickBooksConnection(connection);
+  const now = new Date();
+  const tokenExpiresAt = connection.accessTokenExpiresAt
+    ? new Date(connection.accessTokenExpiresAt)
+    : null;
+  const isTokenExpired = tokenExpiresAt && tokenExpiresAt < now;
+
   return {
-    connected: Boolean(connection),
-    connection: summarizeQuickBooksConnection(connection as QuickBooksConnectionRecord | null),
+    connected: true,
+    connection: summary,
+    accountInfo,
+    tokenExpiresAt,
+    isTokenExpired,
+    lastSyncAt: connection.lastSyncAt,
+    lastError: connection.lastError,
   };
 }
 
