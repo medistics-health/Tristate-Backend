@@ -20,6 +20,7 @@ function escapeHtml(str: string | undefined): string {
 }
 
 type DocusealSubmissionInput = {
+  id?: string;
   docusealSubmissionId: number;
   status: string;
   url?: string;
@@ -1391,10 +1392,21 @@ export async function updateAgreement(
     }
 
     if (submissionApprovalStatus !== undefined) {
-      await prisma.docusealSubmission.updateMany({
-        where: { agreementId: id },
-        data: { submissionApprovalStatus },
-      });
+      await Promise.all(
+        (docusealSubmissions?.length ? docusealSubmissions : [{}]).map(
+          (submission) =>
+            prisma.docusealSubmission.updateMany({
+              where: {
+                agreementId: id,
+                ...(submission?.id ? { id: submission.id } : {}),
+                ...(!submission?.id && submission?.templateId !== undefined
+                  ? { templateId: submission.templateId }
+                  : {}),
+              },
+              data: { submissionApprovalStatus },
+            }),
+        ),
+      );
     }
 
     if (docusealSubmissions?.length) {
