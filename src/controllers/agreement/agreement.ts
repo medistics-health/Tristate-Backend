@@ -35,6 +35,7 @@ type AgreementBody = {
   type?: string;
   status?: string;
   approvalStatus?: string;
+  submissionApprovalStatus?: string;
   effectiveDate?: string;
   renewalDate?: string;
   docusealSubmissions?: DocusealSubmissionInput[];
@@ -54,6 +55,7 @@ const AGREEMENT_APPROVAL_STATUSES = [
 ] as const;
 
 type AgreementApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
+type SubmissionApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
 
 async function resolveInitialPacketTemplateIds(agreementId: string) {
   const agreement = await prisma.agreement.findFirst({
@@ -1016,6 +1018,14 @@ function isAgreementApprovalStatus(
   );
 }
 
+function isSubmissionApprovalStatus(
+  status: string,
+): status is SubmissionApprovalStatus {
+  return AGREEMENT_APPROVAL_STATUSES.includes(
+    status as SubmissionApprovalStatus,
+  );
+}
+
 export async function createAgreement(
   req: AuthenticatedRequest,
   res: Response,
@@ -1091,8 +1101,9 @@ export async function createAgreement(
             fieldValues: s.fieldValues,
             approval_status:
               req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
-            submissionApprovalStatus:
-              req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
+            // submissionApprovalStatus:
+            //   req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
+            submissionApprovalStatus: "APPROVED",
             signers: {
               create: s?.submitters?.map((init: any, index: number) => ({
                 signerUuid: init.uuid,
@@ -1281,6 +1292,7 @@ export async function updateAgreement(
       type,
       status,
       approvalStatus,
+      submissionApprovalStatus,
       effectiveDate,
       renewalDate,
       docusealSubmissions,
@@ -1314,6 +1326,16 @@ export async function updateAgreement(
     ) {
       return res.status(400).json({
         message: "Invalid agreement approvalStatus.",
+        allowedStatuses: [...AGREEMENT_APPROVAL_STATUSES],
+      });
+    }
+
+    if (
+      submissionApprovalStatus !== undefined &&
+      !isSubmissionApprovalStatus(submissionApprovalStatus)
+    ) {
+      return res.status(400).json({
+        message: "Invalid submission approvalStatus.",
         allowedStatuses: [...AGREEMENT_APPROVAL_STATUSES],
       });
     }
@@ -1365,6 +1387,13 @@ export async function updateAgreement(
       await prisma.docusealSubmission.updateMany({
         where: { agreementId: id },
         data: { approval_status: approvalStatus },
+      });
+    }
+
+    if (submissionApprovalStatus !== undefined) {
+      await prisma.docusealSubmission.updateMany({
+        where: { agreementId: id },
+        data: { submissionApprovalStatus },
       });
     }
 
