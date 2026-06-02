@@ -20,7 +20,10 @@ function asOptionalDate(value: unknown, fieldName: string) {
   return parsed;
 }
 
-export async function getAgreementServiceTerms(req: AuthenticatedRequest, res: Response) {
+export async function getAgreementServiceTerms(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -77,7 +80,10 @@ export async function getAgreementServiceTerms(req: AuthenticatedRequest, res: R
   }
 }
 
-export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function getAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
 
@@ -85,8 +91,8 @@ export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Re
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const term = await prisma.agreementServiceTerm.findUnique({
-      where: { id },
+    const term = await prisma.agreementServiceTerm.findMany({
+      where: { agreementId: id },
       include: {
         agreement: true,
         agreementVersion: true,
@@ -96,7 +102,9 @@ export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Re
     });
 
     if (!term) {
-      return res.status(404).json({ message: "Agreement service term not found." });
+      return res
+        .status(404)
+        .json({ message: "Agreement service term not found." });
     }
 
     return res.status(200).json({
@@ -111,7 +119,10 @@ export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Re
   }
 }
 
-export async function createAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function createAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const {
       agreementId,
@@ -133,7 +144,13 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    if (!agreementId || !agreementVersionId || !serviceId || !pricingModel || !pricingConfig) {
+    if (
+      !agreementId ||
+      !agreementVersionId ||
+      !serviceId ||
+      !pricingModel ||
+      !pricingConfig
+    ) {
       return res.status(400).json({
         message:
           "agreementId, agreementVersionId, serviceId, pricingModel and pricingConfig are required.",
@@ -251,7 +268,10 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
   }
 }
 
-export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function updateAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
     const {
@@ -292,7 +312,9 @@ export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res:
     });
 
     if (!existingTerm) {
-      return res.status(404).json({ message: "Agreement service term not found." });
+      return res
+        .status(404)
+        .json({ message: "Agreement service term not found." });
     }
 
     const nextAgreementVersionId =
@@ -408,7 +430,10 @@ export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res:
   }
 }
 
-export async function deleteAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function deleteAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
 
@@ -421,7 +446,9 @@ export async function deleteAgreementServiceTerm(req: AuthenticatedRequest, res:
     });
 
     if (!existingTerm) {
-      return res.status(404).json({ message: "Agreement service term not found." });
+      return res
+        .status(404)
+        .json({ message: "Agreement service term not found." });
     }
 
     await prisma.agreementServiceTerm.delete({
