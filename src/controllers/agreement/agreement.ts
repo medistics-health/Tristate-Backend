@@ -134,16 +134,20 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
 
     if (event_type === "form.completed") {
       console.log(event_type, data);
-      externalId = data.id || data.submission_id;
+      externalId = data.submission_id;
 
       const dbSubmission = await prisma.docusealSubmission.findFirst({
-        where: { docusealSubmissionId: data.submission_id },
+        where: { docusealSubmissionId: externalId },
         include: { signers: true },
       });
+
+      console.log({ dbSubmission });
       if (dbSubmission) {
+        console.log("dbSubmission if condition");
         const signer = dbSubmission.signers.find((s) => s.email === data.email);
 
         if (signer) {
+          console.log("udpating signers");
           await prisma.docuSigner.update({
             where: { id: signer.id },
             data: {
@@ -161,6 +165,7 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
             (s) => s.role === "Second Party",
           );
 
+          console.log({ secondParty });
           if (secondParty?.email) {
             const agreement = await prisma.agreement.findUnique({
               where: { id: dbSubmission.agreementId },
@@ -168,7 +173,7 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
             });
 
             const signerName = signer?.name || data.email || "First Party";
-
+            console.log({ signerName });
             const link = process.env.FRONTEND_URL
               ? `${process.env.FRONTEND_URL}/sign/${secondParty.submissionSlug}`
               : `http://localhost:5173/sign/${secondParty.submissionSlug}`;
@@ -180,14 +185,23 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
                 ${agreement?.type || "agreement"}
                 ${agreement?.practice ? ` for ${agreement.practice.name}` : ""}.
               </p>
-
               <p>
-                <a href="${link}" target="_blank">Review and sign the agreement</a>
+                 <strong>Important:</strong>
+                 The signing link will expire in 48 hours.
+              </p>
+              <p>
+              ${decodeURIComponent(
+                dbSubmission?.url?.split("/").pop() || "",
+              ).replace(
+                ".pdf",
+                "",
+              )}: <a href="${link}" target="_blank">Review and sign the agreement</a>
               </p>
               <p>Best regards,<br/>The Tristate Team</p>
             `;
 
             await sendOutlookEmail(secondParty.email, subject, body);
+            console.log({ sent: true });
           }
         }
         // await prisma.docusealSubmission.update({
@@ -221,8 +235,8 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
       await prisma.docusealSubmission.update({
         where: { docusealSubmissionId: externalId },
         data: {
-          signedDocUrl: data.documents[0].url,
-          auditLogUrl: data.audit_log_url,
+          signedDocUrl: data.documents?.[0]?.url ?? undefined,
+          auditLogUrl: data.audit_log_url ?? undefined,
           status: data.status,
         },
       });
@@ -270,11 +284,20 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
 
 function buildAutoFillValues(
   fields: Array<{ name: string }>,
-  person: { firstName: string; lastName: string; email?: string | null; phone?: string | null },
-  agreement: { effectiveDate?: Date | null; practice: { name: string; npi?: string | null } },
+  person: {
+    firstName: string;
+    lastName: string;
+    email?: string | null;
+    phone?: string | null;
+  },
+  agreement: {
+    effectiveDate?: Date | null;
+    practice: { name: string; npi?: string | null };
+  },
 ): Record<string, string> {
   const fullName = `${person.firstName} ${person.lastName}`;
-  const effectiveDate = agreement.effectiveDate?.toISOString().split("T")[0] || "";
+  const effectiveDate =
+    agreement.effectiveDate?.toISOString().split("T")[0] || "";
 
   const values: Record<string, string> = {};
   for (const field of fields) {
@@ -288,7 +311,11 @@ function buildAutoFillValues(
       values[field.name] = person.email ?? "";
     } else if (name.includes("phone")) {
       values[field.name] = person.phone ?? "";
-    } else if (name.includes("client") || name.includes("practice") || name.includes("clinic")) {
+    } else if (
+      name.includes("client") ||
+      name.includes("practice") ||
+      name.includes("clinic")
+    ) {
       values[field.name] = agreement.practice.name;
     } else if (name.includes("npi")) {
       values[field.name] = agreement.practice.npi ?? "";
@@ -372,6 +399,8 @@ export async function createDocusealSubmission(
         person,
         agreement,
       );
+      const expireAt = new Date();
+      expireAt.setHours(expireAt.getHours() + 48);
 
       const submission: any = await docuseal.createSubmission({
         template_id: parseInt(tid),
@@ -385,10 +414,12 @@ export async function createDocusealSubmission(
           },
           {
             role: "Second Party",
-            email: "nmelchiorre@tristatemso.com",
+            // email: "nmelchiorre@tristatemso.com",
+            email: "pkolankar@medisticshealth.com",
             name: "TristateMSO",
           },
         ],
+        expire_at: expireAt.toISOString(),
       });
 
       console.log(submission);
@@ -540,7 +571,8 @@ export async function resubmitDocusealSubmission(
     );
 
     const mergedValues = { ...autoFillValues, ...fieldValues };
-
+    const expireAt = new Date();
+    expireAt.setHours(expireAt.getHours() + 48);
     const submission: any = await docuseal.createSubmission({
       template_id: templateId,
       send_email: false,
@@ -553,10 +585,12 @@ export async function resubmitDocusealSubmission(
         },
         {
           role: "Second Party",
-          email: "nmelchiorre@tristatemso.com",
+          // email: "nmelchiorre@tristatemso.com",
+          email: "pkolankar@medisticshealth.com",
           name: "TristateMSO",
         },
       ],
+      expire_at: expireAt.toISOString(),
     });
 
     const docusealSubmissionData = Array.isArray(submission)
@@ -646,6 +680,10 @@ export async function resubmitDocusealSubmission(
       <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
       has been updated.</p>
       <p>Please click the link below to review and sign the updated document:</p>
+      <p>
+         <strong>Important:</strong>
+         The signing link will expire in 48 hours.
+      </p>
       ${signingLink ? `<p><a href="${signingLink}" target="_blank">Review and Sign Updated Document</a></p>` : ""}
       <p>If you have any questions, please contact your representative.</p>
       <p>Best regards,<br/>The Tristate Team</p>
@@ -802,7 +840,9 @@ export async function sendAgreementEmail(
 
             return `
             <p>
-              <a href="${link}" target="_blank">
+             ${decodeURIComponent(
+               submission?.url?.split("/").pop() || "",
+             ).replace(".pdf", "")}: <a href="${link}" target="_blank">
                 Sign Document
               </a>
             </p>
@@ -823,6 +863,11 @@ export async function sendAgreementEmail(
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
 
       <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
+
+      <p>
+         <strong>Important:</strong>
+         The signing link will expire in 48 hours.
+      </p>
 
       <p><strong>Documents:</strong></p>
       ${submissionLinks}
@@ -1047,8 +1092,8 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
           deal: true,
           channelPartners: true,
           docusealSubmissions: true,
-          versions: true,
-          serviceTerms: true,
+          // versions: true,
+          // serviceTerms: true,
         },
         skip,
         take: limit,
@@ -1091,7 +1136,7 @@ export async function getAgreement(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ message: "Agreement id is required." });
     }
 
-    const agreement = await prisma.agreement.findFirst({
+    const agreement = await prisma.agreement.findUnique({
       where: { id },
       include: {
         practice: true,

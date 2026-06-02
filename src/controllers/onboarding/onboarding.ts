@@ -1,7 +1,11 @@
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
-import { OnboardingStatus } from "../../../generated/prisma/client";
+import {
+  AgreementStatus,
+  CompanyStatus,
+  OnboardingStatus,
+} from "../../../generated/prisma/client";
 
 type OnboardingContactBody = {
   id?: string;
@@ -178,6 +182,8 @@ type OnboardingMarketingBody = {
 };
 
 type OnboardingBody = {
+  practiceId?: string;
+  personId?: string;
   onboardingType?: string;
   isAuthorizedPerson?: boolean;
   nonAuthorizedRole?: string;
@@ -245,6 +251,47 @@ type OnboardingBody = {
   marketing?: OnboardingMarketingBody;
 };
 
+async function handleCompletedOnboarding(
+  onboardingId: string,
+): Promise<void> {
+  const onboarding = (await prisma.onboarding.findUnique({
+    where: { id: onboardingId },
+    include: {
+      practice: true,
+    },
+  } as any)) as any;
+
+  if (!onboarding?.practiceId) {
+    return;
+  }
+
+  const agreement = await prisma.agreement.findFirst({
+    where: {
+      practiceId: onboarding.practiceId,
+      status: {
+        in: [AgreementStatus.DRAFT, AgreementStatus.SIGNED],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, status: true },
+  });
+
+  if (agreement && agreement.status !== AgreementStatus.ACTIVE) {
+    await prisma.agreement.update({
+      where: { id: agreement.id },
+      data: { status: AgreementStatus.ACTIVE },
+    });
+  }
+
+  const companyId = onboarding.practice?.companyId;
+  if (companyId) {
+    await prisma.company.update({
+      where: { id: companyId },
+      data: { status: CompanyStatus.CUSTOMER },
+    });
+  }
+}
+
 export async function createOnboarding(
   req: AuthenticatedRequest,
   res: Response,
@@ -262,8 +309,10 @@ export async function createOnboarding(
     const toDateValue = (v: string | Date | undefined) =>
       !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
 
-    const onboarding = await prisma.onboarding.create({
+    const onboarding = (await prisma.onboarding.create({
       data: {
+        practiceId: body.practiceId,
+        personId: body.personId,
         onboardingType: toEnum(body.onboardingType || "") as any,
         isAuthorizedPerson: body.isAuthorizedPerson,
         nonAuthorizedRole: body.nonAuthorizedRole,
@@ -565,8 +614,14 @@ export async function createOnboarding(
         compliance: true,
         careProgram: true,
         OnboardingMarketing: true,
+        practice: true,
+        person: true,
       },
-    });
+    } as any)) as any;
+
+    if (body.status === OnboardingStatus.COMPLETED) {
+      await handleCompletedOnboarding(onboarding.id);
+    }
 
     return res.status(201).json({
       message: "Onboarding created successfully.",
@@ -680,7 +735,7 @@ export async function getOnboarding(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({ message: "Onboarding id is required." });
     }
 
-    const onboarding = await prisma.onboarding.findFirst({
+    const onboarding = (await prisma.onboarding.findFirst({
       where: { id },
       include: {
         contacts: true,
@@ -700,7 +755,7 @@ export async function getOnboarding(req: AuthenticatedRequest, res: Response) {
         careProgram: true,
         OnboardingMarketing: true,
       },
-    });
+    } as any)) as any;
 
     if (!onboarding) {
       return res.status(404).json({ message: "Onboarding not found." });
@@ -741,7 +796,7 @@ export async function updateOnboarding(
     const toDateValue = (v: string | Date | undefined) =>
       !v || v === "" ? undefined : v instanceof Date ? v : new Date(v);
 
-    const existing = await prisma.onboarding.findFirst({
+    const existing = (await prisma.onboarding.findFirst({
       where: { id },
       include: {
         contacts: true,
@@ -761,15 +816,17 @@ export async function updateOnboarding(
         careProgram: true,
         OnboardingMarketing: true,
       },
-    });
+    } as any)) as any;
 
     if (!existing) {
       return res.status(404).json({ message: "Onboarding not found." });
     }
 
-    const onboarding = await prisma.onboarding.update({
+    const onboarding = (await prisma.onboarding.update({
       where: { id },
       data: {
+        practiceId: body.practiceId,
+        personId: body.personId,
         onboardingType: toEnum(body.onboardingType || "") as any,
         isAuthorizedPerson: body.isAuthorizedPerson,
         nonAuthorizedRole: body.nonAuthorizedRole,
@@ -1215,8 +1272,17 @@ export async function updateOnboarding(
         compliance: true,
         careProgram: true,
         OnboardingMarketing: true,
+        practice: true,
+        person: true,
       },
-    });
+    } as any)) as any;
+
+    if (
+      body.status === OnboardingStatus.COMPLETED &&
+      existing.status !== OnboardingStatus.COMPLETED
+    ) {
+      await handleCompletedOnboarding(onboarding.id);
+    }
 
     return res.status(200).json({
       message: "Onboarding updated successfully.",

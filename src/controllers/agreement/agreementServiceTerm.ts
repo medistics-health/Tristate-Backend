@@ -20,130 +20,10 @@ function asOptionalDate(value: unknown, fieldName: string) {
   return parsed;
 }
 
-function asNonNegativeNumber(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-
-  return parsed;
-}
-
-function validatePricingConfig(
-  pricingModel: PricingModel,
-  pricingConfig: Record<string, unknown>,
+export async function getAgreementServiceTerms(
+  req: AuthenticatedRequest,
+  res: Response,
 ) {
-  const fail = (message: string) => ({ valid: false as const, message });
-  const hasNonNegative = (value: unknown) => asNonNegativeNumber(value) !== null;
-
-  switch (pricingModel) {
-    case PricingModel.FIXED_MONTHLY:
-    case PricingModel.FIXED_ONE_TIME:
-    case PricingModel.RETAINER:
-      if (!hasNonNegative(pricingConfig.amount)) {
-        return fail("Amount is required and must be 0 or greater.");
-      }
-      return { valid: true as const };
-
-    case PricingModel.PERCENT_COLLECTIONS:
-    case PricingModel.PERCENT_REVENUE:
-    case PricingModel.PERCENT_PROFIT:
-    case PricingModel.SUCCESS_FEE:
-      if (
-        !hasNonNegative(pricingConfig.percentage) &&
-        !hasNonNegative(pricingConfig.ratePercent) &&
-        !hasNonNegative(pricingConfig.rate)
-      ) {
-        return fail("Percentage is required and must be 0 or greater.");
-      }
-      return { valid: true as const };
-
-    case PricingModel.PER_UNIT:
-    case PricingModel.PER_ENCOUNTER:
-    case PricingModel.PER_PATIENT:
-    case PricingModel.PER_PROVIDER:
-    case PricingModel.PER_SITE:
-      if (!hasNonNegative(pricingConfig.unitRate) && !hasNonNegative(pricingConfig.rate)) {
-        return fail("Rate is required and must be 0 or greater.");
-      }
-      return { valid: true as const };
-
-    case PricingModel.PER_CPT_CODE: {
-      const cptCodes = Array.isArray(pricingConfig.cptCodes) ? pricingConfig.cptCodes : [];
-      if (cptCodes.length === 0) {
-        return fail("At least one CPT code is required.");
-      }
-      const invalidRow = cptCodes.find((row) => {
-        if (!row || typeof row !== "object") return true;
-        const code = String((row as Record<string, unknown>).code ?? "").trim();
-        return !code || asNonNegativeNumber((row as Record<string, unknown>).rate) === null;
-      });
-      if (invalidRow) {
-        return fail("Each CPT entry must include a code and a non-negative rate.");
-      }
-      return { valid: true as const };
-    }
-
-    case PricingModel.HYBRID:
-    case PricingModel.MULTI_COMPONENT: {
-      const components = Array.isArray(pricingConfig.components)
-        ? pricingConfig.components
-        : [];
-      if (components.length === 0) {
-        return fail("At least one hybrid component is required.");
-      }
-      const invalidComponent = components.find((component) => {
-        if (!component || typeof component !== "object") return true;
-        return asNonNegativeNumber((component as Record<string, unknown>).value) === null;
-      });
-      if (invalidComponent) {
-        return fail("Each hybrid component must have a non-negative value.");
-      }
-      return { valid: true as const };
-    }
-
-    default:
-      return { valid: true as const };
-  }
-}
-
-async function findOverlappingActiveTerm(params: {
-  agreementId: string;
-  serviceId: string;
-  vendorId?: string | null;
-  pricingModel: PricingModel;
-  effectiveDate?: Date;
-  endDate?: Date;
-  excludeId?: string;
-}) {
-  const { agreementId, serviceId, vendorId, pricingModel, effectiveDate, endDate, excludeId } = params;
-
-  return prisma.agreementServiceTerm.findFirst({
-    where: {
-      agreementId,
-      serviceId,
-      vendorId: vendorId || null,
-      pricingModel,
-      isActive: true,
-      ...(excludeId ? { NOT: { id: excludeId } } : {}),
-      AND: [
-        {
-          OR: [{ effectiveDate: null }, { effectiveDate: { lte: endDate ?? new Date("9999-12-31T23:59:59.999Z") } }],
-        },
-        {
-          OR: [{ endDate: null }, { endDate: { gte: effectiveDate ?? new Date("1900-01-01T00:00:00.000Z") } }],
-        },
-      ],
-    },
-    select: { id: true },
-  });
-}
-
-export async function getAgreementServiceTerms(req: AuthenticatedRequest, res: Response) {
   try {
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -200,7 +80,10 @@ export async function getAgreementServiceTerms(req: AuthenticatedRequest, res: R
   }
 }
 
-export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function getAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
 
@@ -208,8 +91,8 @@ export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Re
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const term = await prisma.agreementServiceTerm.findUnique({
-      where: { id },
+    const term = await prisma.agreementServiceTerm.findMany({
+      where: { agreementId: id },
       include: {
         agreement: true,
         agreementVersion: true,
@@ -219,7 +102,9 @@ export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Re
     });
 
     if (!term) {
-      return res.status(404).json({ message: "Agreement service term not found." });
+      return res
+        .status(404)
+        .json({ message: "Agreement service term not found." });
     }
 
     return res.status(200).json({
@@ -234,7 +119,10 @@ export async function getAgreementServiceTerm(req: AuthenticatedRequest, res: Re
   }
 }
 
-export async function createAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function createAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const {
       agreementId,
@@ -256,7 +144,13 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    if (!agreementId || !agreementVersionId || !serviceId || !pricingModel || !pricingConfig) {
+    if (
+      !agreementId ||
+      !agreementVersionId ||
+      !serviceId ||
+      !pricingModel ||
+      !pricingConfig
+    ) {
       return res.status(400).json({
         message:
           "agreementId, agreementVersionId, serviceId, pricingModel and pricingConfig are required.",
@@ -413,7 +307,10 @@ export async function createAgreementServiceTerm(req: AuthenticatedRequest, res:
   }
 }
 
-export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function updateAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
     const {
@@ -454,7 +351,9 @@ export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res:
     });
 
     if (!existingTerm) {
-      return res.status(404).json({ message: "Agreement service term not found." });
+      return res
+        .status(404)
+        .json({ message: "Agreement service term not found." });
     }
 
     const nextPricingModel = pricingModel ?? existingTerm.pricingModel;
@@ -630,7 +529,10 @@ export async function updateAgreementServiceTerm(req: AuthenticatedRequest, res:
   }
 }
 
-export async function deleteAgreementServiceTerm(req: AuthenticatedRequest, res: Response) {
+export async function deleteAgreementServiceTerm(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = req.params.id as string;
 
@@ -643,7 +545,9 @@ export async function deleteAgreementServiceTerm(req: AuthenticatedRequest, res:
     });
 
     if (!existingTerm) {
-      return res.status(404).json({ message: "Agreement service term not found." });
+      return res
+        .status(404)
+        .json({ message: "Agreement service term not found." });
     }
 
     await prisma.agreementServiceTerm.delete({

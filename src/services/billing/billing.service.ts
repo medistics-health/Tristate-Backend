@@ -2202,6 +2202,90 @@ export async function recordManualPayment(body: RecordPaymentBody) {
   });
 }
 
+export async function importSnapshotsFromMonthlyReports(
+  billingRunId: string,
+  options?: { replaceExisting?: boolean },
+) {
+  const run = await prisma.billingRun.findUnique({
+    where: { id: billingRunId },
+  });
+
+  if (!run) {
+    throw new BillingServiceError(404, "Billing run not found.");
+  }
+
+  if (
+    run.status === BillingRunStatus.POSTED ||
+    run.status === BillingRunStatus.CLOSED
+  ) {
+    throw new BillingServiceError(
+      400,
+      "Snapshots cannot be modified after the billing run is posted or closed.",
+    );
+  }
+
+  const year = run.periodStart.getFullYear();
+  const monthNumber = String(run.periodStart.getMonth() + 1);
+  const monthPadded = monthNumber.padStart(2, "0");
+  const monthName = run.periodStart.toLocaleString("en-US", { month: "long" });
+
+  const reports = await prisma.monthlyReport.findMany({
+    where: {
+      practiceId: run.practiceId,
+      year,
+      OR: [
+        { month: { equals: monthName, mode: "insensitive" } },
+        { month: { equals: monthNumber } },
+        { month: { equals: monthPadded } },
+        { month: { equals: `${year}-${monthPadded}` } },
+      ],
+    },
+  });
+
+  if (reports.length === 0) {
+    return { imported: 0, snapshotCount: 0 };
+  }
+
+  const snapshots: BillingSnapshotInput[] = [];
+
+  for (const report of reports) {
+    const metrics = (report.metrics ?? {}) as Record<string, unknown>;
+    for (const [metricKey, rawValue] of Object.entries(metrics)) {
+      const metricValue =
+        typeof rawValue === "number"
+          ? rawValue
+          : typeof rawValue === "string" && rawValue.trim() !== ""
+            ? Number(rawValue)
+            : null;
+
+      if (metricValue === null || !Number.isFinite(metricValue)) {
+        continue;
+      }
+
+      snapshots.push({
+        serviceId: report.serviceId ?? undefined,
+        metricKey,
+        metricValue,
+        sourceType: "monthly_report",
+        sourceReference: report.id,
+      });
+    }
+  }
+
+  if (snapshots.length === 0) {
+    return { imported: reports.length, snapshotCount: 0 };
+  }
+
+  await createSnapshotsForRun(prisma, {
+    billingRunId,
+    practiceId: run.practiceId,
+    snapshots,
+    replaceExisting: options?.replaceExisting,
+  });
+
+  return { imported: reports.length, snapshotCount: snapshots.length };
+}
+
 export async function deleteBillingRun(billingRunId: string) {
   return prisma.$transaction(async (tx) => {
     const run = await tx.billingRun.findUnique({

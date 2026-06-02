@@ -165,11 +165,11 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
           taxId: true,
           groupNpis: true,
           agreements: true,
-persons: {
-          include: {
-            person: true,
+          persons: {
+            include: {
+              person: true,
+            },
           },
-        },
           _count: {
             select: { persons: true, deals: true, agreements: true },
           },
@@ -231,7 +231,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
 
     if (!name || !status || !region || !source || !npi) {
       return res.status(400).json({
-        message: "name, status, region, source are required.",
+        message: "name, status, region, source, npi are required.",
       });
     }
 
@@ -605,7 +605,9 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       companyId,
       practiceGroupId,
       taxIdId,
-      ...(billToTaxIdId !== undefined ? { billToTaxIdId: billToTaxIdId || null } : {}),
+      ...(billToTaxIdId !== undefined
+        ? { billToTaxIdId: billToTaxIdId || null }
+        : {}),
       ...(stripeCustomerId !== undefined
         ? { stripeCustomerId: stripeCustomerId || null }
         : {}),
