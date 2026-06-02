@@ -584,11 +584,18 @@ export async function resubmitDocusealSubmission(
   res: Response,
 ) {
   try {
-    const { agreementId, personId, templateId, fieldValues } = req.body as {
+    const {
+      agreementId,
+      personId,
+      templateId,
+      fieldValues,
+      submissionApprovalStatus,
+    } = req.body as {
       agreementId: string;
       personId: string;
       templateId: number;
       fieldValues?: Record<string, string>;
+      submissionApprovalStatus: string;
     };
 
     if (!req.user?.sub) {
@@ -598,6 +605,12 @@ export async function resubmitDocusealSubmission(
     if (!agreementId || !personId || !templateId) {
       return res.status(400).json({
         message: "agreementId, personId, and templateId are required.",
+      });
+    }
+
+    if (submissionApprovalStatus !== "APPROVED") {
+      return res.status(400).json({
+        message: "Required Admin Approval to resend",
       });
     }
 
@@ -763,8 +776,19 @@ export async function resubmitDocusealSubmission(
       <p>If you have any questions, please contact your representative.</p>
       <p>Best regards,<br/>The Tristate Team</p>
     `;
+    console.log(person.email, emailSubject, emailBody);
 
-    await sendOutlookEmail(person.email, emailSubject, emailBody);
+    const resppp = await sendOutlookEmail(
+      person.email,
+      emailSubject,
+      emailBody,
+    );
+    console.log(resppp);
+
+    await prisma.docusealSubmission.updateMany({
+      where: { agreementId: agreementId },
+      data: { submissionApprovalStatus: "APPROVED" },
+    });
 
     return res.status(200).json({
       message: "Docuseal submission re-created and email sent successfully.",
@@ -959,6 +983,11 @@ export async function sendAgreementEmail(
 
     await updateDealAfterAgreementSend(agreementId);
 
+    await prisma.agreement.update({
+      where: { id: agreementId },
+      data: { status: "SENT" },
+    });
+
     return res.status(200).json({
       message: "Agreement email sent successfully.",
     });
@@ -1060,7 +1089,10 @@ export async function createAgreement(
             templateId: s.templateId,
             docSlug: s.slug,
             fieldValues: s.fieldValues,
-            approval_status: "PENDING_APPROVAL",
+            approval_status:
+              req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
+            submissionApprovalStatus:
+              req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
             signers: {
               create: s?.submitters?.map((init: any, index: number) => ({
                 signerUuid: init.uuid,
@@ -1244,8 +1276,15 @@ export async function updateAgreement(
 ) {
   try {
     const { id } = req.params as { id: string };
-    const { dealId, type, status, approvalStatus, effectiveDate, renewalDate } =
-      req.body as AgreementBody;
+    const {
+      dealId,
+      type,
+      status,
+      approvalStatus,
+      effectiveDate,
+      renewalDate,
+      docusealSubmissions,
+    } = req.body as AgreementBody;
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -1327,6 +1366,26 @@ export async function updateAgreement(
         where: { agreementId: id },
         data: { approval_status: approvalStatus },
       });
+    }
+
+    if (docusealSubmissions?.length) {
+      await Promise.all(
+        docusealSubmissions.map((submission) =>
+          prisma.docusealSubmission.updateMany({
+            where: {
+              agreementId: id,
+              ...(submission.templateId !== undefined
+                ? { templateId: submission.templateId }
+                : {}),
+            },
+            data: {
+              ...(submission.fieldValues !== undefined
+                ? { fieldValues: submission.fieldValues }
+                : {}),
+            },
+          }),
+        ),
+      );
     }
 
     return res.status(200).json({

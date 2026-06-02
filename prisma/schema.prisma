@@ -284,6 +284,7 @@ model DocusealSubmission {
   auditLogUrl          String?      @map("audit_log_url")
   status               String?
   approval_status      String?
+  submissionApprovalStatus   String?
   templateId           Int?         @map("template_id")
   fieldValues          Json?        @map("field_values")
   createdAt            DateTime     @default(now()) @map("created_at")
@@ -1296,6 +1297,7 @@ enum AgreementType {
 
 enum AgreementStatus {
   DRAFT
+  SENT
   ACTIVE
   EXPIRED
   TERMINATED
