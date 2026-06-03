@@ -498,12 +498,11 @@ export async function createDocusealSubmission(
         ...persistedFieldValues,
         // ...requestFieldValues,
       };
-
-      const firstPartyValues = buildDocusealValuesByFieldName(
+      const secondPartyValues = buildDocusealValuesByFieldName(
         template.fields || [],
         mergedValues,
       );
-      const firstPartyFields = buildReadonlyFieldsForSecondParty(
+      const secondPartyFields = buildReadonlyFieldsForSecondParty(
         template.fields || [],
       );
       const expireAt = new Date();
@@ -515,13 +514,26 @@ export async function createDocusealSubmission(
         template_id: templateIdNumber,
         send_email: false,
         submitters: [
+          // {
+          //   role: "First Party",
+          //   email: person.email,
+          //   name: `${person.firstName} ${person.lastName}`,
+          //   values: mergedValues,
+          // },
+          // {
+          //   role: "Second Party",
+          //   // email: "nmelchiorre@tristatemso.com",
+          //   email: "pkolankar@medisticshealth.com",
+          //   name: "TristateMSO",
+          // },
+
           {
             role: "First Party",
             email: person.email,
             name: `${person.firstName} ${person.lastName}`,
             // values: mergedValues,
-            values: firstPartyValues,
-            fields: firstPartyFields,
+            values: secondPartyValues,
+            fields: secondPartyFields,
           },
           {
             role: "Second Party",
@@ -529,6 +541,20 @@ export async function createDocusealSubmission(
             email: "pkolankar@medisticshealth.com",
             name: "TristateMSO",
           },
+
+          // {
+          //   role: "First Party",
+          //   // email: "nmelchiorre@tristatemso.com",
+          //   email: "sjangir@medisticshealth.com",
+          //   name: "TristateMSO",
+          // },
+          // {
+          //   role: "Second Party",
+          //   email: person.email,
+          //   name: `${person.firstName} ${person.lastName}`,
+          //   values: secondPartyValues,
+          //   fields: secondPartyFields,
+          // },
         ],
         expire_at: expireAt.toISOString(),
       });
@@ -711,6 +737,13 @@ export async function resubmitDocusealSubmission(
       ...normalizeFieldValues(existingSubmission?.fieldValues),
       // ...fieldValues,
     };
+    const secondPartyValues = buildDocusealValuesByFieldName(
+      template.fields || [],
+      mergedValues,
+    );
+    const secondPartyFields = buildReadonlyFieldsForSecondParty(
+      template.fields || [],
+    );
     console.log(mergedValues);
     const expireAt = new Date();
     expireAt.setHours(expireAt.getHours() + 48);
@@ -722,7 +755,9 @@ export async function resubmitDocusealSubmission(
           role: "First Party",
           email: person.email,
           name: `${person.firstName} ${person.lastName}`,
-          values: mergedValues,
+          // values: mergedValues,
+          values: secondPartyValues,
+          fields: secondPartyFields,
         },
         {
           role: "Second Party",
@@ -730,6 +765,20 @@ export async function resubmitDocusealSubmission(
           email: "pkolankar@medisticshealth.com",
           name: "TristateMSO",
         },
+
+        // {
+        //   role: "First Party",
+        //   // email: "nmelchiorre@tristatemso.com",
+        //   email: "pkolankar@medisticshealth.com",
+        //   name: "TristateMSO",
+        // },
+        // {
+        //   role: "Second Party",
+        //   email: person.email,
+        //   name: `${person.firstName} ${person.lastName}`,
+        //   values: secondPartyValues,
+        //   fields: secondPartyFields,
+        // },
       ],
       expire_at: expireAt.toISOString(),
     });
