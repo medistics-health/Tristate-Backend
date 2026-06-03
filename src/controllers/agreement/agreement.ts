@@ -461,12 +461,14 @@ export async function createDocusealSubmission(
         fieldValuesByTemplateId?.[String(templateIdNumber)] ?? fieldValues,
       );
       const mergedValues = {
-        ...autoFillValues,
+        // ...autoFillValues,
         ...persistedFieldValues,
-        ...requestFieldValues,
+        // ...requestFieldValues,
       };
       const expireAt = new Date();
       expireAt.setHours(expireAt.getHours() + 48);
+
+      console.log(mergedValues);
 
       const submission: any = await docuseal.createSubmission({
         template_id: templateIdNumber,
@@ -662,10 +664,11 @@ export async function resubmitDocusealSubmission(
     );
 
     const mergedValues = {
-      ...autoFillValues,
+      // ...autoFillValues,
       ...normalizeFieldValues(existingSubmission?.fieldValues),
-      ...fieldValues,
+      // ...fieldValues,
     };
+    console.log(mergedValues);
     const expireAt = new Date();
     expireAt.setHours(expireAt.getHours() + 48);
     const submission: any = await docuseal.createSubmission({
