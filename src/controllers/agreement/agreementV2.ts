@@ -133,7 +133,7 @@ function buildDocusealValuesByFieldName(
   }, {});
 }
 
-function buildReadonlyFieldsForSecondParty(
+function buildReadonlyFieldsForClientSigner(
   templateFields: Array<{ name?: string; type?: string }>,
 ) {
   return templateFields
@@ -236,19 +236,21 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
               include: { practice: true },
             });
 
-            const signerName = signer?.name || data.email || "First Party";
+            const signerName =
+              signer?.name || data.email || "the business owner";
             console.log({ signerName });
             const link = process.env.FRONTEND_URL
               ? `${process.env.FRONTEND_URL}/sign/${secondParty.submissionSlug}`
               : `http://localhost:5173/sign/${secondParty.submissionSlug}`;
             const subject = "Action Required: Please Sign the Agreement";
             const body = `
-              <p>Hi ${secondParty.name || "Second Party"},</p>
+              <p>Hi ${secondParty.name || "there"},</p>
               <p>
-                The client (${signerName}) has completed signing the
+                ${signerName} has completed signing the
                 ${agreement?.type || "agreement"}
                 ${agreement?.practice ? ` for ${agreement.practice.name}` : ""}.
               </p>
+              <p>Please review and sign the agreement using the link below.</p>
               <p>
                  <strong>Important:</strong>
                  The signing link will expire in 48 hours.
@@ -498,11 +500,11 @@ export async function createDocusealSubmission(
         ...persistedFieldValues,
         // ...requestFieldValues,
       };
-      const secondPartyValues = buildDocusealValuesByFieldName(
+      const clientSignerValues = buildDocusealValuesByFieldName(
         template.fields || [],
         mergedValues,
       );
-      const secondPartyFields = buildReadonlyFieldsForSecondParty(
+      const clientSignerFields = buildReadonlyFieldsForClientSigner(
         template.fields || [],
       );
       const expireAt = new Date();
@@ -529,17 +531,17 @@ export async function createDocusealSubmission(
 
           {
             role: "First Party",
-            email: person.email,
-            name: `${person.firstName} ${person.lastName}`,
-            // values: mergedValues,
-            values: secondPartyValues,
-            fields: secondPartyFields,
+            // email: "nmelchiorre@tristatemso.com",
+            email: "sjangir@tristatemso.com",
+            name: "TristateMSO",
           },
           {
             role: "Second Party",
-            // email: "nmelchiorre@tristatemso.com",
-            email: "pkolankar@medisticshealth.com",
-            name: "TristateMSO",
+            email: person.email,
+            name: `${person.firstName} ${person.lastName}`,
+            // values: mergedValues,
+            values: clientSignerValues,
+            fields: clientSignerFields,
           },
 
           // {
@@ -737,11 +739,11 @@ export async function resubmitDocusealSubmission(
       ...normalizeFieldValues(existingSubmission?.fieldValues),
       // ...fieldValues,
     };
-    const secondPartyValues = buildDocusealValuesByFieldName(
+    const clientSignerValues = buildDocusealValuesByFieldName(
       template.fields || [],
       mergedValues,
     );
-    const secondPartyFields = buildReadonlyFieldsForSecondParty(
+    const clientSignerFields = buildReadonlyFieldsForClientSigner(
       template.fields || [],
     );
     console.log(mergedValues);
@@ -753,17 +755,17 @@ export async function resubmitDocusealSubmission(
       submitters: [
         {
           role: "First Party",
-          email: person.email,
-          name: `${person.firstName} ${person.lastName}`,
-          // values: mergedValues,
-          values: secondPartyValues,
-          fields: secondPartyFields,
+          // email: "nmelchiorre@tristatemso.com",
+          email: "sjangir@tristatemso.com",
+          name: "TristateMSO",
         },
         {
           role: "Second Party",
-          // email: "nmelchiorre@tristatemso.com",
-          email: "pkolankar@medisticshealth.com",
-          name: "TristateMSO",
+          email: person.email,
+          name: `${person.firstName} ${person.lastName}`,
+          // values: mergedValues,
+          values: clientSignerValues,
+          fields: clientSignerFields,
         },
 
         // {
@@ -859,13 +861,17 @@ export async function resubmitDocusealSubmission(
     )?.slug
       ? `${process.env.FRONTEND_URL || "http://localhost:5173"}/sign/${docusealSubmissionData.submitters.find((s: any) => s.role === "First Party").slug}`
       : "";
+    const firstPartySigner = docusealSubmissionData.submitters?.find(
+      (s: any) => s.role === "First Party",
+    );
 
     const emailBody = `
-      <p>Hello ${person.firstName || "there"},</p>
+      <p>Hello ${firstPartySigner?.name || "there"},</p>
       <p>The document <strong>${templateName}</strong> for your agreement
       <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
       has been updated.</p>
-      <p>Please click the link below to review and sign the updated document:</p>
+      <p>Please click the link below to review and sign the updated document.</p>
+      <p>Once you sign, it will be routed to the client for signature.</p>
       <p>
          <strong>Important:</strong>
          The signing link will expire in 48 hours.
@@ -874,10 +880,10 @@ export async function resubmitDocusealSubmission(
       <p>If you have any questions, please contact your representative.</p>
       <p>Best regards,<br/>The Tristate Team</p>
     `;
-    console.log(person.email, emailSubject, emailBody);
+    console.log(firstPartySigner?.email, emailSubject, emailBody);
 
     const resppp = await sendOutlookEmail(
-      person.email,
+      firstPartySigner?.email || "pkolankar@medisticshealth.com",
       emailSubject,
       emailBody,
     );
@@ -1026,6 +1032,10 @@ export async function sendAgreementEmail(
       subject ||
       `Agreement: ${agreement.type} - ${agreement.practice?.name || "Unknown"}`;
 
+    const firstPartySigners = agreement.docusealSubmissions.flatMap(
+      (submission) =>
+        submission.signers.filter((signer) => signer.role === "First Party"),
+    );
     const submissionLinks = agreement.docusealSubmissions
       .flatMap((submission) =>
         submission.signers
@@ -1048,11 +1058,11 @@ export async function sendAgreementEmail(
       )
       .join("");
 
-    const personName = person.firstName || "there";
+    const firstPartyName = firstPartySigners[0]?.name || "there";
     const practiceName = agreement.practice?.name || "Unknown Practice";
 
     const emailBody = `
-      <p>Hello ${personName},</p>
+      <p>Hello ${firstPartyName},</p>
 
       <p>Please find the agreement details for
       <strong>${practiceName}</strong>.</p>
@@ -1060,6 +1070,7 @@ export async function sendAgreementEmail(
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
 
       <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
+      <p>After you sign, the agreement will be routed to the client for signature.</p>
 
       <p>
          <strong>Important:</strong>
@@ -1077,7 +1088,10 @@ export async function sendAgreementEmail(
       </p>
     `;
 
-    await sendOutlookEmail(person.email, emailSubject, emailBody);
+    const firstPartyEmail =
+      firstPartySigners[0]?.email || "pkolankar@medisticshealth.com";
+
+    await sendOutlookEmail(firstPartyEmail, emailSubject, emailBody);
 
     await updateDealAfterAgreementSend(agreementId);
 
