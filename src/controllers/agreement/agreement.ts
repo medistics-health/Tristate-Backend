@@ -27,6 +27,7 @@ type DocusealSubmissionInput = {
   templateId?: number;
   slug?: string;
   fieldValues?: Record<string, string>;
+  submissionApprovalNote?: string | null;
   submitters?: Array<{ role: string; uuid: string }>;
 };
 
@@ -1449,7 +1450,12 @@ export async function updateAgreement(
                   ? { templateId: submission.templateId }
                   : {}),
               },
-              data: { submissionApprovalStatus },
+              data: {
+                submissionApprovalStatus,
+                ...(submission?.submissionApprovalNote !== undefined
+                  ? { submissionApprovalNote: submission.submissionApprovalNote }
+                  : {}),
+              },
             }),
         ),
       );
@@ -1468,6 +1474,9 @@ export async function updateAgreement(
             data: {
               ...(submission.fieldValues !== undefined
                 ? { fieldValues: submission.fieldValues }
+                : {}),
+              ...(submission.submissionApprovalNote !== undefined
+                ? { submissionApprovalNote: submission.submissionApprovalNote }
                 : {}),
             },
           }),
@@ -1520,3 +1529,6 @@ export async function deleteAgreement(
     });
   }
 }
+
+
+
