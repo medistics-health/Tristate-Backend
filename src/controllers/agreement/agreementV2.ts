@@ -112,15 +112,24 @@ function normalizeFieldValues(value: unknown): Record<string, string> {
   );
 }
 
-function buildDocusealValuesByFieldName(
-  templateFields: Array<{ uuid?: string; name?: string }>,
+function buildDocusealValuesBySubmitter(
+  templateFields: Array<{
+    uuid?: string;
+    name?: string;
+    submitter_uuid?: string;
+  }>,
   fieldValues: Record<string, string>,
+  submitterUuid?: string | null,
 ) {
+  if (!submitterUuid) {
+    return {};
+  }
+
   return templateFields.reduce<Record<string, string>>((acc, field) => {
     const fieldName = String(field.name || "").trim();
     const fieldUuid = String(field.uuid || "").trim();
 
-    if (!fieldName) {
+    if (!fieldName || field.submitter_uuid !== submitterUuid) {
       return acc;
     }
 
@@ -134,11 +143,24 @@ function buildDocusealValuesByFieldName(
   }, {});
 }
 
-function buildReadonlyFieldsForSecondParty(
-  templateFields: Array<{ name?: string; type?: string }>,
+function buildReadonlyFieldsForSubmitter(
+  templateFields: Array<{
+    name?: string;
+    type?: string;
+    submitter_uuid?: string;
+  }>,
+  submitterUuid?: string | null,
 ) {
+  if (!submitterUuid) {
+    return [];
+  }
+
   return templateFields
-    .filter((field) => String(field.name || "").trim())
+    .filter(
+      (field) =>
+        String(field.name || "").trim() &&
+        field.submitter_uuid === submitterUuid,
+    )
     .map((field) => ({
       name: String(field.name || "").trim(),
       readonly: String(field.type || "").toLowerCase() !== "signature",
@@ -237,19 +259,21 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
               include: { practice: true },
             });
 
-            const signerName = signer?.name || data.email || "First Party";
+            const signerName =
+              signer?.name || data.email || "the business owner";
             console.log({ signerName });
             const link = process.env.FRONTEND_URL
               ? `${process.env.FRONTEND_URL}/sign/${secondParty.submissionSlug}`
               : `http://localhost:5173/sign/${secondParty.submissionSlug}`;
             const subject = "Action Required: Please Sign the Agreement";
             const body = `
-              <p>Hi ${secondParty.name || "Second Party"},</p>
+              <p>Hi ${secondParty.name || "there"},</p>
               <p>
-                The client (${signerName}) has completed signing the
+                ${signerName} has completed signing the
                 ${agreement?.type || "agreement"}
                 ${agreement?.practice ? ` for ${agreement.practice.name}` : ""}.
               </p>
+              <p>Please review and sign the agreement using the link below.</p>
               <p>
                  <strong>Important:</strong>
                  The signing link will expire in 48 hours.
@@ -499,13 +523,27 @@ export async function createDocusealSubmission(
         ...persistedFieldValues,
         // ...requestFieldValues,
       };
-
-      const firstPartyValues = buildDocusealValuesByFieldName(
+      const firstPartyUuid =
+        template.submitters?.find(
+          (submitter: any) => submitter.name === "First Party",
+        )?.uuid || null;
+      const secondPartyUuid =
+        template.submitters?.find(
+          (submitter: any) => submitter.name === "Second Party",
+        )?.uuid || null;
+      const firstPartyValues = buildDocusealValuesBySubmitter(
         template.fields || [],
         mergedValues,
+        firstPartyUuid,
       );
-      const firstPartyFields = buildReadonlyFieldsForSecondParty(
+      const secondPartyValues = buildDocusealValuesBySubmitter(
         template.fields || [],
+        mergedValues,
+        secondPartyUuid,
+      );
+      const secondPartyFields = buildReadonlyFieldsForSubmitter(
+        template.fields || [],
+        secondPartyUuid,
       );
       const expireAt = new Date();
       expireAt.setHours(expireAt.getHours() + 48);
@@ -516,20 +554,48 @@ export async function createDocusealSubmission(
         template_id: templateIdNumber,
         send_email: false,
         submitters: [
+          // {
+          //   role: "First Party",
+          //   email: person.email,
+          //   name: `${person.firstName} ${person.lastName}`,
+          //   values: mergedValues,
+          // },
+          // {
+          //   role: "Second Party",
+          //   // email: "nmelchiorre@tristatemso.com",
+          //   email: "pkolankar@medisticshealth.com",
+          //   name: "TristateMSO",
+          // },
+
           {
             role: "First Party",
-            email: person.email,
-            name: `${person.firstName} ${person.lastName}`,
-            // values: mergedValues,
+            // email: "nmelchiorre@tristatemso.com",
+            email: "sjangir@tristatemso.com",
+            name: "TristateMSO",
             values: firstPartyValues,
-            fields: firstPartyFields,
           },
           {
             role: "Second Party",
-            // email: "nmelchiorre@tristatemso.com",
-            email: "pkolankar@medisticshealth.com",
-            name: "TristateMSO",
+            email: person.email,
+            name: `${person.firstName} ${person.lastName}`,
+            // values: mergedValues,
+            values: secondPartyValues,
+            fields: secondPartyFields,
           },
+
+          // {
+          //   role: "First Party",
+          //   // email: "nmelchiorre@tristatemso.com",
+          //   email: "sjangir@medisticshealth.com",
+          //   name: "TristateMSO",
+          // },
+          // {
+          //   role: "Second Party",
+          //   email: person.email,
+          //   name: `${person.firstName} ${person.lastName}`,
+          //   values: secondPartyValues,
+          //   fields: secondPartyFields,
+          // },
         ],
         expire_at: expireAt.toISOString(),
       });
@@ -712,6 +778,28 @@ export async function resubmitDocusealSubmission(
       ...normalizeFieldValues(existingSubmission?.fieldValues),
       // ...fieldValues,
     };
+    const firstPartyUuid =
+      template.submitters?.find(
+        (submitter: any) => submitter.name === "First Party",
+      )?.uuid || null;
+    const secondPartyUuid =
+      template.submitters?.find(
+        (submitter: any) => submitter.name === "Second Party",
+      )?.uuid || null;
+    const firstPartyValues = buildDocusealValuesBySubmitter(
+      template.fields || [],
+      mergedValues,
+      firstPartyUuid,
+    );
+    const secondPartyValues = buildDocusealValuesBySubmitter(
+      template.fields || [],
+      mergedValues,
+      secondPartyUuid,
+    );
+    const secondPartyFields = buildReadonlyFieldsForSubmitter(
+      template.fields || [],
+      secondPartyUuid,
+    );
     console.log(mergedValues);
     const expireAt = new Date();
     expireAt.setHours(expireAt.getHours() + 48);
@@ -721,16 +809,33 @@ export async function resubmitDocusealSubmission(
       submitters: [
         {
           role: "First Party",
-          email: person.email,
-          name: `${person.firstName} ${person.lastName}`,
-          values: mergedValues,
+          // email: "nmelchiorre@tristatemso.com",
+          email: "sjangir@tristatemso.com",
+          name: "TristateMSO",
+          values: firstPartyValues,
         },
         {
           role: "Second Party",
-          // email: "nmelchiorre@tristatemso.com",
-          email: "pkolankar@medisticshealth.com",
-          name: "TristateMSO",
+          email: person.email,
+          name: `${person.firstName} ${person.lastName}`,
+          // values: mergedValues,
+          values: secondPartyValues,
+          fields: secondPartyFields,
         },
+
+        // {
+        //   role: "First Party",
+        //   // email: "nmelchiorre@tristatemso.com",
+        //   email: "pkolankar@medisticshealth.com",
+        //   name: "TristateMSO",
+        // },
+        // {
+        //   role: "Second Party",
+        //   email: person.email,
+        //   name: `${person.firstName} ${person.lastName}`,
+        //   values: secondPartyValues,
+        //   fields: secondPartyFields,
+        // },
       ],
       expire_at: expireAt.toISOString(),
     });
@@ -811,13 +916,17 @@ export async function resubmitDocusealSubmission(
     )?.slug
       ? `${process.env.FRONTEND_URL || "http://localhost:5173"}/sign/${docusealSubmissionData.submitters.find((s: any) => s.role === "First Party").slug}`
       : "";
+    const firstPartySigner = docusealSubmissionData.submitters?.find(
+      (s: any) => s.role === "First Party",
+    );
 
     const emailBody = `
-      <p>Hello ${person.firstName || "there"},</p>
+      <p>Hello ${firstPartySigner?.name || "there"},</p>
       <p>The document <strong>${templateName}</strong> for your agreement
       <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
       has been updated.</p>
-      <p>Please click the link below to review and sign the updated document:</p>
+      <p>Please click the link below to review and sign the updated document.</p>
+      <p>Once you sign, it will be routed to the client for signature.</p>
       <p>
          <strong>Important:</strong>
          The signing link will expire in 48 hours.
@@ -826,10 +935,10 @@ export async function resubmitDocusealSubmission(
       <p>If you have any questions, please contact your representative.</p>
       <p>Best regards,<br/>The Tristate Team</p>
     `;
-    console.log(person.email, emailSubject, emailBody);
+    console.log(firstPartySigner?.email, emailSubject, emailBody);
 
     const resppp = await sendOutlookEmail(
-      person.email,
+      firstPartySigner?.email || "pkolankar@medisticshealth.com",
       emailSubject,
       emailBody,
     );
@@ -978,6 +1087,10 @@ export async function sendAgreementEmail(
       subject ||
       `Agreement: ${agreement.type} - ${agreement.practice?.name || "Unknown"}`;
 
+    const firstPartySigners = agreement.docusealSubmissions.flatMap(
+      (submission) =>
+        submission.signers.filter((signer) => signer.role === "First Party"),
+    );
     const submissionLinks = agreement.docusealSubmissions
       .flatMap((submission) =>
         submission.signers
@@ -1000,11 +1113,11 @@ export async function sendAgreementEmail(
       )
       .join("");
 
-    const personName = person.firstName || "there";
+    const firstPartyName = firstPartySigners[0]?.name || "there";
     const practiceName = agreement.practice?.name || "Unknown Practice";
 
     const emailBody = `
-      <p>Hello ${personName},</p>
+      <p>Hello ${firstPartyName},</p>
 
       <p>Please find the agreement details for
       <strong>${practiceName}</strong>.</p>
@@ -1012,6 +1125,7 @@ export async function sendAgreementEmail(
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
 
       <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
+      <p>After you sign, the agreement will be routed to the client for signature.</p>
 
       <p>
          <strong>Important:</strong>
@@ -1029,7 +1143,10 @@ export async function sendAgreementEmail(
       </p>
     `;
 
-    await sendOutlookEmail(person.email, emailSubject, emailBody);
+    const firstPartyEmail =
+      firstPartySigners[0]?.email || "pkolankar@medisticshealth.com";
+
+    await sendOutlookEmail(firstPartyEmail, emailSubject, emailBody);
 
     await updateDealAfterAgreementSend(agreementId);
 
@@ -1217,8 +1334,6 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
     const search = (req.query.search as string) || "";
     const type = (req.query.type as string) || "";
     const status = (req.query.status as string) || "";
-    const practiceId = (req.query.practiceId as string) || "";
-    const dealId = (req.query.dealId as string) || "";
 
     const skip = (page - 1) * limit;
 
@@ -1248,14 +1363,6 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
         });
       }
       where.status = status as AgreementStatus;
-    }
-
-    if (practiceId) {
-      where.practiceId = practiceId;
-    }
-
-    if (dealId) {
-      where.dealId = dealId;
     }
 
     const [agreements, totalRecords] = await Promise.all([
@@ -1460,10 +1567,13 @@ export async function updateAgreement(
                   ? { templateId: submission.templateId }
                   : {}),
               },
+              // data: { submissionApprovalStatus },
               data: {
                 submissionApprovalStatus,
                 ...(submission?.submissionApprovalNote !== undefined
-                  ? { submissionApprovalNote: submission.submissionApprovalNote }
+                  ? {
+                      submissionApprovalNote: submission.submissionApprovalNote,
+                    }
                   : {}),
               },
             }),
@@ -1539,6 +1649,3 @@ export async function deleteAgreement(
     });
   }
 }
-
-
-
