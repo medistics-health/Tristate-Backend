@@ -25,6 +25,8 @@ import {
   getAgreementServiceTerms,
   updateAgreementServiceTerm,
   deleteAgreementServiceTerm,
+  getAgreementServiceTermApprovalPage,
+  handleAgreementServiceTermApproval,
 } from "../controllers/agreement/agreementServiceTerm";
 import { verifyAuthToken } from "../middleware/auth.middleware";
 
@@ -32,6 +34,8 @@ const agreementRouter = Router();
 
 agreementRouter.post("/docuseal/webhook", handleDocusealWebhook);
 agreementRouter.get("/docuseal/forms/:slug", getDocusealFormBySlug);
+agreementRouter.get("/service-terms/:id/approval", getAgreementServiceTermApprovalPage);
+agreementRouter.post("/service-terms/:id/approval", handleAgreementServiceTermApproval);
 
 agreementRouter.use(verifyAuthToken);
 
