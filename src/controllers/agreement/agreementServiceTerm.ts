@@ -473,8 +473,8 @@ export async function getAgreementServiceTermApprovalPage(req: Request, res: Res
     const currencyValue = term.currency?.trim() || null;
 
     // Format margin values
-    const clientRevenue = formatCurrency(approvalData.clientRevenue);
-    const vendorCost = formatCurrency(approvalData.vendorCost);
+    const clientRevenue = formatCurrency(approvalData.clientAmount);
+    const vendorCost = formatCurrency(approvalData.vendorAmount);
     const grossMargin = formatCurrency(approvalData.grossMargin);
     const marginPct = approvalData.marginPct !== undefined && !isNaN(approvalData.marginPct)
       ? `${approvalData.marginPct.toFixed(2)}%`
