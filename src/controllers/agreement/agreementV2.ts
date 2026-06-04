@@ -112,15 +112,24 @@ function normalizeFieldValues(value: unknown): Record<string, string> {
   );
 }
 
-function buildDocusealValuesByFieldName(
-  templateFields: Array<{ uuid?: string; name?: string }>,
+function buildDocusealValuesBySubmitter(
+  templateFields: Array<{
+    uuid?: string;
+    name?: string;
+    submitter_uuid?: string;
+  }>,
   fieldValues: Record<string, string>,
+  submitterUuid?: string | null,
 ) {
+  if (!submitterUuid) {
+    return {};
+  }
+
   return templateFields.reduce<Record<string, string>>((acc, field) => {
     const fieldName = String(field.name || "").trim();
     const fieldUuid = String(field.uuid || "").trim();
 
-    if (!fieldName) {
+    if (!fieldName || field.submitter_uuid !== submitterUuid) {
       return acc;
     }
 
@@ -134,11 +143,24 @@ function buildDocusealValuesByFieldName(
   }, {});
 }
 
-function buildReadonlyFieldsForClientSigner(
-  templateFields: Array<{ name?: string; type?: string }>,
+function buildReadonlyFieldsForSubmitter(
+  templateFields: Array<{
+    name?: string;
+    type?: string;
+    submitter_uuid?: string;
+  }>,
+  submitterUuid?: string | null,
 ) {
+  if (!submitterUuid) {
+    return [];
+  }
+
   return templateFields
-    .filter((field) => String(field.name || "").trim())
+    .filter(
+      (field) =>
+        String(field.name || "").trim() &&
+        field.submitter_uuid === submitterUuid,
+    )
     .map((field) => ({
       name: String(field.name || "").trim(),
       readonly: String(field.type || "").toLowerCase() !== "signature",
@@ -501,12 +523,27 @@ export async function createDocusealSubmission(
         ...persistedFieldValues,
         // ...requestFieldValues,
       };
-      const clientSignerValues = buildDocusealValuesByFieldName(
+      const firstPartyUuid =
+        template.submitters?.find(
+          (submitter: any) => submitter.name === "First Party",
+        )?.uuid || null;
+      const secondPartyUuid =
+        template.submitters?.find(
+          (submitter: any) => submitter.name === "Second Party",
+        )?.uuid || null;
+      const firstPartyValues = buildDocusealValuesBySubmitter(
         template.fields || [],
         mergedValues,
+        firstPartyUuid,
       );
-      const clientSignerFields = buildReadonlyFieldsForClientSigner(
+      const secondPartyValues = buildDocusealValuesBySubmitter(
         template.fields || [],
+        mergedValues,
+        secondPartyUuid,
+      );
+      const secondPartyFields = buildReadonlyFieldsForSubmitter(
+        template.fields || [],
+        secondPartyUuid,
       );
       const expireAt = new Date();
       expireAt.setHours(expireAt.getHours() + 48);
@@ -535,14 +572,15 @@ export async function createDocusealSubmission(
             // email: "nmelchiorre@tristatemso.com",
             email: "sjangir@tristatemso.com",
             name: "TristateMSO",
+            values: firstPartyValues,
           },
           {
             role: "Second Party",
             email: person.email,
             name: `${person.firstName} ${person.lastName}`,
             // values: mergedValues,
-            values: clientSignerValues,
-            fields: clientSignerFields,
+            values: secondPartyValues,
+            fields: secondPartyFields,
           },
 
           // {
@@ -740,12 +778,27 @@ export async function resubmitDocusealSubmission(
       ...normalizeFieldValues(existingSubmission?.fieldValues),
       // ...fieldValues,
     };
-    const clientSignerValues = buildDocusealValuesByFieldName(
+    const firstPartyUuid =
+      template.submitters?.find(
+        (submitter: any) => submitter.name === "First Party",
+      )?.uuid || null;
+    const secondPartyUuid =
+      template.submitters?.find(
+        (submitter: any) => submitter.name === "Second Party",
+      )?.uuid || null;
+    const firstPartyValues = buildDocusealValuesBySubmitter(
       template.fields || [],
       mergedValues,
+      firstPartyUuid,
     );
-    const clientSignerFields = buildReadonlyFieldsForClientSigner(
+    const secondPartyValues = buildDocusealValuesBySubmitter(
       template.fields || [],
+      mergedValues,
+      secondPartyUuid,
+    );
+    const secondPartyFields = buildReadonlyFieldsForSubmitter(
+      template.fields || [],
+      secondPartyUuid,
     );
     console.log(mergedValues);
     const expireAt = new Date();
@@ -759,14 +812,15 @@ export async function resubmitDocusealSubmission(
           // email: "nmelchiorre@tristatemso.com",
           email: "sjangir@tristatemso.com",
           name: "TristateMSO",
+          values: firstPartyValues,
         },
         {
           role: "Second Party",
           email: person.email,
           name: `${person.firstName} ${person.lastName}`,
           // values: mergedValues,
-          values: clientSignerValues,
-          fields: clientSignerFields,
+          values: secondPartyValues,
+          fields: secondPartyFields,
         },
 
         // {
