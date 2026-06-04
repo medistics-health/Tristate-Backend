@@ -469,6 +469,7 @@ model AgreementServiceTerm {
   externalReference  String?           @map("external_reference")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at")
+  approvalStatus     ApprovalDecisionStatus? @map("approval_status")
   agreement          Agreement         @relation(fields: [agreementId], references: [id], onDelete: Cascade)
   agreementVersion   AgreementVersion? @relation(fields: [agreementVersionId], references: [id])
   service            Service           @relation(fields: [serviceId], references: [id])
