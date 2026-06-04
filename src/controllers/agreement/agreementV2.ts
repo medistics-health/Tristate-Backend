@@ -1556,8 +1556,12 @@ export async function updateAgreement(
     }
 
     if (submissionApprovalStatus !== undefined) {
+      const submissionsToUpdate = docusealSubmissions?.length
+        ? docusealSubmissions
+        : [undefined];
+
       await Promise.all(
-        (docusealSubmissions?.length ? docusealSubmissions : [{}]).map(
+        submissionsToUpdate.map(
           (submission) =>
             prisma.docusealSubmission.updateMany({
               where: {
