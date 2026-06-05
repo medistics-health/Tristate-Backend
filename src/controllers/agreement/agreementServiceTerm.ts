@@ -38,6 +38,18 @@ function asOptionalDate(value: unknown, fieldName: string) {
   return parsed;
 }
 
+function startOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(value: Date) {
+  const next = new Date(value);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
 function asNonNegativeNumber(value: unknown) {
   if (value === undefined || value === null || value === "") {
     return null;
@@ -480,6 +492,48 @@ function getSignerEmails(
   }
 
   return [...new Set(signerEmails)];
+}
+
+function getPricingTermWorkflowState(params: {
+  pricingModel: PricingModel;
+  pricingConfig: Record<string, unknown>;
+  requestedIsActive?: boolean;
+  externalReference?: string | null;
+}) {
+  const { pricingModel, pricingConfig, requestedIsActive, externalReference } =
+    params;
+  const approvalData = getPricingTermApprovalData(pricingModel, pricingConfig);
+  const signerEmails = getSignerEmails(pricingConfig, externalReference).filter(
+    isValidEmail,
+  );
+  const hasSignerEmails = signerEmails.length > 0;
+
+  const internalApprovalStatus = approvalData.requiresApproval
+    ? ApprovalDecisionStatus.PENDING
+    : ApprovalDecisionStatus.APPROVED;
+
+  const clientApprovalStatus = hasSignerEmails
+    ? ApprovalDecisionStatus.PENDING
+    : ApprovalDecisionStatus.APPROVED;
+
+  const isActive =
+    requestedIsActive !== false &&
+    internalApprovalStatus === ApprovalDecisionStatus.APPROVED &&
+    clientApprovalStatus === ApprovalDecisionStatus.APPROVED;
+
+  return {
+    approvalData,
+    signerEmails,
+    hasSignerEmails,
+    internalApprovalStatus,
+    clientApprovalStatus,
+    isActive,
+    approvalStatus:
+      internalApprovalStatus === ApprovalDecisionStatus.PENDING ||
+      clientApprovalStatus === ApprovalDecisionStatus.PENDING
+        ? ApprovalDecisionStatus.PENDING
+        : null,
+  };
 }
 
 function isValidEmail(email: string) {
@@ -1379,6 +1433,12 @@ export async function handleAgreementServiceTermClientApproval(
       data: {
         pricingConfig: updatedConfig,
         isActive,
+        approvalStatus:
+          nextClientStatus === ApprovalDecisionStatus.REJECTED
+            ? ApprovalDecisionStatus.REJECTED
+            : isActive
+              ? null
+              : ApprovalDecisionStatus.PENDING,
       },
     });
 
@@ -1514,6 +1574,12 @@ export async function handleAgreementServiceTermApproval(
         data: {
           pricingConfig: updatedConfig,
           isActive,
+          approvalStatus:
+            decision === ApprovalDecisionStatus.REJECTED
+              ? ApprovalDecisionStatus.REJECTED
+              : isActive
+                ? null
+                : ApprovalDecisionStatus.PENDING,
         },
       });
 
@@ -1797,7 +1863,21 @@ export async function createAgreementServiceTerm(
       });
     }
 
-    if (isActive ?? true) {
+    if (parsedEndDate && startOfDay(parsedEndDate) < startOfDay(new Date())) {
+      return res.status(400).json({
+        message: "effectiveEndDate must be today or later.",
+      });
+    }
+
+    const workflowState = getPricingTermWorkflowState({
+      pricingModel,
+      pricingConfig: pricingConfig as Record<string, unknown>,
+      requestedIsActive: isActive ?? true,
+      externalReference:
+        typeof externalReference === "string" ? externalReference : null,
+    });
+
+    if (workflowState.isActive) {
       const overlappingTerm = await findOverlappingActiveTerm({
         agreementId: agreementId as string,
         serviceId: serviceId as string,
@@ -1815,11 +1895,6 @@ export async function createAgreementServiceTerm(
       }
     }
 
-    const approvalData = getPricingTermApprovalData(
-      pricingModel,
-      pricingConfig as Record<string, unknown>,
-    );
-
     const term = await prisma.agreementServiceTerm.create({
       data: {
         agreementId: agreementId as string,
@@ -1827,17 +1902,19 @@ export async function createAgreementServiceTerm(
         serviceId: serviceId as string,
         vendorId: (vendorId as string) || null,
         pricingModel,
-        pricingConfig,
         currency: currency || "USD",
         priority: priority ?? 1,
         minimumFee: minimumFee ?? undefined,
         effectiveDate: parsedEffectiveDate,
         endDate: parsedEndDate,
-        isActive: approvalData.requiresApproval ? false : isActive ?? true,
+        isActive: workflowState.isActive,
         externalReference,
-        approvalStatus: approvalData.requiresApproval
-          ? ApprovalDecisionStatus.PENDING
-          : null,
+        approvalStatus: workflowState.approvalStatus,
+        pricingConfig: {
+          ...(pricingConfig as Record<string, unknown>),
+          clientApprovalStatus: workflowState.clientApprovalStatus,
+          internalApprovalStatus: workflowState.internalApprovalStatus,
+        },
       },
       include: {
         agreement: { include: { practice: true } },
@@ -2030,17 +2107,25 @@ export async function updateAgreementServiceTerm(
       });
     }
 
-    const approvalData = getPricingTermApprovalData(
-      nextPricingModel,
-      nextPricingConfig as Record<string, unknown>,
-    );
+    if (nextEndDate && startOfDay(nextEndDate) < startOfDay(new Date())) {
+      return res.status(400).json({
+        message: "effectiveEndDate must be today or later.",
+      });
+    }
 
     const nextServiceId = serviceId ? (serviceId as string) : existingTerm.serviceId;
     const nextVendorId =
       vendorId !== undefined ? ((vendorId as string) || null) : existingTerm.vendorId;
-    const nextIsActive = approvalData.requiresApproval
-      ? false
-      : isActive ?? existingTerm.isActive;
+    const workflowState = getPricingTermWorkflowState({
+      pricingModel: nextPricingModel,
+      pricingConfig: nextPricingConfig as Record<string, unknown>,
+      requestedIsActive: isActive ?? existingTerm.isActive,
+      externalReference:
+        typeof externalReference === "string"
+          ? externalReference
+          : existingTerm.externalReference,
+    });
+    const nextIsActive = workflowState.isActive;
 
     if (nextIsActive) {
       const overlappingTerm = await findOverlappingActiveTerm({
@@ -2068,7 +2153,6 @@ export async function updateAgreementServiceTerm(
         serviceId: serviceId ? (serviceId as string) : undefined,
         vendorId: vendorId !== undefined ? ((vendorId as string) || null) : undefined,
         pricingModel: pricingModel ?? undefined,
-        pricingConfig: pricingConfig ?? undefined,
         currency: currency ?? undefined,
         priority: priority ?? undefined,
         minimumFee: minimumFee ?? undefined,
@@ -2076,9 +2160,12 @@ export async function updateAgreementServiceTerm(
         endDate: parsedEndDate,
         isActive: nextIsActive,
         externalReference: externalReference ?? undefined,
-        approvalStatus: approvalData.requiresApproval
-          ? ApprovalDecisionStatus.PENDING
-          : null,
+        approvalStatus: workflowState.approvalStatus,
+        pricingConfig: {
+          ...(nextPricingConfig as Record<string, unknown>),
+          clientApprovalStatus: workflowState.clientApprovalStatus,
+          internalApprovalStatus: workflowState.internalApprovalStatus,
+        },
       },
       include: {
         agreement: { include: { practice: true } },
