@@ -148,11 +148,11 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (!practiceIds?.length && !companyIds?.length) {
-      return res.status(400).json({
-        message: "At least one practiceIds or companyIds is required.",
-      });
-    }
+    // if (!practiceIds?.length && !companyIds?.length) {
+    //   return res.status(400).json({
+    //     message: "At least one practiceIds or companyIds is required.",
+    //   });
+    // }
 
     if (!isPersonRole(role)) {
       return res.status(400).json({
