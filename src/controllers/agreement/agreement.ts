@@ -330,7 +330,18 @@ export async function handleDocusealWebhook(req: Request, res: Response) {
             select: { practiceId: true },
           });
 
-          if (person?.email && agreementRecord?.practiceId) {
+          const existingOnboarding = agreementRecord?.practiceId
+            ? await prisma.onboarding.findFirst({
+                where: { practiceId: agreementRecord.practiceId },
+                select: { id: true },
+              })
+            : null;
+
+          if (
+            person?.email &&
+            agreementRecord?.practiceId &&
+            !existingOnboarding
+          ) {
             const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${agreementRecord.practiceId}`;
             const subject = "Complete Your Onboarding";
             const body = `
