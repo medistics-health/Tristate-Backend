@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
   createOnboarding,
+  createExternalOnboarding,
+  getExternalOnboardingByPractice,
   getOnboardings,
   getOnboarding,
   updateOnboarding,
@@ -9,6 +11,9 @@ import {
 import { verifyAuthToken } from "../middleware/auth.middleware";
 
 const router = Router();
+
+router.get("/external/:practiceId", getExternalOnboardingByPractice);
+router.post("/external", createExternalOnboarding);
 
 router.use(verifyAuthToken);
 

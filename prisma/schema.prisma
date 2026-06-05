@@ -788,7 +788,7 @@ model Assessment {
 
 model Onboarding {
   id                            String                   @id @default(uuid()) @db.Uuid
-  practiceId                    String?                  @map("practice_id") @db.Uuid
+  practiceId                    String?                  @unique @map("practice_id") @db.Uuid
   personId                      String?                  @map("person_id") @db.Uuid
   onboardingType                OnboardingType?          @map("onboarding_type")
   isAuthorizedPerson            Boolean?                 @map("is_authorized_person")
@@ -851,7 +851,6 @@ model Onboarding {
   practices                     OnboardingPractice[]
   technology                    OnboardingTechnology?
 
-  @@index([practiceId])
   @@index([personId])
   @@map("onboardings")
 }
