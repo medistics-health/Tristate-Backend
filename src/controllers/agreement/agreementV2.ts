@@ -1350,11 +1350,14 @@ export async function getAgreements(req: AuthenticatedRequest, res: Response) {
     const search = (req.query.search as string) || "";
     const type = (req.query.type as string) || "";
     const status = (req.query.status as string) || "";
+    const practiceId = (req.query.practiceId as string) || "";
 
     const skip = (page - 1) * limit;
 
     const where: any = {};
-
+    if (practiceId) {
+      where.practiceId = practiceId;
+    }
     if (search) {
       where.practice = {
         name: { contains: search, mode: "insensitive" },
@@ -1577,26 +1580,25 @@ export async function updateAgreement(
         : [undefined];
 
       await Promise.all(
-        submissionsToUpdate.map(
-          (submission) =>
-            prisma.docusealSubmission.updateMany({
-              where: {
-                agreementId: id,
-                ...(submission?.id ? { id: submission.id } : {}),
-                ...(!submission?.id && submission?.templateId !== undefined
-                  ? { templateId: submission.templateId }
-                  : {}),
-              },
-              // data: { submissionApprovalStatus },
-              data: {
-                submissionApprovalStatus,
-                ...(submission?.submissionApprovalNote !== undefined
-                  ? {
-                      submissionApprovalNote: submission.submissionApprovalNote,
-                    }
-                  : {}),
-              },
-            }),
+        submissionsToUpdate.map((submission) =>
+          prisma.docusealSubmission.updateMany({
+            where: {
+              agreementId: id,
+              ...(submission?.id ? { id: submission.id } : {}),
+              ...(!submission?.id && submission?.templateId !== undefined
+                ? { templateId: submission.templateId }
+                : {}),
+            },
+            // data: { submissionApprovalStatus },
+            data: {
+              submissionApprovalStatus,
+              ...(submission?.submissionApprovalNote !== undefined
+                ? {
+                    submissionApprovalNote: submission.submissionApprovalNote,
+                  }
+                : {}),
+            },
+          }),
         ),
       );
     }
