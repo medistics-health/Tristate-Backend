@@ -318,7 +318,19 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
           where: { groupNpiNumber: groupNpi.groupNpiNumber },
         });
 
-        if (!existingGroupNpi && groupNpi.groupName) {
+        if (existingGroupNpi) {
+          await prisma.groupNpi.update({
+            where: { groupNpiNumber: groupNpi.groupNpiNumber },
+            data: {
+              groupName: groupNpi.groupName || existingGroupNpi.groupName,
+              taxId: groupNpi.taxId || null,
+              practiceGroupId:
+                groupNpi.practiceGroupId || existingGroupNpi.practiceGroupId,
+              notes: groupNpi.notes ?? existingGroupNpi.notes,
+              status: (groupNpi.status as any) || existingGroupNpi.status,
+            },
+          });
+        } else if (groupNpi.groupName) {
           await prisma.groupNpi.create({
             data: {
               groupNpiNumber: groupNpi.groupNpiNumber,
@@ -580,7 +592,19 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
           where: { groupNpiNumber: groupNpi.groupNpiNumber },
         });
 
-        if (!existingGroupNpi && groupNpi.groupName) {
+        if (existingGroupNpi) {
+          await prisma.groupNpi.update({
+            where: { groupNpiNumber: groupNpi.groupNpiNumber },
+            data: {
+              groupName: groupNpi.groupName || existingGroupNpi.groupName,
+              taxId: groupNpi.taxId || null,
+              practiceGroupId:
+                groupNpi.practiceGroupId || existingGroupNpi.practiceGroupId,
+              notes: groupNpi.notes ?? existingGroupNpi.notes,
+              status: (groupNpi.status as any) || existingGroupNpi.status,
+            },
+          });
+        } else if (groupNpi.groupName) {
           await prisma.groupNpi.create({
             data: {
               groupNpiNumber: groupNpi.groupNpiNumber,
