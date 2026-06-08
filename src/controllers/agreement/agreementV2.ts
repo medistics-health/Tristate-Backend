@@ -19,6 +19,18 @@ function escapeHtml(str: string | undefined): string {
     .replace(/'/g, "&#039;");
 }
 
+function formatAgreementDate(value?: Date | null) {
+  if (!value) {
+    return "Not specified";
+  }
+
+  return value.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 type DocusealSubmissionInput = {
   id?: string;
   docusealSubmissionId: number;
@@ -50,6 +62,11 @@ type SendAgreementEmailBody = {
   message?: string;
 };
 
+type AgreementMailSettings = {
+  authorizedSigner: string | null;
+  notifyTo: string[];
+};
+
 const AGREEMENT_APPROVAL_STATUSES = [
   "PENDING_APPROVAL",
   "APPROVED",
@@ -58,6 +75,22 @@ const AGREEMENT_APPROVAL_STATUSES = [
 
 type AgreementApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
 type SubmissionApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
+
+async function getAgreementMailSettings(): Promise<AgreementMailSettings> {
+  const settings = await prisma.systemSettings.findFirst({
+    select: {
+      authorizedSigner: true,
+      notifyTo: true,
+    },
+  });
+
+  return {
+    authorizedSigner: settings?.authorizedSigner?.trim() || null,
+    notifyTo: (settings?.notifyTo || [])
+      .map((email) => email.trim())
+      .filter(Boolean),
+  };
+}
 
 async function resolveInitialPacketTemplateIds(agreementId: string) {
   const agreement = await prisma.agreement.findFirst({
@@ -514,6 +547,8 @@ export async function createDocusealSubmission(
       });
     }
 
+    const agreementMailSettings = await getAgreementMailSettings();
+
     const newSubmissions = [];
 
     for (const tid of templateIds) {
@@ -586,7 +621,9 @@ export async function createDocusealSubmission(
           {
             role: "First Party",
             // email: "nmelchiorre@tristatemso.com",
-            email: "sjangir@tristatemso.com",
+            email:
+              agreementMailSettings.authorizedSigner ||
+              "SJangir@Tristatemso.com",
             name: "TristateMSO",
             values: firstPartyValues,
           },
@@ -602,7 +639,7 @@ export async function createDocusealSubmission(
           // {
           //   role: "First Party",
           //   // email: "nmelchiorre@tristatemso.com",
-          //   email: "sjangir@medisticshealth.com",
+          //   email: agreementMailSettings.authorizedSigner,
           //   name: "TristateMSO",
           // },
           // {
@@ -771,6 +808,8 @@ export async function resubmitDocusealSubmission(
       });
     }
 
+    const agreementMailSettings = await getAgreementMailSettings();
+
     const template = await docuseal.getTemplate(templateId);
     const existingSubmission = await prisma.docusealSubmission.findFirst({
       where: {
@@ -779,6 +818,7 @@ export async function resubmitDocusealSubmission(
       },
       select: {
         id: true,
+        docusealSubmissionId: true,
         fieldValues: true,
       },
     });
@@ -788,6 +828,12 @@ export async function resubmitDocusealSubmission(
       person,
       agreement,
     );
+
+    if (existingSubmission?.docusealSubmissionId) {
+      await docuseal.permanentlyDeleteSubmission(
+        existingSubmission.docusealSubmissionId,
+      );
+    }
 
     const mergedValues = {
       // ...autoFillValues,
@@ -826,7 +872,8 @@ export async function resubmitDocusealSubmission(
         {
           role: "First Party",
           // email: "nmelchiorre@tristatemso.com",
-          email: "sjangir@tristatemso.com",
+          email:
+            agreementMailSettings.authorizedSigner || "SJangir@Tristatemso.com",
           name: "TristateMSO",
           values: firstPartyValues,
         },
@@ -941,6 +988,8 @@ export async function resubmitDocusealSubmission(
       <p>The document <strong>${templateName}</strong> for your agreement
       <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
       has been updated.</p>
+      <p><strong>Effective Date:</strong> ${formatAgreementDate(agreement.effectiveDate)}</p>
+      <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
       <p>Please click the link below to review and sign the updated document.</p>
       <p>Once you sign, it will be routed to the client for signature.</p>
       <p>
@@ -954,9 +1003,12 @@ export async function resubmitDocusealSubmission(
     console.log(firstPartySigner?.email, emailSubject, emailBody);
 
     const resppp = await sendOutlookEmail(
-      firstPartySigner?.email || "pkolankar@medisticshealth.com",
+      firstPartySigner?.email || "SJangir@Tristatemso.com",
       emailSubject,
       emailBody,
+      {
+        cc: agreementMailSettings.notifyTo,
+      },
     );
     console.log(resppp);
 
@@ -1063,16 +1115,16 @@ export async function sendAgreementEmail(
       return res.status(404).json({ message: "Agreement not found." });
     }
 
-    const practicePersonExists = await prisma.practicePerson.findFirst({
-      where: {
-        personId,
-        practiceId: agreement.practiceId,
-      },
-    });
+    // const practicePersonExists = await prisma.practicePerson.findFirst({
+    //   where: {
+    //     personId,
+    //     practiceId: agreement.practiceId,
+    //   },
+    // });
 
-    const personExists = await prisma.person.findFirst({
-      where: { id: personId },
-    });
+    // const personExists = await prisma.person.findFirst({
+    //   where: { id: personId },
+    // });
 
     const person = await prisma.person.findFirst({
       where: {
@@ -1084,14 +1136,6 @@ export async function sendAgreementEmail(
         },
       },
     });
-
-    // console.log({
-    //   personId,
-    //   practiceId: agreement.practiceId,
-    //   practicePersonExists,
-    //   personExists,
-    //   person,
-    // });
 
     if (!person || !person.email) {
       return res.status(404).json({
@@ -1139,6 +1183,8 @@ export async function sendAgreementEmail(
       <strong>${practiceName}</strong>.</p>
 
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
+      <p><strong>Effective Date:</strong> ${formatAgreementDate(agreement.effectiveDate)}</p>
+      <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
 
       <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
       <p>After you sign, the agreement will be routed to the client for signature.</p>
@@ -1160,7 +1206,7 @@ export async function sendAgreementEmail(
     `;
 
     const firstPartyEmail =
-      firstPartySigners[0]?.email || "pkolankar@medisticshealth.com";
+      firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
 
     await sendOutlookEmail(firstPartyEmail, emailSubject, emailBody);
 
@@ -1322,6 +1368,227 @@ export async function createAgreement(
         },
       },
     });
+
+    const isApprovedForAutoSend =
+      (agreement.docusealSubmissions || []).length > 0 &&
+      agreement.docusealSubmissions.every(
+        (submission) => submission.approval_status === "APPROVED",
+      );
+
+    if (practice.status === "ACTIVE" && isApprovedForAutoSend) {
+      const eligiblePerson = await prisma.person.findFirst({
+        where: {
+          email: {
+            not: null,
+          },
+          practices: {
+            some: {
+              practiceId,
+            },
+          },
+          OR: [{ role: "ADMIN" }, { role: "OWNER" }],
+        },
+      });
+
+      if (eligiblePerson?.id && eligiblePerson.email) {
+        const resolved = await resolveInitialPacketTemplateIds(agreement.id);
+
+        if (!("error" in resolved)) {
+          const agreementMailSettings = await getAgreementMailSettings();
+
+          for (const currentTemplateId of resolved.templateIds) {
+            const template = await docuseal.getTemplate(currentTemplateId);
+            const existingSubmission = agreement.docusealSubmissions.find(
+              (submission) => submission.templateId === currentTemplateId,
+            );
+
+            if (existingSubmission?.personId) {
+              continue;
+            }
+
+            const mergedValues = {
+              ...normalizeFieldValues(existingSubmission?.fieldValues),
+            };
+            const firstPartyUuid =
+              template.submitters?.find(
+                (submitter: any) => submitter.name === "First Party",
+              )?.uuid || null;
+            const secondPartyUuid =
+              template.submitters?.find(
+                (submitter: any) => submitter.name === "Second Party",
+              )?.uuid || null;
+            const firstPartyValues = buildDocusealValuesBySubmitter(
+              template.fields || [],
+              mergedValues,
+              firstPartyUuid,
+            );
+            const secondPartyValues = buildDocusealValuesBySubmitter(
+              template.fields || [],
+              mergedValues,
+              secondPartyUuid,
+            );
+            const secondPartyFields = buildReadonlyFieldsForSubmitter(
+              template.fields || [],
+              secondPartyUuid,
+            );
+
+            const expireAt = new Date();
+            expireAt.setHours(expireAt.getHours() + 48);
+            const submission: any = await docuseal.createSubmission({
+              template_id: currentTemplateId,
+              send_email: false,
+              submitters: [
+                {
+                  role: "First Party",
+                  email:
+                    agreementMailSettings.authorizedSigner ||
+                    "SJangir@Tristatemso.com",
+                  name: "TristateMSO",
+                  values: firstPartyValues,
+                },
+                {
+                  role: "Second Party",
+                  email: eligiblePerson.email,
+                  name: `${eligiblePerson.firstName} ${eligiblePerson.lastName}`,
+                  values: secondPartyValues,
+                  fields: secondPartyFields,
+                },
+              ],
+              expire_at: expireAt.toISOString(),
+            });
+
+            const docusealSubmissionData = Array.isArray(submission)
+              ? submission[0]
+              : submission;
+
+            if (existingSubmission) {
+              await prisma.docuSigner.deleteMany({
+                where: { submissionId: existingSubmission.id },
+              });
+
+              for (
+                let i = 0;
+                i < docusealSubmissionData.submitters.length;
+                i++
+              ) {
+                const sub = docusealSubmissionData.submitters[i];
+                await prisma.docuSigner.create({
+                  data: {
+                    submissionId: existingSubmission.id,
+                    externalId: sub.id,
+                    signerUuid: sub.uuid,
+                    role: sub.role,
+                    name: sub.name,
+                    email: sub.email,
+                    status: sub.status,
+                    submissionSlug: sub.slug,
+                    signedUrl: sub.url,
+                    order: i,
+                  },
+                });
+              }
+
+              await prisma.docusealSubmission.update({
+                where: { id: existingSubmission.id },
+                data: {
+                  personId: eligiblePerson.id,
+                  docusealSubmissionId:
+                    docusealSubmissionData.submitters[0].submission_id,
+                  // url: docusealSubmissionData.submitters?.[0]?.url || null,
+                  fieldValues: mergedValues,
+                },
+              });
+            }
+          }
+
+          const refreshedAgreement = await prisma.agreement.findFirst({
+            where: { id: agreement.id },
+            include: {
+              practice: true,
+              docusealSubmissions: {
+                include: {
+                  signers: true,
+                },
+              },
+            },
+          });
+
+          if (refreshedAgreement) {
+            const firstPartySigners =
+              refreshedAgreement.docusealSubmissions.flatMap((submission) =>
+                submission.signers.filter(
+                  (signer) => signer.role === "First Party",
+                ),
+              );
+            const submissionLinks = refreshedAgreement.docusealSubmissions
+              .flatMap((submission) =>
+                submission.signers
+                  .filter((signer) => signer.role === "First Party")
+                  .map((signer) => {
+                    const link = process.env.FRONTEND_URL
+                      ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
+                      : `http://localhost:5173/sign/${signer.submissionSlug}`;
+
+                    return `
+            <p>
+             ${decodeURIComponent(
+               submission?.url?.split("/").pop() || "",
+             ).replace(".pdf", "")}: <a href="${link}" target="_blank">
+                Sign Document
+              </a>
+            </p>
+          `;
+                  }),
+              )
+              .join("");
+
+            const firstPartyName = firstPartySigners[0]?.name || "there";
+            const practiceName =
+              refreshedAgreement.practice?.name || "Unknown Practice";
+            const emailBody = `
+      <p>Hello ${firstPartyName},</p>
+
+      <p>Please find the agreement details for
+      <strong>${practiceName}</strong>.</p>
+
+      <p><strong>Agreement Type:</strong> ${refreshedAgreement.type}</p>
+
+      <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
+      <p>After you sign, the agreement will be routed to the client for signature.</p>
+
+      <p>
+         <strong>Important:</strong>
+         The signing link will expire in 48 hours.
+      </p>
+
+      <p><strong>Documents:</strong></p>
+      ${submissionLinks}
+
+      <p>
+        Best regards,<br/>
+        The Tristate Team
+      </p>
+    `;
+
+            const firstPartyEmail =
+              firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
+
+            await sendOutlookEmail(
+              firstPartyEmail,
+              `Agreement: ${refreshedAgreement.type} - ${refreshedAgreement.practice?.name || "Unknown"}`,
+              emailBody,
+            );
+
+            await updateDealAfterAgreementSend(agreement.id);
+
+            await prisma.agreement.update({
+              where: { id: agreement.id },
+              data: { status: "SENT" },
+            });
+          }
+        }
+      }
+    }
 
     return res.status(201).json({
       message: "Agreement created successfully.",
@@ -1602,6 +1869,7 @@ export async function updateAgreement(
         ),
       );
     }
+    console.log("Creted Submission from updateAgreement");
 
     if (docusealSubmissions?.length) {
       await Promise.all(
@@ -1624,6 +1892,234 @@ export async function updateAgreement(
           }),
         ),
       );
+    }
+
+    if (approvalStatus === "APPROVED") {
+      const agreementForAutoSend = await prisma.agreement.findFirst({
+        where: { id },
+        include: {
+          practice: true,
+          docusealSubmissions: {
+            include: {
+              signers: true,
+            },
+          },
+        },
+      });
+
+      const hasPendingAutoSendTemplates =
+        agreementForAutoSend?.status !== "SENT" &&
+        agreementForAutoSend?.practice?.status === "ACTIVE" &&
+        (agreementForAutoSend.docusealSubmissions || []).length > 0 &&
+        agreementForAutoSend.docusealSubmissions.every(
+          (submission) => submission.approval_status === "APPROVED",
+        ) &&
+        agreementForAutoSend.docusealSubmissions.some(
+          (submission) => submission.templateId && !submission.personId,
+        );
+
+      if (agreementForAutoSend && hasPendingAutoSendTemplates) {
+        const eligiblePerson = await prisma.person.findFirst({
+          where: {
+            email: {
+              not: null,
+            },
+            practices: {
+              some: {
+                practiceId: agreementForAutoSend.practiceId,
+              },
+            },
+            OR: [{ role: "ADMIN" }, { role: "OWNER" }],
+          },
+        });
+
+        if (eligiblePerson?.id && eligiblePerson.email) {
+          const agreementMailSettings = await getAgreementMailSettings();
+
+          for (const existingSubmission of agreementForAutoSend.docusealSubmissions) {
+            if (!existingSubmission.templateId || existingSubmission.personId) {
+              continue;
+            }
+
+            const template = await docuseal.getTemplate(
+              existingSubmission.templateId,
+            );
+            const mergedValues = {
+              ...normalizeFieldValues(existingSubmission.fieldValues),
+            };
+            const firstPartyUuid =
+              template.submitters?.find(
+                (submitter: any) => submitter.name === "First Party",
+              )?.uuid || null;
+            const secondPartyUuid =
+              template.submitters?.find(
+                (submitter: any) => submitter.name === "Second Party",
+              )?.uuid || null;
+            const firstPartyValues = buildDocusealValuesBySubmitter(
+              template.fields || [],
+              mergedValues,
+              firstPartyUuid,
+            );
+            const secondPartyValues = buildDocusealValuesBySubmitter(
+              template.fields || [],
+              mergedValues,
+              secondPartyUuid,
+            );
+            const secondPartyFields = buildReadonlyFieldsForSubmitter(
+              template.fields || [],
+              secondPartyUuid,
+            );
+
+            const expireAt = new Date();
+            expireAt.setHours(expireAt.getHours() + 48);
+            const submission: any = await docuseal.createSubmission({
+              template_id: existingSubmission.templateId,
+              send_email: false,
+              submitters: [
+                {
+                  role: "First Party",
+                  email:
+                    agreementMailSettings.authorizedSigner ||
+                    "SJangir@Tristatemso.com",
+                  name: "TristateMSO",
+                  values: firstPartyValues,
+                },
+                {
+                  role: "Second Party",
+                  email: eligiblePerson.email,
+                  name: `${eligiblePerson.firstName} ${eligiblePerson.lastName}`,
+                  values: secondPartyValues,
+                  fields: secondPartyFields,
+                },
+              ],
+              expire_at: expireAt.toISOString(),
+            });
+
+            const docusealSubmissionData = Array.isArray(submission)
+              ? submission[0]
+              : submission;
+
+            await prisma.docuSigner.deleteMany({
+              where: { submissionId: existingSubmission.id },
+            });
+
+            for (let i = 0; i < docusealSubmissionData.submitters.length; i++) {
+              const sub = docusealSubmissionData.submitters[i];
+              await prisma.docuSigner.create({
+                data: {
+                  submissionId: existingSubmission.id,
+                  externalId: sub.id,
+                  signerUuid: sub.uuid,
+                  role: sub.role,
+                  name: sub.name,
+                  email: sub.email,
+                  status: sub.status,
+                  submissionSlug: sub.slug,
+                  signedUrl: sub.url,
+                  order: i,
+                },
+              });
+            }
+
+            await prisma.docusealSubmission.update({
+              where: { id: existingSubmission.id },
+              data: {
+                personId: eligiblePerson.id,
+                docusealSubmissionId:
+                  docusealSubmissionData.submitters[0].submission_id,
+                // url: docusealSubmissionData.submitters?.[0]?.url || null,
+                fieldValues: mergedValues,
+              },
+            });
+          }
+
+          const refreshedAgreement = await prisma.agreement.findFirst({
+            where: { id },
+            include: {
+              practice: true,
+              docusealSubmissions: {
+                include: {
+                  signers: true,
+                },
+              },
+            },
+          });
+
+          if (refreshedAgreement) {
+            const firstPartySigners =
+              refreshedAgreement.docusealSubmissions.flatMap((submission) =>
+                submission.signers.filter(
+                  (signer) => signer.role === "First Party",
+                ),
+              );
+            const submissionLinks = refreshedAgreement.docusealSubmissions
+              .flatMap((submission) =>
+                submission.signers
+                  .filter((signer) => signer.role === "First Party")
+                  .map((signer) => {
+                    const link = process.env.FRONTEND_URL
+                      ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
+                      : `http://localhost:5173/sign/${signer.submissionSlug}`;
+
+                    return `
+            <p>
+             ${decodeURIComponent(
+               submission?.url?.split("/").pop() || "",
+             ).replace(".pdf", "")}: <a href="${link}" target="_blank">
+                Sign Document
+              </a>
+            </p>
+          `;
+                  }),
+              )
+              .join("");
+
+            const firstPartyName = firstPartySigners[0]?.name || "there";
+            const practiceName =
+              refreshedAgreement.practice?.name || "Unknown Practice";
+            const emailBody = `
+      <p>Hello ${firstPartyName},</p>
+
+      <p>Please find the agreement details for
+      <strong>${practiceName}</strong>.</p>
+
+      <p><strong>Agreement Type:</strong> ${refreshedAgreement.type}</p>
+
+      <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
+      <p>After you sign, the agreement will be routed to the client for signature.</p>
+
+      <p>
+         <strong>Important:</strong>
+         The signing link will expire in 48 hours.
+      </p>
+
+      <p><strong>Documents:</strong></p>
+      ${submissionLinks}
+
+      <p>
+        Best regards,<br/>
+        The Tristate Team
+      </p>
+    `;
+
+            const firstPartyEmail =
+              firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
+
+            await sendOutlookEmail(
+              firstPartyEmail,
+              `Agreement: ${refreshedAgreement.type} - ${refreshedAgreement.practice?.name || "Unknown"}`,
+              emailBody,
+            );
+
+            await updateDealAfterAgreementSend(id);
+
+            await prisma.agreement.update({
+              where: { id },
+              data: { status: "SENT" },
+            });
+          }
+        }
+      }
     }
 
     return res.status(200).json({
