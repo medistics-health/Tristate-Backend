@@ -19,6 +19,18 @@ function escapeHtml(str: string | undefined): string {
     .replace(/'/g, "&#039;");
 }
 
+function formatAgreementDate(value?: Date | null) {
+  if (!value) {
+    return "Not specified";
+  }
+
+  return value.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 type DocusealSubmissionInput = {
   id?: string;
   docusealSubmissionId: number;
@@ -976,6 +988,8 @@ export async function resubmitDocusealSubmission(
       <p>The document <strong>${templateName}</strong> for your agreement
       <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
       has been updated.</p>
+      <p><strong>Effective Date:</strong> ${formatAgreementDate(agreement.effectiveDate)}</p>
+      <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
       <p>Please click the link below to review and sign the updated document.</p>
       <p>Once you sign, it will be routed to the client for signature.</p>
       <p>
@@ -1169,6 +1183,8 @@ export async function sendAgreementEmail(
       <strong>${practiceName}</strong>.</p>
 
       <p><strong>Agreement Type:</strong> ${agreement.type}</p>
+      <p><strong>Effective Date:</strong> ${formatAgreementDate(agreement.effectiveDate)}</p>
+      <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
 
       <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
       <p>After you sign, the agreement will be routed to the client for signature.</p>
@@ -1478,7 +1494,7 @@ export async function createAgreement(
                   personId: eligiblePerson.id,
                   docusealSubmissionId:
                     docusealSubmissionData.submitters[0].submission_id,
-                  url: docusealSubmissionData.submitters?.[0]?.url || null,
+                  // url: docusealSubmissionData.submitters?.[0]?.url || null,
                   fieldValues: mergedValues,
                 },
               });
@@ -1850,6 +1866,7 @@ export async function updateAgreement(
         ),
       );
     }
+    console.log("Creted Submission from updateAgreement");
 
     if (docusealSubmissions?.length) {
       await Promise.all(
@@ -1921,7 +1938,9 @@ export async function updateAgreement(
               continue;
             }
 
-            const template = await docuseal.getTemplate(existingSubmission.templateId);
+            const template = await docuseal.getTemplate(
+              existingSubmission.templateId,
+            );
             const mergedValues = {
               ...normalizeFieldValues(existingSubmission.fieldValues),
             };
@@ -1958,7 +1977,7 @@ export async function updateAgreement(
                   role: "First Party",
                   email:
                     agreementMailSettings.authorizedSigner ||
-                    "pkolankar@medisticshealth.com",
+                    "SJangir@Tristatemso.com",
                   name: "TristateMSO",
                   values: firstPartyValues,
                 },
@@ -2005,7 +2024,7 @@ export async function updateAgreement(
                 personId: eligiblePerson.id,
                 docusealSubmissionId:
                   docusealSubmissionData.submitters[0].submission_id,
-                url: docusealSubmissionData.submitters?.[0]?.url || null,
+                // url: docusealSubmissionData.submitters?.[0]?.url || null,
                 fieldValues: mergedValues,
               },
             });
@@ -2024,12 +2043,12 @@ export async function updateAgreement(
           });
 
           if (refreshedAgreement) {
-            const firstPartySigners = refreshedAgreement.docusealSubmissions.flatMap(
-              (submission) =>
+            const firstPartySigners =
+              refreshedAgreement.docusealSubmissions.flatMap((submission) =>
                 submission.signers.filter(
                   (signer) => signer.role === "First Party",
                 ),
-            );
+              );
             const submissionLinks = refreshedAgreement.docusealSubmissions
               .flatMap((submission) =>
                 submission.signers
@@ -2081,7 +2100,7 @@ export async function updateAgreement(
     `;
 
             const firstPartyEmail =
-              firstPartySigners[0]?.email || "pkolankar@medisticshealth.com";
+              firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
 
             await sendOutlookEmail(
               firstPartyEmail,
@@ -2145,4 +2164,3 @@ export async function deleteAgreement(
     });
   }
 }
-
