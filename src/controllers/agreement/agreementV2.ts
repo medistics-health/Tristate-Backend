@@ -624,7 +624,7 @@ export async function createDocusealSubmission(
             email:
               agreementMailSettings.authorizedSigner ||
               "SJangir@Tristatemso.com",
-            name: "Authorized Signer",
+            name: "TristateMSO",
             values: firstPartyValues,
           },
           {
@@ -874,7 +874,7 @@ export async function resubmitDocusealSubmission(
           // email: "nmelchiorre@tristatemso.com",
           email:
             agreementMailSettings.authorizedSigner || "SJangir@Tristatemso.com",
-          name: "Authorized Signer",
+          name: "TristateMSO",
           values: firstPartyValues,
         },
         {
