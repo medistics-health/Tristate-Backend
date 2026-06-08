@@ -779,6 +779,7 @@ export async function resubmitDocusealSubmission(
       },
       select: {
         id: true,
+        docusealSubmissionId: true,
         fieldValues: true,
       },
     });
@@ -788,6 +789,12 @@ export async function resubmitDocusealSubmission(
       person,
       agreement,
     );
+
+    if (existingSubmission?.docusealSubmissionId) {
+      await docuseal.permanentlyDeleteSubmission(
+        existingSubmission.docusealSubmissionId,
+      );
+    }
 
     const mergedValues = {
       // ...autoFillValues,
@@ -1577,26 +1584,25 @@ export async function updateAgreement(
         : [undefined];
 
       await Promise.all(
-        submissionsToUpdate.map(
-          (submission) =>
-            prisma.docusealSubmission.updateMany({
-              where: {
-                agreementId: id,
-                ...(submission?.id ? { id: submission.id } : {}),
-                ...(!submission?.id && submission?.templateId !== undefined
-                  ? { templateId: submission.templateId }
-                  : {}),
-              },
-              // data: { submissionApprovalStatus },
-              data: {
-                submissionApprovalStatus,
-                ...(submission?.submissionApprovalNote !== undefined
-                  ? {
-                      submissionApprovalNote: submission.submissionApprovalNote,
-                    }
-                  : {}),
-              },
-            }),
+        submissionsToUpdate.map((submission) =>
+          prisma.docusealSubmission.updateMany({
+            where: {
+              agreementId: id,
+              ...(submission?.id ? { id: submission.id } : {}),
+              ...(!submission?.id && submission?.templateId !== undefined
+                ? { templateId: submission.templateId }
+                : {}),
+            },
+            // data: { submissionApprovalStatus },
+            data: {
+              submissionApprovalStatus,
+              ...(submission?.submissionApprovalNote !== undefined
+                ? {
+                    submissionApprovalNote: submission.submissionApprovalNote,
+                  }
+                : {}),
+            },
+          }),
         ),
       );
     }
