@@ -1,9 +1,9 @@
+import cron from "node-cron";
 import { prisma } from "../lib/prisma";
-
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 async function deactivateExpiredPricingTerms() {
   const now = new Date();
+
   const result = await prisma.agreementServiceTerm.updateMany({
     where: {
       isActive: true,
@@ -24,13 +24,25 @@ async function deactivateExpiredPricingTerms() {
 }
 
 export function startPricingTermExpiryJob() {
+  // Optional: Run once on startup
   void deactivateExpiredPricingTerms().catch((error) => {
     console.error("Pricing term expiry job failed:", error);
   });
 
-  setInterval(() => {
-    void deactivateExpiredPricingTerms().catch((error) => {
-      console.error("Pricing term expiry job failed:", error);
-    });
-  }, ONE_DAY_MS);
+  // Run every day at 12:00 AM Eastern Time
+  cron.schedule(
+    "0 0 * * *",
+    async () => {
+      try {
+        await deactivateExpiredPricingTerms();
+      } catch (error) {
+        console.error("Pricing term expiry job failed:", error);
+      }
+    },
+    {
+      timezone: "America/New_York",
+    }
+  );
+
+  console.log("Pricing term expiry job scheduled for 12:00 AM ET daily.");
 }
