@@ -2,6 +2,28 @@ import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeOptionalEmail(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeEmailList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean))];
+}
+
 export async function getSystemSettings(req: AuthenticatedRequest, res: Response) {
   try {
     let settings = await prisma.systemSettings.findFirst();
@@ -13,6 +35,7 @@ export async function getSystemSettings(req: AuthenticatedRequest, res: Response
           organizationName: "Tristate MSO",
           domain: "tristate-mso.com",
           address: "123 Enterprise Way, Suite 500, New Jersey, NJ 07102",
+          notifyTo: [],
         },
       });
     }
@@ -31,19 +54,56 @@ export async function getSystemSettings(req: AuthenticatedRequest, res: Response
 
 export async function updateSystemSettings(req: AuthenticatedRequest, res: Response) {
   try {
-    const { organizationName, domain, address, supportEmail } = req.body;
+    const {
+      organizationName,
+      domain,
+      address,
+      supportEmail,
+      authorizedSigner,
+      notifyTo,
+    } = req.body;
+
+    const normalizedAuthorizedSigner = normalizeOptionalEmail(authorizedSigner);
+    const normalizedNotifyTo = normalizeEmailList(notifyTo);
+
+    if (
+      normalizedAuthorizedSigner &&
+      !EMAIL_REGEX.test(normalizedAuthorizedSigner)
+    ) {
+      return res.status(400).json({
+        message: "authorizedSigner must be a valid email address.",
+      });
+    }
+
+    const invalidNotifyTo = normalizedNotifyTo.find(
+      (email) => !EMAIL_REGEX.test(email),
+    );
+
+    if (invalidNotifyTo) {
+      return res.status(400).json({
+        message: `Invalid notifyTo email: ${invalidNotifyTo}.`,
+      });
+    }
 
     const existing = await prisma.systemSettings.findFirst();
+    const data = {
+      organizationName,
+      domain,
+      address,
+      supportEmail,
+      authorizedSigner: normalizedAuthorizedSigner,
+      notifyTo: normalizedNotifyTo,
+    };
 
     let settings;
     if (existing) {
       settings = await prisma.systemSettings.update({
         where: { id: existing.id },
-        data: { organizationName, domain, address, supportEmail },
+        data,
       });
     } else {
       settings = await prisma.systemSettings.create({
-        data: { organizationName, domain, address, supportEmail },
+        data,
       });
     }
 

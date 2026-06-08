@@ -1173,6 +1173,8 @@ model SystemSettings {
   domain           String   @default("tristate-mso.com")
   address          String?
   supportEmail     String?  @default("support@tristate-mso.com") @map("support_email")
+  authorizedSigner String?  @map("authorized_signer")
+  notifyTo         String[] @default([]) @map("notify_to")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")

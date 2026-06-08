@@ -50,6 +50,11 @@ type SendAgreementEmailBody = {
   message?: string;
 };
 
+type AgreementMailSettings = {
+  authorizedSigner: string | null;
+  notifyTo: string[];
+};
+
 const AGREEMENT_APPROVAL_STATUSES = [
   "PENDING_APPROVAL",
   "APPROVED",
@@ -58,6 +63,22 @@ const AGREEMENT_APPROVAL_STATUSES = [
 
 type AgreementApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
 type SubmissionApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
+
+async function getAgreementMailSettings(): Promise<AgreementMailSettings> {
+  const settings = await prisma.systemSettings.findFirst({
+    select: {
+      authorizedSigner: true,
+      notifyTo: true,
+    },
+  });
+
+  return {
+    authorizedSigner: settings?.authorizedSigner?.trim() || null,
+    notifyTo: (settings?.notifyTo || [])
+      .map((email) => email.trim())
+      .filter(Boolean),
+  };
+}
 
 async function resolveInitialPacketTemplateIds(agreementId: string) {
   const agreement = await prisma.agreement.findFirst({
@@ -514,6 +535,8 @@ export async function createDocusealSubmission(
       });
     }
 
+    const agreementMailSettings = await getAgreementMailSettings();
+
     const newSubmissions = [];
 
     for (const tid of templateIds) {
@@ -586,8 +609,10 @@ export async function createDocusealSubmission(
           {
             role: "First Party",
             // email: "nmelchiorre@tristatemso.com",
-            email: "sjangir@tristatemso.com",
-            name: "TristateMSO",
+            email:
+              agreementMailSettings.authorizedSigner ||
+              "pkolankar@medisticshealth.com",
+            name: "Authorized Signer",
             values: firstPartyValues,
           },
           {
@@ -602,7 +627,7 @@ export async function createDocusealSubmission(
           // {
           //   role: "First Party",
           //   // email: "nmelchiorre@tristatemso.com",
-          //   email: "sjangir@medisticshealth.com",
+          //   email: agreementMailSettings.authorizedSigner,
           //   name: "TristateMSO",
           // },
           // {
@@ -771,6 +796,8 @@ export async function resubmitDocusealSubmission(
       });
     }
 
+    const agreementMailSettings = await getAgreementMailSettings();
+
     const template = await docuseal.getTemplate(templateId);
     const existingSubmission = await prisma.docusealSubmission.findFirst({
       where: {
@@ -833,8 +860,10 @@ export async function resubmitDocusealSubmission(
         {
           role: "First Party",
           // email: "nmelchiorre@tristatemso.com",
-          email: "sjangir@tristatemso.com",
-          name: "TristateMSO",
+          email:
+            agreementMailSettings.authorizedSigner ||
+            "pkolankar@medisticshealth.com",
+          name: "Authorized Signer",
           values: firstPartyValues,
         },
         {
@@ -964,6 +993,9 @@ export async function resubmitDocusealSubmission(
       firstPartySigner?.email || "pkolankar@medisticshealth.com",
       emailSubject,
       emailBody,
+      {
+        cc: agreementMailSettings.notifyTo,
+      },
     );
     console.log(resppp);
 
