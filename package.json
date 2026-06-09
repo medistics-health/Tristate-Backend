@@ -50,6 +50,7 @@
     "express": "^5.2.1",
     "isomorphic-fetch": "^3.0.0",
     "jsonwebtoken": "^9.0.3",
+    "node-cron": "^4.2.1",
     "pg": "^8.20.0",
     "prisma": "^7.6.0",
     "stripe": "^22.1.0"
