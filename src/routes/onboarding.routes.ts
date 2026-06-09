@@ -3,17 +3,19 @@ import {
   createOnboarding,
   createExternalOnboarding,
   getExternalOnboardingByPractice,
+  uploadExternalOnboardingDocument,
   getOnboardings,
   getOnboarding,
   updateOnboarding,
   deleteOnboarding,
-} from "../controllers/onboarding/onboarding";
+} from "../controllers/onboarding/onboardingV2";
 import { verifyAuthToken } from "../middleware/auth.middleware";
 
 const router = Router();
 
 router.get("/external/:practiceId", getExternalOnboardingByPractice);
 router.post("/external", createExternalOnboarding);
+router.post("/external/upload-document", uploadExternalOnboardingDocument);
 
 router.use(verifyAuthToken);
 
