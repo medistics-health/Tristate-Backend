@@ -58,7 +58,16 @@ async function getAuthenticatedClient() {
   });
 }
 
-export async function sendOutlookEmail(to: string, subject: string, body: string) {
+type SendOutlookEmailOptions = {
+  cc?: string[];
+};
+
+export async function sendOutlookEmail(
+  to: string,
+  subject: string,
+  body: string,
+  options: SendOutlookEmailOptions = {},
+) {
   try {
     const client = await getAuthenticatedClient();
 
@@ -76,6 +85,11 @@ export async function sendOutlookEmail(to: string, subject: string, body: string
             },
           },
         ],
+        ccRecipients: (options.cc || []).map((email) => ({
+          emailAddress: {
+            address: email,
+          },
+        })),
       },
       saveToSentItems: "true",
     };
