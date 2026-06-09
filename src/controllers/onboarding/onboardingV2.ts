@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { uploadBase64ToAzureBlob } from "../../utils/azureBlob";
 import {
   AgreementStatus,
   CompanyStatus,
@@ -45,11 +46,55 @@ type OnboardingProviderBody = {
   id?: string;
   firstName?: string;
   lastName?: string;
+  fullName?: string;
+  dateOfBirth?: Date;
+  gender?: string;
   credentials?: string;
   providerType?: string;
   specialty?: string;
+  cliaNumber?: string;
   npi?: string;
   caqhId?: string;
+  ssnFullDigits?: string;
+  licenseNumber?: string;
+  licenseExpiryDate?: Date;
+  stateOfLicense?: string;
+  licenseType?: string;
+  taxonomy?: string;
+  primarySpecialty?: string;
+  secondarySpecialty?: string;
+  boardCertifications?: string;
+  caqhUsername?: string;
+  caqhPassword?: string;
+  caqhLastAttestationDate?: Date;
+  languagesSpoken?: string;
+  telehealthAvailable?: boolean;
+  malpracticeCarrier?: string;
+  malpracticePolicyNumber?: string;
+  malpracticeEffectiveDate?: Date;
+  malpracticeExpiryDate?: Date;
+  hospitalAffiliations?: string;
+  personalCellNumber?: string;
+  personalEmail?: string;
+  practiceEmail?: string;
+  medicarePtanIndividual?: string;
+  medicaidIdIndividual?: string;
+  ipaAffiliationsProviderLevel?: string;
+  nppesUsername?: string;
+  nppesPassword?: string;
+  railroadMedicareIndividual?: string;
+  copyOfBoardCertification?: string;
+  copyOfProfessionalLiabilityInsurance?: string;
+  copyOfBachelorsDegree?: string;
+  copyOfMastersDegree?: string;
+  copyOfSocialSecurityCard?: string;
+  copyOfDriversLicense?: string;
+  passportSizedPhoto?: string;
+  resume?: string;
+  providerEffectiveDateWithGroup?: Date;
+  countryOfBirth?: string;
+  statePlaceOfBirth?: string;
+  homeAddress?: string;
   stateLicenseNumber?: string;
   deaNumber?: string;
   boardCertified?: boolean;
@@ -69,6 +114,18 @@ type OnboardingPracticeBody = {
   additionalSpecialtyAreas?: string[];
   groupNpi?: string;
   taxIdEin?: string;
+  medicaidIdNumber?: string;
+  groupMedicaidNpi?: string;
+  groupMedicarePtan?: string;
+  groupTaxonomy?: string;
+  ipaAffiliations?: string;
+  practiceManagerName?: string;
+  practiceManagerEmail?: string;
+  practiceManagerPhone?: string;
+  billingAddress?: string;
+  mailingAddress?: string;
+  practiceWorkStartDate?: Date;
+  railroadMedicareGroup?: string;
   approximateNumberOfProviders?: number;
   approximateNumberOfLocations?: number;
   approximateMonthlyPatientVolume?: number;
@@ -101,6 +158,9 @@ type OnboardingBillingBody = {
   mainBillingContactName?: string;
   mainBillingContactEmail?: string;
   mainBillingContactPhone?: string;
+  recentW9Form?: string;
+  voidCheck?: string;
+  formalLetterFromBank?: string;
   currentlyBilledServices?: string[];
   activePayers?: string;
   eftEraSetup?: string;
@@ -115,6 +175,12 @@ type OnboardingCredentialingBody = {
   credentialingNeeded?: boolean;
   credentialingFor?: string[];
   payersToEnroll?: string;
+  approvedInsurancesTracker?: string;
+  designatedPortalContactName?: string;
+  designatedPortalContactEmail?: string;
+  designatedPortalContactPhone?: string;
+  irsDocument147c?: string;
+  desiredInsurancePlans?: string;
   caqhMaintained?: boolean;
   currentCredentialingIssues?: string[];
   medicarePtanAvailable?: string;
@@ -249,6 +315,15 @@ type OnboardingBody = {
     complianceConcerns?: string;
   };
   marketing?: OnboardingMarketingBody;
+};
+
+type OnboardingDocumentUploadBody = {
+  practiceId?: string;
+  practiceName?: string;
+  fileName?: string;
+  contentType?: string;
+  base64?: string;
+  field?: string;
 };
 
 const onboardingInclude = {
@@ -392,6 +467,18 @@ async function createOnboardingRecord(body: OnboardingBody) {
               additionalSpecialtyAreas: p.additionalSpecialtyAreas,
               groupNpi: p.groupNpi,
               taxIdEin: p.taxIdEin,
+              medicaidIdNumber: p.medicaidIdNumber,
+              groupMedicaidNpi: p.groupMedicaidNpi,
+              groupMedicarePtan: p.groupMedicarePtan,
+              groupTaxonomy: p.groupTaxonomy,
+              ipaAffiliations: p.ipaAffiliations,
+              practiceManagerName: p.practiceManagerName,
+              practiceManagerEmail: p.practiceManagerEmail,
+              practiceManagerPhone: p.practiceManagerPhone,
+              billingAddress: p.billingAddress,
+              mailingAddress: p.mailingAddress,
+              practiceWorkStartDate: toDateValue(p.practiceWorkStartDate),
+              railroadMedicareGroup: p.railroadMedicareGroup,
               approximateNumberOfProviders: p.approximateNumberOfProviders,
               approximateNumberOfLocations: p.approximateNumberOfLocations,
               approximateMonthlyPatientVolume:
@@ -432,11 +519,66 @@ async function createOnboardingRecord(body: OnboardingBody) {
                     create: p.providers.map((pr) => ({
                       firstName: pr.firstName,
                       lastName: pr.lastName,
+                      fullName: pr.fullName,
+                      dateOfBirth: toDateValue(pr.dateOfBirth),
+                      gender: pr.gender,
                       credentials: pr.credentials,
                       providerType: pr.providerType,
                       specialty: pr.specialty,
+                      cliaNumber: pr.cliaNumber,
                       npi: pr.npi,
                       caqhId: pr.caqhId,
+                      ssnFullDigits: pr.ssnFullDigits,
+                      licenseNumber: pr.licenseNumber,
+                      licenseExpiryDate: toDateValue(pr.licenseExpiryDate),
+                      stateOfLicense: pr.stateOfLicense,
+                      licenseType: pr.licenseType,
+                      taxonomy: pr.taxonomy,
+                      primarySpecialty: pr.primarySpecialty,
+                      secondarySpecialty: pr.secondarySpecialty,
+                      boardCertifications: pr.boardCertifications,
+                      caqhUsername: pr.caqhUsername,
+                      caqhPassword: pr.caqhPassword,
+                      caqhLastAttestationDate: toDateValue(
+                        pr.caqhLastAttestationDate,
+                      ),
+                      languagesSpoken: pr.languagesSpoken,
+                      telehealthAvailable: pr.telehealthAvailable,
+                      malpracticeCarrier: pr.malpracticeCarrier,
+                      malpracticePolicyNumber: pr.malpracticePolicyNumber,
+                      malpracticeEffectiveDate: toDateValue(
+                        pr.malpracticeEffectiveDate,
+                      ),
+                      malpracticeExpiryDate: toDateValue(
+                        pr.malpracticeExpiryDate,
+                      ),
+                      hospitalAffiliations: pr.hospitalAffiliations,
+                      personalCellNumber: pr.personalCellNumber,
+                      personalEmail: pr.personalEmail,
+                      practiceEmail: pr.practiceEmail,
+                      medicarePtanIndividual: pr.medicarePtanIndividual,
+                      medicaidIdIndividual: pr.medicaidIdIndividual,
+                      ipaAffiliationsProviderLevel:
+                        pr.ipaAffiliationsProviderLevel,
+                      nppesUsername: pr.nppesUsername,
+                      nppesPassword: pr.nppesPassword,
+                      railroadMedicareIndividual:
+                        pr.railroadMedicareIndividual,
+                      copyOfBoardCertification: pr.copyOfBoardCertification,
+                      copyOfProfessionalLiabilityInsurance:
+                        pr.copyOfProfessionalLiabilityInsurance,
+                      copyOfBachelorsDegree: pr.copyOfBachelorsDegree,
+                      copyOfMastersDegree: pr.copyOfMastersDegree,
+                      copyOfSocialSecurityCard: pr.copyOfSocialSecurityCard,
+                      copyOfDriversLicense: pr.copyOfDriversLicense,
+                      passportSizedPhoto: pr.passportSizedPhoto,
+                      resume: pr.resume,
+                      providerEffectiveDateWithGroup: toDateValue(
+                        pr.providerEffectiveDateWithGroup,
+                      ),
+                      countryOfBirth: pr.countryOfBirth,
+                      statePlaceOfBirth: pr.statePlaceOfBirth,
+                      homeAddress: pr.homeAddress,
                       stateLicenseNumber: pr.stateLicenseNumber,
                       deaNumber: pr.deaNumber,
                       boardCertified: pr.boardCertified,
@@ -473,6 +615,9 @@ async function createOnboardingRecord(body: OnboardingBody) {
               mainBillingContactName: body.billing.mainBillingContactName,
               mainBillingContactEmail: body.billing.mainBillingContactEmail,
               mainBillingContactPhone: body.billing.mainBillingContactPhone,
+              recentW9Form: body.billing.recentW9Form,
+              voidCheck: body.billing.voidCheck,
+              formalLetterFromBank: body.billing.formalLetterFromBank,
               currentlyBilledServices: body.billing.currentlyBilledServices,
               activePayers: body.billing.activePayers,
               eftEraSetup: body.billing.eftEraSetup,
@@ -491,6 +636,17 @@ async function createOnboardingRecord(body: OnboardingBody) {
               credentialingNeeded: body.credentialing.credentialingNeeded,
               credentialingFor: body.credentialing.credentialingFor,
               payersToEnroll: body.credentialing.payersToEnroll,
+              approvedInsurancesTracker:
+                body.credentialing.approvedInsurancesTracker,
+              designatedPortalContactName:
+                body.credentialing.designatedPortalContactName,
+              designatedPortalContactEmail:
+                body.credentialing.designatedPortalContactEmail,
+              designatedPortalContactPhone:
+                body.credentialing.designatedPortalContactPhone,
+              irsDocument147c: body.credentialing.irsDocument147c,
+              desiredInsurancePlans:
+                body.credentialing.desiredInsurancePlans,
               caqhMaintained: body.credentialing.caqhMaintained,
               currentCredentialingIssues: body.credentialing
                 .currentCredentialingIssues as any,
@@ -778,6 +934,57 @@ export async function createExternalOnboarding(req: Request, res: Response) {
   }
 }
 
+export async function uploadExternalOnboardingDocument(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const body = req.body as OnboardingDocumentUploadBody;
+    const practiceId = body.practiceId?.trim();
+    const practiceName = body.practiceName?.trim();
+    const fileName = body.fileName?.trim();
+    const contentType = body.contentType?.trim();
+    const base64 = body.base64?.trim();
+    const field = body.field?.trim();
+
+    if (!practiceId) {
+      return res.status(400).json({ message: "Practice id is required." });
+    }
+
+    if (!practiceName) {
+      return res.status(400).json({ message: "Practice name is required." });
+    }
+
+    if (!fileName || !base64 || !field) {
+      return res.status(400).json({
+        message:
+          "practiceId, practiceName, field, fileName, and base64 are required.",
+      });
+    }
+
+    const upload = await uploadBase64ToAzureBlob({
+      folder: `${practiceName}/providers/${field}`,
+      fileName,
+      base64,
+      contentType,
+    });
+
+    return res.status(201).json({
+      message: "Document uploaded successfully.",
+      fileName,
+      fileUrl: upload.sasUrl,
+      blobUrl: upload.url,
+      blobName: upload.blobName,
+      field,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to upload onboarding document.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function getOnboardings(req: AuthenticatedRequest, res: Response) {
   try {
     if (!req.user?.sub) {
@@ -1048,6 +1255,18 @@ export async function updateOnboarding(
                 additionalSpecialtyAreas: p.additionalSpecialtyAreas,
                 groupNpi: p.groupNpi,
                 taxIdEin: p.taxIdEin,
+                medicaidIdNumber: p.medicaidIdNumber,
+                groupMedicaidNpi: p.groupMedicaidNpi,
+                groupMedicarePtan: p.groupMedicarePtan,
+                groupTaxonomy: p.groupTaxonomy,
+                ipaAffiliations: p.ipaAffiliations,
+                practiceManagerName: p.practiceManagerName,
+                practiceManagerEmail: p.practiceManagerEmail,
+                practiceManagerPhone: p.practiceManagerPhone,
+                billingAddress: p.billingAddress,
+                mailingAddress: p.mailingAddress,
+                practiceWorkStartDate: toDateValue(p.practiceWorkStartDate),
+                railroadMedicareGroup: p.railroadMedicareGroup,
                 approximateNumberOfProviders: p.approximateNumberOfProviders,
                 approximateNumberOfLocations: p.approximateNumberOfLocations,
                 approximateMonthlyPatientVolume:
@@ -1088,11 +1307,66 @@ export async function updateOnboarding(
                       create: p.providers.map((pr) => ({
                         firstName: pr.firstName,
                         lastName: pr.lastName,
+                        fullName: pr.fullName,
+                        dateOfBirth: toDateValue(pr.dateOfBirth),
+                        gender: pr.gender,
                         credentials: pr.credentials,
                         providerType: pr.providerType,
                         specialty: pr.specialty,
+                        cliaNumber: pr.cliaNumber,
                         npi: pr.npi,
                         caqhId: pr.caqhId,
+                        ssnFullDigits: pr.ssnFullDigits,
+                        licenseNumber: pr.licenseNumber,
+                        licenseExpiryDate: toDateValue(pr.licenseExpiryDate),
+                        stateOfLicense: pr.stateOfLicense,
+                        licenseType: pr.licenseType,
+                        taxonomy: pr.taxonomy,
+                        primarySpecialty: pr.primarySpecialty,
+                        secondarySpecialty: pr.secondarySpecialty,
+                        boardCertifications: pr.boardCertifications,
+                        caqhUsername: pr.caqhUsername,
+                        caqhPassword: pr.caqhPassword,
+                        caqhLastAttestationDate: toDateValue(
+                          pr.caqhLastAttestationDate,
+                        ),
+                        languagesSpoken: pr.languagesSpoken,
+                        telehealthAvailable: pr.telehealthAvailable,
+                        malpracticeCarrier: pr.malpracticeCarrier,
+                        malpracticePolicyNumber: pr.malpracticePolicyNumber,
+                        malpracticeEffectiveDate: toDateValue(
+                          pr.malpracticeEffectiveDate,
+                        ),
+                        malpracticeExpiryDate: toDateValue(
+                          pr.malpracticeExpiryDate,
+                        ),
+                        hospitalAffiliations: pr.hospitalAffiliations,
+                        personalCellNumber: pr.personalCellNumber,
+                        personalEmail: pr.personalEmail,
+                        practiceEmail: pr.practiceEmail,
+                        medicarePtanIndividual: pr.medicarePtanIndividual,
+                        medicaidIdIndividual: pr.medicaidIdIndividual,
+                        ipaAffiliationsProviderLevel:
+                          pr.ipaAffiliationsProviderLevel,
+                        nppesUsername: pr.nppesUsername,
+                        nppesPassword: pr.nppesPassword,
+                        railroadMedicareIndividual:
+                          pr.railroadMedicareIndividual,
+                        copyOfBoardCertification: pr.copyOfBoardCertification,
+                        copyOfProfessionalLiabilityInsurance:
+                          pr.copyOfProfessionalLiabilityInsurance,
+                        copyOfBachelorsDegree: pr.copyOfBachelorsDegree,
+                        copyOfMastersDegree: pr.copyOfMastersDegree,
+                        copyOfSocialSecurityCard: pr.copyOfSocialSecurityCard,
+                        copyOfDriversLicense: pr.copyOfDriversLicense,
+                        passportSizedPhoto: pr.passportSizedPhoto,
+                        resume: pr.resume,
+                        providerEffectiveDateWithGroup: toDateValue(
+                          pr.providerEffectiveDateWithGroup,
+                        ),
+                        countryOfBirth: pr.countryOfBirth,
+                        statePlaceOfBirth: pr.statePlaceOfBirth,
+                        homeAddress: pr.homeAddress,
                         stateLicenseNumber: pr.stateLicenseNumber,
                         deaNumber: pr.deaNumber,
                         boardCertified: pr.boardCertified,
@@ -1131,6 +1405,9 @@ export async function updateOnboarding(
                   mainBillingContactName: body.billing.mainBillingContactName,
                   mainBillingContactEmail: body.billing.mainBillingContactEmail,
                   mainBillingContactPhone: body.billing.mainBillingContactPhone,
+                  recentW9Form: body.billing.recentW9Form,
+                  voidCheck: body.billing.voidCheck,
+                  formalLetterFromBank: body.billing.formalLetterFromBank,
                   currentlyBilledServices: body.billing.currentlyBilledServices,
                   activePayers: body.billing.activePayers,
                   eftEraSetup: body.billing.eftEraSetup,
@@ -1149,6 +1426,9 @@ export async function updateOnboarding(
                   mainBillingContactName: body.billing.mainBillingContactName,
                   mainBillingContactEmail: body.billing.mainBillingContactEmail,
                   mainBillingContactPhone: body.billing.mainBillingContactPhone,
+                  recentW9Form: body.billing.recentW9Form,
+                  voidCheck: body.billing.voidCheck,
+                  formalLetterFromBank: body.billing.formalLetterFromBank,
                   currentlyBilledServices: body.billing.currentlyBilledServices,
                   activePayers: body.billing.activePayers,
                   eftEraSetup: body.billing.eftEraSetup,
@@ -1168,6 +1448,17 @@ export async function updateOnboarding(
                   credentialingNeeded: body.credentialing.credentialingNeeded,
                   credentialingFor: body.credentialing.credentialingFor,
                   payersToEnroll: body.credentialing.payersToEnroll,
+                  approvedInsurancesTracker:
+                    body.credentialing.approvedInsurancesTracker,
+                  designatedPortalContactName:
+                    body.credentialing.designatedPortalContactName,
+                  designatedPortalContactEmail:
+                    body.credentialing.designatedPortalContactEmail,
+                  designatedPortalContactPhone:
+                    body.credentialing.designatedPortalContactPhone,
+                  irsDocument147c: body.credentialing.irsDocument147c,
+                  desiredInsurancePlans:
+                    body.credentialing.desiredInsurancePlans,
                   caqhMaintained: body.credentialing.caqhMaintained,
                   currentCredentialingIssues: body.credentialing
                     .currentCredentialingIssues as any,
@@ -1183,6 +1474,17 @@ export async function updateOnboarding(
                   credentialingNeeded: body.credentialing.credentialingNeeded,
                   credentialingFor: body.credentialing.credentialingFor,
                   payersToEnroll: body.credentialing.payersToEnroll,
+                  approvedInsurancesTracker:
+                    body.credentialing.approvedInsurancesTracker,
+                  designatedPortalContactName:
+                    body.credentialing.designatedPortalContactName,
+                  designatedPortalContactEmail:
+                    body.credentialing.designatedPortalContactEmail,
+                  designatedPortalContactPhone:
+                    body.credentialing.designatedPortalContactPhone,
+                  irsDocument147c: body.credentialing.irsDocument147c,
+                  desiredInsurancePlans:
+                    body.credentialing.desiredInsurancePlans,
                   caqhMaintained: body.credentialing.caqhMaintained,
                   currentCredentialingIssues: body.credentialing
                     .currentCredentialingIssues as any,
