@@ -24,6 +24,14 @@ function sanitizePathSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+function getBlobServiceClient() {
+  const { connectionString, containerName } = getBlobConfig();
+  const blobServiceClient =
+    BlobServiceClient.fromConnectionString(connectionString);
+
+  return { connectionString, containerName, blobServiceClient };
+}
+
 function getConnectionStringPart(connectionString: string, key: string) {
   return connectionString
     .split(";")
@@ -81,9 +89,8 @@ export async function uploadBase64ToAzureBlob(params: {
   base64: string;
   contentType?: string;
 }) {
-  const { connectionString, containerName } = getBlobConfig();
-  const blobServiceClient =
-    BlobServiceClient.fromConnectionString(connectionString);
+  const { connectionString, containerName, blobServiceClient } =
+    getBlobServiceClient();
   const containerClient = blobServiceClient.getContainerClient(containerName);
 
   await containerClient.createIfNotExists();
@@ -117,4 +124,73 @@ export async function uploadBase64ToAzureBlob(params: {
     url: blockBlobClient.url,
     sasUrl,
   };
+}
+
+export async function uploadBufferToAzureBlob(params: {
+  folder: string;
+  fileName: string;
+  buffer: Buffer;
+  contentType?: string;
+}) {
+  const { connectionString, containerName, blobServiceClient } =
+    getBlobServiceClient();
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+
+  await containerClient.createIfNotExists();
+
+  const safeFileName = sanitizePathSegment(params.fileName);
+  const safeFolder = params.folder
+    .split("/")
+    .filter(Boolean)
+    .map(sanitizePathSegment)
+    .join("/");
+  const blobName = `${safeFolder}/${Date.now()}-${safeFileName}`;
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+  await blockBlobClient.uploadData(params.buffer, {
+    blobHTTPHeaders: {
+      blobContentType:
+        params.contentType || "application/octet-stream",
+    },
+  });
+
+  const sasUrl = createBlobReadSasUrl({
+    connectionString,
+    containerName,
+    blobName,
+    blobUrl: blockBlobClient.url,
+  });
+
+  return {
+    blobName,
+    url: blockBlobClient.url,
+    sasUrl,
+  };
+}
+
+export function getBlobNameFromUrl(fileUrl: string) {
+  const { containerName } = getBlobConfig();
+  const parsedUrl = new URL(fileUrl);
+  const pathParts = parsedUrl.pathname.split("/").filter(Boolean);
+
+  if (pathParts.length < 2) {
+    throw new Error("Invalid blob URL.");
+  }
+
+  if (pathParts[0] !== containerName) {
+    throw new Error("Blob URL does not belong to the configured container.");
+  }
+
+  return decodeURIComponent(pathParts.slice(1).join("/"));
+}
+
+export async function deleteBlobFromAzureByUrl(fileUrl: string) {
+  const { containerName, blobServiceClient } = getBlobServiceClient();
+  const blobName = getBlobNameFromUrl(fileUrl);
+  const containerClient = blobServiceClient.getContainerClient(containerName);
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+
+  await blockBlobClient.deleteIfExists();
+
+  return { blobName };
 }

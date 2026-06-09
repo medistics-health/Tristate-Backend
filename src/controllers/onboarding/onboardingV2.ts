@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
-import { uploadBase64ToAzureBlob } from "../../utils/azureBlob";
+import {
+  deleteBlobFromAzureByUrl,
+  uploadBufferToAzureBlob,
+} from "../../utils/azureBlob";
 import {
   AgreementStatus,
   CompanyStatus,
@@ -315,15 +318,6 @@ type OnboardingBody = {
     complianceConcerns?: string;
   };
   marketing?: OnboardingMarketingBody;
-};
-
-type OnboardingDocumentUploadBody = {
-  practiceId?: string;
-  practiceName?: string;
-  fileName?: string;
-  contentType?: string;
-  base64?: string;
-  field?: string;
 };
 
 const onboardingInclude = {
@@ -939,13 +933,28 @@ export async function uploadExternalOnboardingDocument(
   res: Response,
 ) {
   try {
-    const body = req.body as OnboardingDocumentUploadBody;
-    const practiceId = body.practiceId?.trim();
-    const practiceName = body.practiceName?.trim();
-    const fileName = body.fileName?.trim();
-    const contentType = body.contentType?.trim();
-    const base64 = body.base64?.trim();
-    const field = body.field?.trim();
+    const decodeHeader = (value: string | string[] | undefined) => {
+      const rawValue = Array.isArray(value) ? value[0] : value;
+      if (!rawValue) return "";
+
+      try {
+        return decodeURIComponent(rawValue).trim();
+      } catch {
+        return rawValue.trim();
+      }
+    };
+
+    const practiceId = decodeHeader(req.header("x-practice-id"));
+    const practiceName = decodeHeader(req.header("x-practice-name"));
+    const fileName = decodeHeader(req.header("x-file-name"));
+    const field = decodeHeader(req.header("x-upload-field"));
+    const contentType =
+      decodeHeader(req.header("x-file-content-type")) ||
+      req.header("content-type") ||
+      "application/octet-stream";
+    const fileBuffer = Buffer.isBuffer(req.body)
+      ? req.body
+      : Buffer.from([]);
 
     if (!practiceId) {
       return res.status(400).json({ message: "Practice id is required." });
@@ -955,17 +964,17 @@ export async function uploadExternalOnboardingDocument(
       return res.status(400).json({ message: "Practice name is required." });
     }
 
-    if (!fileName || !base64 || !field) {
+    if (!fileName || !field || fileBuffer.length === 0) {
       return res.status(400).json({
         message:
-          "practiceId, practiceName, field, fileName, and base64 are required.",
+          "practiceId, practiceName, field, fileName, and file content are required.",
       });
     }
 
-    const upload = await uploadBase64ToAzureBlob({
+    const upload = await uploadBufferToAzureBlob({
       folder: `${practiceName}/providers/${field}`,
       fileName,
-      base64,
+      buffer: fileBuffer,
       contentType,
     });
 
@@ -980,6 +989,32 @@ export async function uploadExternalOnboardingDocument(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to upload onboarding document.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function deleteExternalOnboardingDocument(
+  req: Request,
+  res: Response,
+) {
+  try {
+    const fileUrl =
+      typeof req.body?.fileUrl === "string" ? req.body.fileUrl.trim() : "";
+
+    if (!fileUrl) {
+      return res.status(400).json({ message: "File URL is required." });
+    }
+
+    const deletion = await deleteBlobFromAzureByUrl(fileUrl);
+
+    return res.status(200).json({
+      message: "Document deleted successfully.",
+      blobName: deletion.blobName,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to delete onboarding document.",
       error: error instanceof Error ? error.message : error,
     });
   }
