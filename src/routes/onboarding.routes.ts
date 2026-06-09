@@ -1,7 +1,8 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import {
   createOnboarding,
   createExternalOnboarding,
+  deleteExternalOnboardingDocument,
   getExternalOnboardingByPractice,
   uploadExternalOnboardingDocument,
   getOnboardings,
@@ -15,7 +16,12 @@ const router = Router();
 
 router.get("/external/:practiceId", getExternalOnboardingByPractice);
 router.post("/external", createExternalOnboarding);
-router.post("/external/upload-document", uploadExternalOnboardingDocument);
+router.post(
+  "/external/upload-document",
+  express.raw({ type: "*/*", limit: "25mb" }),
+  uploadExternalOnboardingDocument,
+);
+router.post("/external/delete-document", deleteExternalOnboardingDocument);
 
 router.use(verifyAuthToken);
 
