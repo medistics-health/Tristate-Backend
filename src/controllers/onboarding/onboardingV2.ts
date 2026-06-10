@@ -5,9 +5,12 @@ import {
   deleteBlobFromAzureByUrl,
   uploadBufferToAzureBlob,
 } from "../../utils/azureBlob";
+import { generateOnboardingPdfBuffer } from "../../utils/onboardingPdf";
 import {
   AgreementStatus,
   CompanyStatus,
+  DocumentStatus,
+  DocumentTypes,
   OnboardingStatus,
 } from "../../../generated/prisma/client";
 
@@ -350,6 +353,49 @@ class PracticeOnboardingConflictError extends Error {
 
 function getCreateConflictMessage(practiceId: string) {
   return `Onboarding already exists for practice ${practiceId}.`;
+}
+
+function getOnboardingPracticeFolderName(onboarding: any) {
+  return (
+    onboarding.practices?.[0]?.practiceName ||
+    onboarding.legalCompanyName ||
+    onboarding.dbaName ||
+    onboarding.practiceId ||
+    "onboarding"
+  );
+}
+
+async function attachSubmissionPdfToOnboarding(onboarding: any) {
+  const practiceFolderName = getOnboardingPracticeFolderName(onboarding);
+  const generatedAt = new Date();
+  const fileName = `onboarding-submission-${generatedAt
+    .toISOString()
+    .replace(/[:.]/g, "-")}.pdf`;
+  const pdfBuffer = generateOnboardingPdfBuffer(onboarding);
+  const upload = await uploadBufferToAzureBlob({
+    folder: `${practiceFolderName}/onboarding-submission`,
+    fileName,
+    buffer: pdfBuffer,
+    contentType: "application/pdf",
+  });
+
+  await prisma.onboardingDocument.create({
+    data: {
+      onboardingId: onboarding.id,
+      documentType: [DocumentTypes.OTHER],
+      fileName,
+      fileUrl: upload.sasUrl,
+      required: false,
+      status: DocumentStatus.RECEIVED,
+      dateReceived: generatedAt,
+      notes: "Auto-generated onboarding submission PDF.",
+    },
+  });
+
+  return prisma.onboarding.findUnique({
+    where: { id: onboarding.id },
+    include: onboardingInclude,
+  } as any);
 }
 
 async function ensureUniquePracticeOnboarding(
@@ -893,18 +939,35 @@ export async function createExternalOnboarding(req: Request, res: Response) {
     const existingOnboarding = await findExistingExternalOnboarding(practiceId);
 
     if (existingOnboarding) {
-      return res.status(409).json({
-        message:
-          existingOnboarding.practiceId != null
-            ? getCreateConflictMessage(existingOnboarding.practiceId)
-            : "Onboarding already submitted for this practice.",
-      });
+      if (existingOnboarding.status !== OnboardingStatus.DRAFT) {
+        return res.status(409).json({
+          message:
+            existingOnboarding.practiceId != null
+              ? getCreateConflictMessage(existingOnboarding.practiceId)
+              : "Onboarding already submitted for this practice.",
+        });
+      }
+
+      const updateReq = {
+        ...req,
+        params: { ...req.params, id: existingOnboarding.id },
+        body: {
+          ...body,
+          practiceId,
+        },
+      } as unknown as AuthenticatedRequest;
+
+      return updateOnboarding(updateReq, res);
     }
 
-    const onboarding = await createOnboardingRecord({
+    let onboarding = await createOnboardingRecord({
       ...body,
       practiceId,
     });
+
+    if (body.status === OnboardingStatus.IN_PROGRESS) {
+      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
+    }
 
     if (body.status === OnboardingStatus.COMPLETED) {
       await handleCompletedOnboarding(onboarding.id);
@@ -1208,7 +1271,7 @@ export async function updateOnboarding(
 
     await ensureUniquePracticeOnboarding(body.practiceId ?? existing.practiceId, id);
 
-    const onboarding = (await prisma.onboarding.update({
+    let onboarding = (await prisma.onboarding.update({
       where: { id },
       data: {
         practiceId: body.practiceId,
@@ -1763,6 +1826,13 @@ export async function updateOnboarding(
       existing.status !== OnboardingStatus.COMPLETED
     ) {
       await handleCompletedOnboarding(onboarding.id);
+    }
+
+    if (
+      body.status === OnboardingStatus.IN_PROGRESS &&
+      existing.status !== OnboardingStatus.IN_PROGRESS
+    ) {
+      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
     }
 
     return res.status(200).json({
