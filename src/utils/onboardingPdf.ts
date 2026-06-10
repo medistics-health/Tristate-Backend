@@ -65,7 +65,8 @@ function humanize(value: string) {
 }
 
 function cleanValue(value: PdfFieldValue) {
-  if (value === undefined || value === null || value === "") return "Not provided";
+  if (value === undefined || value === null || value === "")
+    return "Not provided";
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (Array.isArray(value)) {
@@ -165,7 +166,12 @@ class OnboardingPdf {
     this.drawCoverHeader();
   }
 
-  addSection(title: string, subtitle: string | undefined, fields: Field[], columns = 2) {
+  addSection(
+    title: string,
+    subtitle: string | undefined,
+    fields: Field[],
+    columns = 2,
+  ) {
     const normalizedFields = fields.length
       ? fields
       : [{ label: "Status", value: "No information was provided." }];
@@ -202,7 +208,10 @@ class OnboardingPdf {
           ? [firstField]
           : normalizedFields.slice(index, index + 2);
       const rowHeights = rowFields.map((field) =>
-        this.getFieldHeight(field, rowFields.length === 1 ? contentWidth : columnWidth),
+        this.getFieldHeight(
+          field,
+          rowFields.length === 1 ? contentWidth : columnWidth,
+        ),
       );
       const rowHeight = Math.max(...rowHeights);
 
@@ -210,7 +219,9 @@ class OnboardingPdf {
 
       rowFields.forEach((field, rowIndex) => {
         const width =
-          rowFields.length === 1 || field.span === 2 ? contentWidth : columnWidth;
+          rowFields.length === 1 || field.span === 2
+            ? contentWidth
+            : columnWidth;
         const x = marginX + rowIndex * (columnWidth + fieldGap);
         this.drawFieldCard(field, x, this.y, width, rowHeight);
       });
@@ -222,10 +233,14 @@ class OnboardingPdf {
     this.y += 10;
   }
 
-  addGroup(title: string, subtitle: string | undefined, groups: Array<{
-    title: string;
-    fields: Field[];
-  }>) {
+  addGroup(
+    title: string,
+    subtitle: string | undefined,
+    groups: Array<{
+      title: string;
+      fields: Field[];
+    }>,
+  ) {
     this.ensureSpace(72);
     drawText(this.page, title, marginX, this.y, {
       size: 15,
@@ -298,13 +313,11 @@ class OnboardingPdf {
       colors.navy,
     );
     drawRect(this.page, marginX + 16, 52, 8, 54, "0.40 0.69 0.93");
-    drawText(
-      this.page,
-      "Revenue Cycle Management Onboarding",
-      marginX + 36,
-      55,
-      { size: 18, bold: true, color: "1 1 1" },
-    );
+    drawText(this.page, "Onboarding Form", marginX + 36, 55, {
+      size: 18,
+      bold: true,
+      color: "1 1 1",
+    });
     drawText(
       this.page,
       "Generated copy of the submitted client onboarding form",
@@ -321,7 +334,13 @@ class OnboardingPdf {
     return Math.max(58, 26 + labelLines.length * 10 + valueLines.length * 12);
   }
 
-  private drawFieldCard(field: Field, x: number, yTop: number, width: number, height: number) {
+  private drawFieldCard(
+    field: Field,
+    x: number,
+    yTop: number,
+    width: number,
+    height: number,
+  ) {
     drawRect(this.page, x, yTop, width, height, colors.paper, colors.border);
 
     let textY = yTop + 12;
@@ -348,19 +367,36 @@ class OnboardingPdf {
 
   private drawFooters() {
     this.pages.forEach((page, index) => {
-      drawText(page, `Page ${index + 1} of ${this.pages.length}`, pageWidth - 96, 760, {
-        size: 8,
-        color: colors.muted,
-      });
-      drawText(page, "Tristate Revenue Cycle Management Onboarding", marginX, 760, {
-        size: 8,
-        color: colors.muted,
-      });
+      drawText(
+        page,
+        `Page ${index + 1} of ${this.pages.length}`,
+        pageWidth - 96,
+        760,
+        {
+          size: 8,
+          color: colors.muted,
+        },
+      );
+      drawText(
+        page,
+        "Tristate Revenue Cycle Management Onboarding",
+        marginX,
+        760,
+        {
+          size: 8,
+          color: colors.muted,
+        },
+      );
     });
   }
 }
 
-function addIfPresent(fields: Field[], label: string, value: PdfFieldValue, span?: 1 | 2) {
+function addIfPresent(
+  fields: Field[],
+  label: string,
+  value: PdfFieldValue,
+  span?: 1 | 2,
+) {
   fields.push({ label, value, span });
 }
 
@@ -370,7 +406,9 @@ function getDocumentReference(value: PdfFieldValue) {
 
   try {
     const url = new URL(cleaned);
-    const fileName = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() ?? "");
+    const fileName = decodeURIComponent(
+      url.pathname.split("/").filter(Boolean).pop() ?? "",
+    );
     return fileName ? `Uploaded - ${fileName}` : "Uploaded";
   } catch {
     return cleaned.length > 96 ? "Uploaded" : `Uploaded - ${cleaned}`;
@@ -448,48 +486,56 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
       { label: "Role if Not Authorized", value: onboarding.nonAuthorizedRole },
       { label: "Number of Practices", value: onboarding.numberOfPractices },
       { label: "Number of Locations", value: onboarding.numberOfLocations },
-      { label: "Billing Managed Centrally", value: onboarding.billingManagedCentrally },
+      {
+        label: "Billing Managed Centrally",
+        value: onboarding.billingManagedCentrally,
+      },
       {
         label: "Credentialing Managed Centrally",
         value: onboarding.credentialingManagedCentrally,
       },
-      { label: "Contracting Managed Centrally", value: onboarding.contractingManagedCentrally },
+      {
+        label: "Contracting Managed Centrally",
+        value: onboarding.contractingManagedCentrally,
+      },
       { label: "One Main Contact", value: onboarding.oneMainContact },
     ],
   );
 
-  pdf.addSection(
-    "Step 2 - Company",
-    "Company or organization details.",
-    [
-      { label: "Practice Legal Name", value: onboarding.legalCompanyName },
-      { label: "Practice DBA Name", value: onboarding.dbaName },
-      { label: "Tax ID (EIN)", value: onboarding.taxIdEin },
-      { label: "Organization Type", value: onboarding.organizationType },
-      { label: "Ownership Type", value: onboarding.ownershipType },
-      { label: "Main Company Phone", value: onboarding.mainCompanyPhone },
-      { label: "Main Company Fax", value: onboarding.mainCompanyFax },
-      { label: "Main Company Email", value: onboarding.mainCompanyEmail },
-      { label: "Company Website", value: onboarding.companyWebsite },
-      {
-        label: "Company Address",
-        value: joinAddress([
-          onboarding.companyAddressLine1,
-          onboarding.companyAddressLine2,
-          onboarding.companyCity,
-          onboarding.companyState,
-          onboarding.companyZip,
-        ]),
-        span: 2,
-      },
-      { label: "States of Operation", value: onboarding.statesOfOperation },
-      { label: "Legal Contracting Entity", value: onboarding.isLegalContractingEntity },
-      { label: "Billing Entity", value: onboarding.isBillingEntity },
-      { label: "Credentialing Entity", value: onboarding.isCredentialingEntity },
-      { label: "Primary Specialty", value: onboarding.primarySpecialty },
-      { label: "Additional Specialties", value: onboarding.additionalSpecialties },
-    ],
-  );
+  pdf.addSection("Step 2 - Company", "Company or organization details.", [
+    { label: "Practice Legal Name", value: onboarding.legalCompanyName },
+    { label: "Practice DBA Name", value: onboarding.dbaName },
+    { label: "Tax ID (EIN)", value: onboarding.taxIdEin },
+    { label: "Organization Type", value: onboarding.organizationType },
+    { label: "Ownership Type", value: onboarding.ownershipType },
+    { label: "Main Company Phone", value: onboarding.mainCompanyPhone },
+    { label: "Main Company Fax", value: onboarding.mainCompanyFax },
+    { label: "Main Company Email", value: onboarding.mainCompanyEmail },
+    { label: "Company Website", value: onboarding.companyWebsite },
+    {
+      label: "Company Address",
+      value: joinAddress([
+        onboarding.companyAddressLine1,
+        onboarding.companyAddressLine2,
+        onboarding.companyCity,
+        onboarding.companyState,
+        onboarding.companyZip,
+      ]),
+      span: 2,
+    },
+    { label: "States of Operation", value: onboarding.statesOfOperation },
+    {
+      label: "Legal Contracting Entity",
+      value: onboarding.isLegalContractingEntity,
+    },
+    { label: "Billing Entity", value: onboarding.isBillingEntity },
+    { label: "Credentialing Entity", value: onboarding.isCredentialingEntity },
+    { label: "Primary Specialty", value: onboarding.primarySpecialty },
+    {
+      label: "Additional Specialties",
+      value: onboarding.additionalSpecialties,
+    },
+  ]);
 
   pdf.addGroup(
     "Step 3 - Contacts",
@@ -504,14 +550,28 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
             { label: "Email", value: contact.email },
             { label: "Phone", value: contact.phone },
             { label: "Extension", value: contact.extension },
-            { label: "Preferred Contact Method", value: contact.preferredContactMethod },
+            {
+              label: "Preferred Contact Method",
+              value: contact.preferredContactMethod,
+            },
             { label: "Best Time to Reach", value: contact.bestTimeToReach },
-            { label: "Primary Decision Maker", value: contact.isPrimaryDecisionMaker },
+            {
+              label: "Primary Decision Maker",
+              value: contact.isPrimaryDecisionMaker,
+            },
             { label: "Can Sign Agreements", value: contact.canSignAgreements },
-            { label: "Additional Responsibilities", value: contact.additionalResponsibilities },
+            {
+              label: "Additional Responsibilities",
+              value: contact.additionalResponsibilities,
+            },
           ],
         }))
-      : [{ title: "Contact 1", fields: [{ label: "Contact Details", value: undefined }] }],
+      : [
+          {
+            title: "Contact 1",
+            fields: [{ label: "Contact Details", value: undefined }],
+          },
+        ],
   );
 
   practices.forEach((practice: any, practiceIndex: number) => {
@@ -521,9 +581,15 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
       [
         { label: "Practice Name", value: practice.practiceName },
         { label: "Practice DBA Name", value: practice.practiceDbaName },
-        { label: "Part of Parent Company", value: practice.isPartOfParentCompany },
+        {
+          label: "Part of Parent Company",
+          value: practice.isPartOfParentCompany,
+        },
         { label: "Practice Type", value: practice.practiceType },
-        { label: "Additional Specialty Areas", value: practice.additionalSpecialtyAreas },
+        {
+          label: "Additional Specialty Areas",
+          value: practice.additionalSpecialtyAreas,
+        },
         { label: "Group NPI", value: practice.groupNpi },
         { label: "Tax ID (EIN)", value: practice.taxIdEin },
         { label: "Medicaid ID Number", value: practice.medicaidIdNumber },
@@ -532,211 +598,324 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
         { label: "Group Taxonomy", value: practice.groupTaxonomy },
         { label: "IPA Affiliations", value: practice.ipaAffiliations },
         { label: "Practice Manager Name", value: practice.practiceManagerName },
-        { label: "Practice Manager Email", value: practice.practiceManagerEmail },
-        { label: "Practice Manager Phone", value: practice.practiceManagerPhone },
+        {
+          label: "Practice Manager Email",
+          value: practice.practiceManagerEmail,
+        },
+        {
+          label: "Practice Manager Phone",
+          value: practice.practiceManagerPhone,
+        },
         { label: "Billing Address", value: practice.billingAddress, span: 2 },
         { label: "Mailing Address", value: practice.mailingAddress, span: 2 },
-        { label: "Practice Work Start Date", value: formatDate(practice.practiceWorkStartDate) },
-        { label: "Railroad Medicare (Group)", value: practice.railroadMedicareGroup },
-        { label: "Number of Providers", value: practice.approximateNumberOfProviders },
-        { label: "Number of Locations", value: practice.approximateNumberOfLocations },
-        { label: "Monthly Patient Volume", value: practice.approximateMonthlyPatientVolume },
-        { label: "Medicare Patient Volume", value: practice.approximateMedicarePatientVolume },
-        { label: "Medicaid Patient Volume", value: practice.approximateMedicaidPatientVolume },
-        { label: "Commercial Patient Volume", value: practice.approximateCommercialPatientVolume },
-        { label: "Offers Care Management Services", value: practice.offersCareManagementServices },
-        { label: "Current Services Offered", value: practice.currentServicesOffered },
-        { label: "Operational Pain Points", value: practice.operationalPainPoints },
+        {
+          label: "Practice Work Start Date",
+          value: formatDate(practice.practiceWorkStartDate),
+        },
+        {
+          label: "Railroad Medicare (Group)",
+          value: practice.railroadMedicareGroup,
+        },
+        {
+          label: "Number of Providers",
+          value: practice.approximateNumberOfProviders,
+        },
+        {
+          label: "Number of Locations",
+          value: practice.approximateNumberOfLocations,
+        },
+        {
+          label: "Monthly Patient Volume",
+          value: practice.approximateMonthlyPatientVolume,
+        },
+        {
+          label: "Medicare Patient Volume",
+          value: practice.approximateMedicarePatientVolume,
+        },
+        {
+          label: "Medicaid Patient Volume",
+          value: practice.approximateMedicaidPatientVolume,
+        },
+        {
+          label: "Commercial Patient Volume",
+          value: practice.approximateCommercialPatientVolume,
+        },
+        {
+          label: "Offers Care Management Services",
+          value: practice.offersCareManagementServices,
+        },
+        {
+          label: "Current Services Offered",
+          value: practice.currentServicesOffered,
+        },
+        {
+          label: "Operational Pain Points",
+          value: practice.operationalPainPoints,
+        },
         { label: "Notes", value: practice.additionalNotes, span: 2 },
       ],
     );
 
-    (practice.locations ?? []).forEach((location: any, locationIndex: number) => {
-      pdf.addSection(
-        `Practice ${practiceIndex + 1} - Location ${locationIndex + 1}`,
-        "Service location address and office contact details.",
-        [
-          { label: "Location Name", value: location.locationName },
-          { label: "Primary Location", value: location.isPrimaryLocation },
-          {
-            label: "Service Location Address",
-            value: joinAddress([
-              location.addressLine1,
-              location.addressLine2,
-              location.city,
-              location.state,
-              location.zipCode,
-            ]),
-            span: 2,
-          },
-          { label: "Office Phone", value: location.mainPhoneNumber },
-          { label: "Office Fax", value: location.mainFaxNumber },
-          { label: "Office Email", value: location.officeEmail },
-          { label: "Hours of Operation", value: location.hoursOfOperation },
-          { label: "Office Manager Name", value: location.officeManagerName },
-          { label: "Patient Outreach Managed", value: location.patientOutreachManaged },
-          { label: "Billing Managed", value: location.billingManaged },
-          { label: "Notes", value: location.notes, span: 2 },
-        ],
-      );
-    });
+    (practice.locations ?? []).forEach(
+      (location: any, locationIndex: number) => {
+        pdf.addSection(
+          `Practice ${practiceIndex + 1} - Location ${locationIndex + 1}`,
+          "Service location address and office contact details.",
+          [
+            { label: "Location Name", value: location.locationName },
+            { label: "Primary Location", value: location.isPrimaryLocation },
+            {
+              label: "Service Location Address",
+              value: joinAddress([
+                location.addressLine1,
+                location.addressLine2,
+                location.city,
+                location.state,
+                location.zipCode,
+              ]),
+              span: 2,
+            },
+            { label: "Office Phone", value: location.mainPhoneNumber },
+            { label: "Office Fax", value: location.mainFaxNumber },
+            { label: "Office Email", value: location.officeEmail },
+            { label: "Hours of Operation", value: location.hoursOfOperation },
+            { label: "Office Manager Name", value: location.officeManagerName },
+            {
+              label: "Patient Outreach Managed",
+              value: location.patientOutreachManaged,
+            },
+            { label: "Billing Managed", value: location.billingManaged },
+            { label: "Notes", value: location.notes, span: 2 },
+          ],
+        );
+      },
+    );
 
-    (practice.providers ?? []).forEach((provider: any, providerIndex: number) => {
-      const providerName =
-        provider.fullName ||
-        [provider.firstName, provider.lastName].filter(Boolean).join(" ");
+    (practice.providers ?? []).forEach(
+      (provider: any, providerIndex: number) => {
+        const providerName =
+          provider.fullName ||
+          [provider.firstName, provider.lastName].filter(Boolean).join(" ");
 
-      pdf.addSection(
-        `Practice ${practiceIndex + 1} - Provider ${providerIndex + 1}`,
-        "Provider personal information.",
-        [
-          { label: "Full Name", value: providerName },
-          { label: "First Name", value: provider.firstName },
-          { label: "Last Name", value: provider.lastName },
-          { label: "Date of Birth", value: formatDate(provider.dateOfBirth) },
-          { label: "Gender", value: provider.gender },
-          { label: "Credentials", value: provider.credentials },
-          { label: "Provider Type", value: provider.providerType },
-          { label: "Specialty", value: provider.specialty },
-          { label: "NPI (Individual)", value: provider.npi },
-          { label: "DEA Number", value: provider.deaNumber },
-          { label: "SSN (Full Digits)", value: provider.ssnFullDigits },
-          { label: "CLIA Number", value: provider.cliaNumber },
-          { label: "License Number", value: provider.licenseNumber },
-          { label: "State License Number", value: provider.stateLicenseNumber },
-          { label: "License Expiry Date", value: formatDate(provider.licenseExpiryDate) },
-          { label: "State of License", value: provider.stateOfLicense },
-          { label: "License Type", value: provider.licenseType },
-          { label: "Taxonomy", value: provider.taxonomy },
-          { label: "Primary Specialty", value: provider.primarySpecialty },
-          { label: "Secondary Specialty", value: provider.secondarySpecialty },
-          { label: "Board Certifications", value: provider.boardCertifications },
-          { label: "Board Certified", value: provider.boardCertified },
-          { label: "Employment Status", value: provider.employmentStatus },
-          { label: "Participating Locations", value: provider.participatingLocations },
-          { label: "Provider Notes", value: provider.notes, span: 2 },
-        ],
-      );
+        pdf.addSection(
+          `Practice ${practiceIndex + 1} - Provider ${providerIndex + 1}`,
+          "Provider personal information.",
+          [
+            { label: "Full Name", value: providerName },
+            { label: "First Name", value: provider.firstName },
+            { label: "Last Name", value: provider.lastName },
+            { label: "Date of Birth", value: formatDate(provider.dateOfBirth) },
+            { label: "Gender", value: provider.gender },
+            { label: "Credentials", value: provider.credentials },
+            { label: "Provider Type", value: provider.providerType },
+            { label: "Specialty", value: provider.specialty },
+            { label: "NPI (Individual)", value: provider.npi },
+            { label: "DEA Number", value: provider.deaNumber },
+            { label: "SSN (Full Digits)", value: provider.ssnFullDigits },
+            { label: "CLIA Number", value: provider.cliaNumber },
+            { label: "License Number", value: provider.licenseNumber },
+            {
+              label: "State License Number",
+              value: provider.stateLicenseNumber,
+            },
+            {
+              label: "License Expiry Date",
+              value: formatDate(provider.licenseExpiryDate),
+            },
+            { label: "State of License", value: provider.stateOfLicense },
+            { label: "License Type", value: provider.licenseType },
+            { label: "Taxonomy", value: provider.taxonomy },
+            { label: "Primary Specialty", value: provider.primarySpecialty },
+            {
+              label: "Secondary Specialty",
+              value: provider.secondarySpecialty,
+            },
+            {
+              label: "Board Certifications",
+              value: provider.boardCertifications,
+            },
+            { label: "Board Certified", value: provider.boardCertified },
+            { label: "Employment Status", value: provider.employmentStatus },
+            {
+              label: "Participating Locations",
+              value: provider.participatingLocations,
+            },
+            { label: "Provider Notes", value: provider.notes, span: 2 },
+          ],
+        );
 
-      pdf.addSection(
-        `Provider ${providerIndex + 1} - Credentialing and CAQH`,
-        "Credentialing identifiers, portal access, and payer identifiers.",
-        [
-          { label: "CAQH ID", value: provider.caqhId },
-          { label: "CAQH Username", value: provider.caqhUsername },
-          { label: "CAQH Password", value: provider.caqhPassword },
-          {
-            label: "CAQH Last Attestation Date",
-            value: formatDate(provider.caqhLastAttestationDate),
-          },
-          { label: "Credentialing Needed", value: provider.credentialingNeeded },
-          { label: "Recredentialing Needed", value: provider.recredentialingNeeded },
-          { label: "Languages Spoken", value: provider.languagesSpoken },
-          { label: "Telehealth Available", value: provider.telehealthAvailable },
-          { label: "Medicare PTAN (Individual)", value: provider.medicarePtanIndividual },
-          { label: "Medicaid ID (Individual)", value: provider.medicaidIdIndividual },
-          {
-            label: "IPA Affiliations (Provider Level)",
-            value: provider.ipaAffiliationsProviderLevel,
-          },
-          { label: "NPPES Username", value: provider.nppesUsername },
-          { label: "NPPES Password", value: provider.nppesPassword },
-          {
-            label: "Railroad Medicare (Individual)",
-            value: provider.railroadMedicareIndividual,
-          },
-        ],
-      );
+        pdf.addSection(
+          `Provider ${providerIndex + 1} - Credentialing and CAQH`,
+          "Credentialing identifiers, portal access, and payer identifiers.",
+          [
+            { label: "CAQH ID", value: provider.caqhId },
+            { label: "CAQH Username", value: provider.caqhUsername },
+            { label: "CAQH Password", value: provider.caqhPassword },
+            {
+              label: "CAQH Last Attestation Date",
+              value: formatDate(provider.caqhLastAttestationDate),
+            },
+            {
+              label: "Credentialing Needed",
+              value: provider.credentialingNeeded,
+            },
+            {
+              label: "Recredentialing Needed",
+              value: provider.recredentialingNeeded,
+            },
+            { label: "Languages Spoken", value: provider.languagesSpoken },
+            {
+              label: "Telehealth Available",
+              value: provider.telehealthAvailable,
+            },
+            {
+              label: "Medicare PTAN (Individual)",
+              value: provider.medicarePtanIndividual,
+            },
+            {
+              label: "Medicaid ID (Individual)",
+              value: provider.medicaidIdIndividual,
+            },
+            {
+              label: "IPA Affiliations (Provider Level)",
+              value: provider.ipaAffiliationsProviderLevel,
+            },
+            { label: "NPPES Username", value: provider.nppesUsername },
+            { label: "NPPES Password", value: provider.nppesPassword },
+            {
+              label: "Railroad Medicare (Individual)",
+              value: provider.railroadMedicareIndividual,
+            },
+          ],
+        );
 
-      pdf.addSection(
-        `Provider ${providerIndex + 1} - Malpractice and Contact Details`,
-        "Malpractice, affiliations, and provider contact information.",
-        [
-          { label: "Malpractice Carrier", value: provider.malpracticeCarrier },
-          { label: "Malpractice Policy #", value: provider.malpracticePolicyNumber },
-          {
-            label: "Malpractice Effective Date",
-            value: formatDate(provider.malpracticeEffectiveDate),
-          },
-          {
-            label: "Malpractice Expiry Date",
-            value: formatDate(provider.malpracticeExpiryDate),
-          },
-          { label: "Hospital Affiliations", value: provider.hospitalAffiliations },
-          { label: "Personal Cell Number", value: provider.personalCellNumber },
-          { label: "Personal Email", value: provider.personalEmail },
-          { label: "Practice Email", value: provider.practiceEmail },
-        ],
-      );
+        pdf.addSection(
+          `Provider ${providerIndex + 1} - Malpractice and Contact Details`,
+          "Malpractice, affiliations, and provider contact information.",
+          [
+            {
+              label: "Malpractice Carrier",
+              value: provider.malpracticeCarrier,
+            },
+            {
+              label: "Malpractice Policy #",
+              value: provider.malpracticePolicyNumber,
+            },
+            {
+              label: "Malpractice Effective Date",
+              value: formatDate(provider.malpracticeEffectiveDate),
+            },
+            {
+              label: "Malpractice Expiry Date",
+              value: formatDate(provider.malpracticeExpiryDate),
+            },
+            {
+              label: "Hospital Affiliations",
+              value: provider.hospitalAffiliations,
+            },
+            {
+              label: "Personal Cell Number",
+              value: provider.personalCellNumber,
+            },
+            { label: "Personal Email", value: provider.personalEmail },
+            { label: "Practice Email", value: provider.practiceEmail },
+          ],
+        );
 
-      pdf.addSection(
-        `Provider ${providerIndex + 1} - Credentialing Documents`,
-        "Uploaded provider credentialing documents.",
-        [
-          {
-            label: "Copy of Board Certification",
-            value: documentValue(provider.copyOfBoardCertification),
-          },
-          {
-            label: "Copy of Professional Liability Insurance (PLI)",
-            value: documentValue(provider.copyOfProfessionalLiabilityInsurance),
-          },
-          {
-            label: "Copy of Bachelor's Degree",
-            value: documentValue(provider.copyOfBachelorsDegree),
-          },
-          {
-            label: "Copy of Master's Degree",
-            value: documentValue(provider.copyOfMastersDegree),
-          },
-          {
-            label: "Copy of Social Security Card (required for credentialing)",
-            value: documentValue(provider.copyOfSocialSecurityCard),
-          },
-          {
-            label: "Copy of Driver's License",
-            value: documentValue(provider.copyOfDriversLicense),
-          },
-          { label: "Passport-sized Photo", value: documentValue(provider.passportSizedPhoto) },
-          {
-            label: "Resume (with MM/DD/YYYY format)",
-            value: documentValue(provider.resume),
-          },
-          {
-            label: "Provider Effective Date with the Group",
-            value: formatDate(provider.providerEffectiveDateWithGroup),
-          },
-          { label: "Country of Birth", value: provider.countryOfBirth },
-          { label: "State/Place of Birth", value: provider.statePlaceOfBirth },
-          { label: "Home Address (for Medicaid applications)", value: provider.homeAddress },
-          { label: "Specialty", value: provider.specialty },
-        ],
-      );
-    });
+        pdf.addSection(
+          `Provider ${providerIndex + 1} - Credentialing Documents`,
+          "Uploaded provider credentialing documents.",
+          [
+            {
+              label: "Copy of Board Certification",
+              value: documentValue(provider.copyOfBoardCertification),
+            },
+            {
+              label: "Copy of Professional Liability Insurance (PLI)",
+              value: documentValue(
+                provider.copyOfProfessionalLiabilityInsurance,
+              ),
+            },
+            {
+              label: "Copy of Bachelor's Degree",
+              value: documentValue(provider.copyOfBachelorsDegree),
+            },
+            {
+              label: "Copy of Master's Degree",
+              value: documentValue(provider.copyOfMastersDegree),
+            },
+            {
+              label:
+                "Copy of Social Security Card (required for credentialing)",
+              value: documentValue(provider.copyOfSocialSecurityCard),
+            },
+            {
+              label: "Copy of Driver's License",
+              value: documentValue(provider.copyOfDriversLicense),
+            },
+            {
+              label: "Passport-sized Photo",
+              value: documentValue(provider.passportSizedPhoto),
+            },
+            {
+              label: "Resume (with MM/DD/YYYY format)",
+              value: documentValue(provider.resume),
+            },
+            {
+              label: "Provider Effective Date with the Group",
+              value: formatDate(provider.providerEffectiveDateWithGroup),
+            },
+            { label: "Country of Birth", value: provider.countryOfBirth },
+            {
+              label: "State/Place of Birth",
+              value: provider.statePlaceOfBirth,
+            },
+            {
+              label: "Home Address (for Medicaid applications)",
+              value: provider.homeAddress,
+            },
+            { label: "Specialty", value: provider.specialty },
+          ],
+        );
+      },
+    );
   });
 
   if (!practices.length) {
-    pdf.addSection("Step 4 - Practices", "Practice, location, and provider details.", [
-      { label: "Practice Details", value: undefined },
-    ]);
+    pdf.addSection(
+      "Step 4 - Practices",
+      "Practice, location, and provider details.",
+      [{ label: "Practice Details", value: undefined }],
+    );
   }
 
-  pdf.addSection(
-    "Step 5 - Scope",
-    "Requested services and launch timing.",
-    [
-      { label: "Requested Services", value: onboarding.requestedServices },
-      { label: "Primary Service to Launch", value: onboarding.primaryServiceToLaunch },
-      { label: "Requested Go-Live Date", value: formatDate(onboarding.requestedGoLiveDate) },
-      { label: "Priority Level", value: onboarding.priorityLevel },
-      { label: "Services for All Practices", value: onboarding.servicesForAllPractices },
-      { label: "Selected Practices", value: onboarding.selectedPractices },
-      { label: "Replacing Existing Vendor", value: onboarding.replacingExistingVendor },
-      { label: "Current Vendor Name", value: onboarding.currentVendorName },
-      { label: "Current Vendor End Date", value: formatDate(onboarding.currentVendorEndDate) },
-      { label: "Engagement Goals", value: onboarding.engagementGoals, span: 2 },
-    ],
-  );
+  pdf.addSection("Step 5 - Scope", "Requested services and launch timing.", [
+    { label: "Requested Services", value: onboarding.requestedServices },
+    {
+      label: "Primary Service to Launch",
+      value: onboarding.primaryServiceToLaunch,
+    },
+    {
+      label: "Requested Go-Live Date",
+      value: formatDate(onboarding.requestedGoLiveDate),
+    },
+    { label: "Priority Level", value: onboarding.priorityLevel },
+    {
+      label: "Services for All Practices",
+      value: onboarding.servicesForAllPractices,
+    },
+    { label: "Selected Practices", value: onboarding.selectedPractices },
+    {
+      label: "Replacing Existing Vendor",
+      value: onboarding.replacingExistingVendor,
+    },
+    { label: "Current Vendor Name", value: onboarding.currentVendorName },
+    {
+      label: "Current Vendor End Date",
+      value: formatDate(onboarding.currentVendorEndDate),
+    },
+    { label: "Engagement Goals", value: onboarding.engagementGoals, span: 2 },
+  ]);
 
   addOperationsSections(pdf, onboarding);
   addOutreachSections(pdf, onboarding, marketing);
@@ -747,8 +926,15 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
     (onboarding.documents ?? []).length
       ? (onboarding.documents ?? []).flatMap((document: any, index: number) => [
           { label: `Document ${index + 1} Type`, value: document.documentType },
-          { label: `Document ${index + 1} File Name`, value: document.fileName },
-          { label: `Document ${index + 1} File URL`, value: document.fileUrl, span: 2 },
+          {
+            label: `Document ${index + 1} File Name`,
+            value: document.fileName,
+          },
+          {
+            label: `Document ${index + 1} File URL`,
+            value: document.fileUrl,
+            span: 2,
+          },
           { label: `Document ${index + 1} Required`, value: document.required },
           { label: `Document ${index + 1} Status`, value: document.status },
           {
@@ -759,9 +945,18 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
             label: `Document ${index + 1} Date Received`,
             value: formatDate(document.dateReceived),
           },
-          { label: `Document ${index + 1} Notes`, value: document.notes, span: 2 },
+          {
+            label: `Document ${index + 1} Notes`,
+            value: document.notes,
+            span: 2,
+          },
         ])
-      : [{ label: "Documents", value: "No additional documents were tracked." }],
+      : [
+          {
+            label: "Documents",
+            value: "No additional documents were tracked.",
+          },
+        ],
   );
 
   pdf.addSection(
@@ -772,7 +967,10 @@ export function generateOnboardingPdfBuffer(onboarding: any) {
       { label: "Authorize Use", value: onboarding.authorizeUse },
       { label: "Submitted By Name", value: onboarding.submittedByName },
       { label: "Submitted By Title", value: onboarding.submittedByTitle },
-      { label: "Submission Date", value: formatDate(onboarding.submissionDate) },
+      {
+        label: "Submission Date",
+        value: formatDate(onboarding.submissionDate),
+      },
       { label: "Status", value: onboarding.status },
     ],
   );
@@ -785,51 +983,99 @@ function addOperationsSections(pdf: OnboardingPdf, onboarding: any) {
   const credentialing = onboarding.credentialing ?? {};
   const technology = onboarding.technology ?? {};
 
-  pdf.addSection("Step 6 - Technology", "EHR, billing software, and access details.", [
-    { label: "EMR/EHR Name", value: technology.ehrSystem },
-    { label: "Billing Software Name", value: technology.practiceManagementSystem },
-    { label: "Patient Portal Available", value: technology.patientPortalAvailable },
-    { label: "Patient List Exportable", value: technology.patientListExportable },
-    { label: "Appointment List Exportable", value: technology.appointmentListExportable },
-    { label: "API Access Available", value: technology.apiAccessAvailable },
-    { label: "Clearing House", value: technology.clearinghouse },
-    { label: "Fax Platform", value: technology.faxPlatform },
-    { label: "Phone Platform", value: technology.phonePlatform },
-    { label: "Current Care Management Platform", value: technology.currentCareManagementPlatform },
-    { label: "IT Contact Name", value: technology.itContactName },
-    { label: "IT Contact Email", value: technology.itContactEmail },
-    { label: "Additional Technical Notes", value: technology.additionalTechnicalNotes, span: 2 },
-  ]);
+  pdf.addSection(
+    "Step 6 - Technology",
+    "EHR, billing software, and access details.",
+    [
+      { label: "EMR/EHR Name", value: technology.ehrSystem },
+      {
+        label: "Billing Software Name",
+        value: technology.practiceManagementSystem,
+      },
+      {
+        label: "Patient Portal Available",
+        value: technology.patientPortalAvailable,
+      },
+      {
+        label: "Patient List Exportable",
+        value: technology.patientListExportable,
+      },
+      {
+        label: "Appointment List Exportable",
+        value: technology.appointmentListExportable,
+      },
+      { label: "API Access Available", value: technology.apiAccessAvailable },
+      { label: "Clearing House", value: technology.clearinghouse },
+      { label: "Fax Platform", value: technology.faxPlatform },
+      { label: "Phone Platform", value: technology.phonePlatform },
+      {
+        label: "Current Care Management Platform",
+        value: technology.currentCareManagementPlatform,
+      },
+      { label: "IT Contact Name", value: technology.itContactName },
+      { label: "IT Contact Email", value: technology.itContactEmail },
+      {
+        label: "Additional Technical Notes",
+        value: technology.additionalTechnicalNotes,
+        span: 2,
+      },
+    ],
+  );
 
-  pdf.addSection("Step 6 - Billing and Documentation", "Billing setup and banking documents.", [
-    { label: "Current Billing Model", value: billing.currentBillingModel },
-    { label: "Billing Company Name", value: billing.billingCompanyName },
-    { label: "Main Billing Contact Name", value: billing.mainBillingContactName },
-    { label: "Main Billing Contact Email", value: billing.mainBillingContactEmail },
-    { label: "Main Billing Contact Phone", value: billing.mainBillingContactPhone },
-    { label: "Recent W9 Form", value: documentValue(billing.recentW9Form) },
-    { label: "Void Check", value: documentValue(billing.voidCheck) },
-    {
-      label: "Formal Letter from Bank Stating the Client Holds an Account",
-      value: documentValue(billing.formalLetterFromBank),
-    },
-    { label: "Currently Billed Services", value: billing.currentlyBilledServices },
-    { label: "Active Payers", value: billing.activePayers },
-    { label: "EFT / ERA Setup", value: billing.eftEraSetup },
-    { label: "Invoice Recipient", value: billing.invoiceRecipient },
-    { label: "Invoice Email", value: billing.invoiceEmail },
-    { label: "Preferred Reporting Cadence", value: billing.preferredReportingCadence },
-    { label: "Billing Pain Points", value: billing.billingPainPoints },
-    { label: "Billing Notes", value: billing.additionalNotes, span: 2 },
-  ]);
+  pdf.addSection(
+    "Step 6 - Billing and Documentation",
+    "Billing setup and banking documents.",
+    [
+      { label: "Current Billing Model", value: billing.currentBillingModel },
+      { label: "Billing Company Name", value: billing.billingCompanyName },
+      {
+        label: "Main Billing Contact Name",
+        value: billing.mainBillingContactName,
+      },
+      {
+        label: "Main Billing Contact Email",
+        value: billing.mainBillingContactEmail,
+      },
+      {
+        label: "Main Billing Contact Phone",
+        value: billing.mainBillingContactPhone,
+      },
+      { label: "Recent W9 Form", value: documentValue(billing.recentW9Form) },
+      { label: "Void Check", value: documentValue(billing.voidCheck) },
+      {
+        label: "Formal Letter from Bank Stating the Client Holds an Account",
+        value: documentValue(billing.formalLetterFromBank),
+      },
+      {
+        label: "Currently Billed Services",
+        value: billing.currentlyBilledServices,
+      },
+      { label: "Active Payers", value: billing.activePayers },
+      { label: "EFT / ERA Setup", value: billing.eftEraSetup },
+      { label: "Invoice Recipient", value: billing.invoiceRecipient },
+      { label: "Invoice Email", value: billing.invoiceEmail },
+      {
+        label: "Preferred Reporting Cadence",
+        value: billing.preferredReportingCadence,
+      },
+      { label: "Billing Pain Points", value: billing.billingPainPoints },
+      { label: "Billing Notes", value: billing.additionalNotes, span: 2 },
+    ],
+  );
 
   pdf.addSection(
     "Step 6 - Credentialing",
     "Insurance network, portal management, and credentialing requirements.",
     [
-      { label: "Credentialing Needed", value: credentialing.credentialingNeeded },
+      {
+        label: "Credentialing Needed",
+        value: credentialing.credentialingNeeded,
+      },
       { label: "Credentialing For", value: credentialing.credentialingFor },
-      { label: "Payers to Enroll / Update", value: credentialing.payersToEnroll },
+      {
+        label: "Payers to Enroll / Update",
+        value: credentialing.payersToEnroll,
+      },
       {
         label:
           "Excel spreadsheet or tracker listing approved and in-network insurances",
@@ -862,14 +1108,28 @@ function addOperationsSections(pdf: OnboardingPdf, onboarding: any) {
         label: "Current Credentialing Issues",
         value: credentialing.currentCredentialingIssues,
       },
-      { label: "Medicare PTAN Available", value: credentialing.medicarePtanAvailable },
-      { label: "Medicaid Enrollment Active", value: credentialing.medicaidEnrollmentActive },
-      { label: "Credentialing Notes", value: credentialing.additionalNotes, span: 2 },
+      {
+        label: "Medicare PTAN Available",
+        value: credentialing.medicarePtanAvailable,
+      },
+      {
+        label: "Medicaid Enrollment Active",
+        value: credentialing.medicaidEnrollmentActive,
+      },
+      {
+        label: "Credentialing Notes",
+        value: credentialing.additionalNotes,
+        span: 2,
+      },
     ],
   );
 }
 
-function addOutreachSections(pdf: OnboardingPdf, onboarding: any, marketing: any) {
+function addOutreachSections(
+  pdf: OnboardingPdf,
+  onboarding: any,
+  marketing: any,
+) {
   const outreach = onboarding.outreach ?? {};
   const labPharmacy = onboarding.labPharmacy ?? {};
   const compliance = onboarding.compliance ?? {};
@@ -877,14 +1137,36 @@ function addOutreachSections(pdf: OnboardingPdf, onboarding: any, marketing: any
 
   pdf.addSection("Step 7 - Care Program", "Care management program setup.", [
     { label: "Programs Planned", value: careProgram.programsPlanned },
-    { label: "Estimated Eligible Patients", value: careProgram.estimatedEligiblePatients },
-    { label: "Current Enrolled Patients", value: careProgram.currentEnrolledPatients },
-    { label: "Patient Enrollment Handler", value: careProgram.patientEnrollmentHandler },
-    { label: "Monthly Follow-Up Handler", value: careProgram.monthlyFollowUpHandler },
+    {
+      label: "Estimated Eligible Patients",
+      value: careProgram.estimatedEligiblePatients,
+    },
+    {
+      label: "Current Enrolled Patients",
+      value: careProgram.currentEnrolledPatients,
+    },
+    {
+      label: "Patient Enrollment Handler",
+      value: careProgram.patientEnrollmentHandler,
+    },
+    {
+      label: "Monthly Follow-Up Handler",
+      value: careProgram.monthlyFollowUpHandler,
+    },
     { label: "Consent Forms in Place", value: careProgram.consentFormsInPlace },
-    { label: "Existing Care Plan Workflow", value: careProgram.existingCarePlanWorkflow },
-    { label: "Patient Minutes Tracker", value: careProgram.patientMinutesTracker },
-    { label: "Compliance Concerns", value: careProgram.complianceConcerns, span: 2 },
+    {
+      label: "Existing Care Plan Workflow",
+      value: careProgram.existingCarePlanWorkflow,
+    },
+    {
+      label: "Patient Minutes Tracker",
+      value: careProgram.patientMinutesTracker,
+    },
+    {
+      label: "Compliance Concerns",
+      value: careProgram.complianceConcerns,
+      span: 2,
+    },
   ]);
 
   pdf.addSection("Step 7 - Outreach", "Patient communication preferences.", [
@@ -894,50 +1176,92 @@ function addOutreachSections(pdf: OnboardingPdf, onboarding: any, marketing: any
     { label: "Interpreter Services", value: outreach.interpreterServices },
     { label: "Outreach From Practice", value: outreach.outreachFromPractice },
     { label: "Approved Outreach Hours", value: outreach.approvedOutreachHours },
-    { label: "Messaging Requirements", value: outreach.messagingRequirements, span: 2 },
-  ]);
-
-  pdf.addSection("Step 7 - Lab and Pharmacy", "Lab and pharmacy relationship details.", [
-    { label: "Preferred Lab", value: labPharmacy.preferredLab },
-    { label: "Existing Lab Relationship", value: labPharmacy.existingLabRelationship },
-    { label: "Lab Interface Status", value: labPharmacy.labInterfaceStatus },
-    { label: "Lab Contact Name", value: labPharmacy.labContactName },
-    { label: "Lab Contact Email", value: labPharmacy.labContactEmail },
-    { label: "Pharmacy Partner Name", value: labPharmacy.pharmacyPartnerName },
-    { label: "Pharmacy Partner Involved", value: labPharmacy.pharmacyPartnerInvolved },
-    { label: "Lab / Pharmacy Notes", value: labPharmacy.additionalNotes, span: 2 },
-  ]);
-
-  pdf.addSection("Step 7 - Compliance", "HIPAA, BAA, and security information.", [
-    { label: "HIPAA Contact Name", value: compliance.hipaaContactName },
-    { label: "HIPAA Contact Email", value: compliance.hipaaContactEmail },
-    { label: "BAA Required", value: compliance.baaRequired },
-    { label: "Security Questionnaire", value: compliance.securityQuestionnaire },
-    { label: "Current Concerns", value: compliance.currentConcerns },
-    { label: "Compliance Notes", value: compliance.additionalNotes, span: 2 },
-  ]);
-
-  pdf.addSection("Step 7 - Marketing", "Marketing and patient acquisition details.", [
-    { label: "Website URL", value: marketing?.websiteUrl },
-    { label: "Social Media Channels", value: marketing?.socialMediaChannels },
-    { label: "Current Marketing Channels", value: marketing?.currentMarketingChannels },
     {
-      label: "Target Patient Demographics",
-      value: marketing?.targetPatientDemographics,
-      span: 2,
-    },
-    { label: "Monthly Marketing Budget", value: marketing?.monthlyMarketingBudget },
-    { label: "Existing Brand Assets", value: marketing?.existingBrandAssets },
-    {
-      label: "Google Business Profile Claimed",
-      value: marketing?.googleBusinessProfileClaimed,
-    },
-    { label: "Patient Acquisition Goals", value: marketing?.patientAcquisitionGoals, span: 2 },
-    { label: "AI Tools Used", value: marketing?.aiToolsUsed },
-    {
-      label: "Additional Marketing Notes",
-      value: marketing?.additionalMarketingNotes,
+      label: "Messaging Requirements",
+      value: outreach.messagingRequirements,
       span: 2,
     },
   ]);
+
+  pdf.addSection(
+    "Step 7 - Lab and Pharmacy",
+    "Lab and pharmacy relationship details.",
+    [
+      { label: "Preferred Lab", value: labPharmacy.preferredLab },
+      {
+        label: "Existing Lab Relationship",
+        value: labPharmacy.existingLabRelationship,
+      },
+      { label: "Lab Interface Status", value: labPharmacy.labInterfaceStatus },
+      { label: "Lab Contact Name", value: labPharmacy.labContactName },
+      { label: "Lab Contact Email", value: labPharmacy.labContactEmail },
+      {
+        label: "Pharmacy Partner Name",
+        value: labPharmacy.pharmacyPartnerName,
+      },
+      {
+        label: "Pharmacy Partner Involved",
+        value: labPharmacy.pharmacyPartnerInvolved,
+      },
+      {
+        label: "Lab / Pharmacy Notes",
+        value: labPharmacy.additionalNotes,
+        span: 2,
+      },
+    ],
+  );
+
+  pdf.addSection(
+    "Step 7 - Compliance",
+    "HIPAA, BAA, and security information.",
+    [
+      { label: "HIPAA Contact Name", value: compliance.hipaaContactName },
+      { label: "HIPAA Contact Email", value: compliance.hipaaContactEmail },
+      { label: "BAA Required", value: compliance.baaRequired },
+      {
+        label: "Security Questionnaire",
+        value: compliance.securityQuestionnaire,
+      },
+      { label: "Current Concerns", value: compliance.currentConcerns },
+      { label: "Compliance Notes", value: compliance.additionalNotes, span: 2 },
+    ],
+  );
+
+  pdf.addSection(
+    "Step 7 - Marketing",
+    "Marketing and patient acquisition details.",
+    [
+      { label: "Website URL", value: marketing?.websiteUrl },
+      { label: "Social Media Channels", value: marketing?.socialMediaChannels },
+      {
+        label: "Current Marketing Channels",
+        value: marketing?.currentMarketingChannels,
+      },
+      {
+        label: "Target Patient Demographics",
+        value: marketing?.targetPatientDemographics,
+        span: 2,
+      },
+      {
+        label: "Monthly Marketing Budget",
+        value: marketing?.monthlyMarketingBudget,
+      },
+      { label: "Existing Brand Assets", value: marketing?.existingBrandAssets },
+      {
+        label: "Google Business Profile Claimed",
+        value: marketing?.googleBusinessProfileClaimed,
+      },
+      {
+        label: "Patient Acquisition Goals",
+        value: marketing?.patientAcquisitionGoals,
+        span: 2,
+      },
+      { label: "AI Tools Used", value: marketing?.aiToolsUsed },
+      {
+        label: "Additional Marketing Notes",
+        value: marketing?.additionalMarketingNotes,
+        span: 2,
+      },
+    ],
+  );
 }
