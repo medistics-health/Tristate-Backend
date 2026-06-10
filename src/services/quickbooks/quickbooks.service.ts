@@ -1463,21 +1463,34 @@ export async function syncQuickBooksInvoice(invoiceId: string) {
 
       const itemId = await ensureQuickBooksIncomeAccount(prisma, connection);
 
-      if (invoice.lineItems.length === 0) {
+      const billingRunItems = await prisma.billingRunItem.findMany({
+        where: {
+          invoiceLineItems: {
+            some: {
+              invoiceId: invoiceId,
+            },
+          },
+        },
+        include: {
+          service: true,
+        },
+      });
+
+      if (billingRunItems.length === 0) {
         throw new QuickBooksServiceError(
           400,
-          "Invoice must have at least one line item before syncing to QuickBooks.",
+          "Invoice has no calculated billing run items to sync to QuickBooks.",
         );
       }
 
       const qbLines = buildQuickBooksInvoiceLines({
         itemId,
-        lineItems: invoice.lineItems.map((lineItem) => ({
-          description: lineItem.description || null,
-          quantity: Math.max(1, lineItem.quantity),
-          unitPrice: Number(lineItem.unitPrice),
-          totalPrice: Number(lineItem.totalPrice),
-          serviceName: lineItem.service.name,
+        lineItems: billingRunItems.map((item) => ({
+          description: item.service?.name || "Service Item",
+          quantity: 1,
+          unitPrice: Number(item.clientAmount),
+          totalPrice: Number(item.clientAmount),
+          serviceName: item.service?.name || "Service Item",
         })),
       });
 
@@ -1796,16 +1809,6 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
 
       const paymentDate = vendorPayable.paidAt || new Date();
 
-      if (!vendorPayable.paidAt) {
-        await prisma.vendorPayable.update({
-          where: { id: vendorPayableId },
-          data: {
-            paidAt: paymentDate,
-            status: "PAID",
-          },
-        });
-      }
-
       const qbVendorId = await ensureQuickBooksVendor(
         prisma,
         vendorPayable.vendorId,
@@ -1904,6 +1907,8 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
         where: { id: vendorPayableId },
         data: {
           quickbooksBillPaymentId: qbBillPaymentId,
+          status: "PAID",
+          paidAt: vendorPayable.paidAt || paymentDate,
         },
       });
 

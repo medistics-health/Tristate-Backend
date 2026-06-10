@@ -233,6 +233,23 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ message: "Invoice not found." });
     }
 
+    if (totalAmount !== undefined && Number(totalAmount) !== Number(existingInvoice.totalAmount)) {
+      return res.status(400).json({ message: "Editing totalAmount is not allowed." });
+    }
+
+    if (status !== undefined && status !== existingInvoice.status) {
+      return res.status(400).json({ message: "Editing status is not allowed." });
+    }
+
+    if (dueDate !== undefined && dueDate) {
+      const parsedDueDate = new Date(dueDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (parsedDueDate < today) {
+        return res.status(400).json({ message: "Due date must be today or a future date." });
+      }
+    }
+
     if (agreementId) {
       const agreement = await prisma.agreement.findFirst({
         where: {
@@ -452,6 +469,19 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     throw new Error("Invoice or practice not found");
   }
 
+  const billingRunItems = await prisma.billingRunItem.findMany({
+    where: {
+      invoiceLineItems: {
+        some: {
+          invoiceId: invoiceId,
+        },
+      },
+    },
+    include: {
+      service: true,
+    },
+  });
+
   let stripeInvoiceId: string | null = invoice.stripeInvoiceId || null;
   let hostedUrl: string | null = invoice.stripeHostedInvoiceUrl || null;
   let pdfUrl: string | null = invoice.stripeInvoicePdfUrl || null;
@@ -472,13 +502,24 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       });
     }
 
-    // 2. Create Invoice Item
-    await stripe.invoiceItems.create({
-      customer: customerId,
-      amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
-      currency: "usd",
-      description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
-    });
+    // 2. Create Invoice Items
+    if (billingRunItems.length > 0) {
+      for (const item of billingRunItems) {
+        await stripe.invoiceItems.create({
+          customer: customerId,
+          amount: Math.round(Number(item.clientAmount) * 100), // amount in cents
+          currency: "usd",
+          description: item.service?.name || "Service Item",
+        });
+      }
+    } else {
+      await stripe.invoiceItems.create({
+        customer: customerId,
+        amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
+        currency: "usd",
+        description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
+      });
+    }
 
     // 3. Create Invoice
     const stripeInvoice = await stripe.invoices.create({
@@ -558,6 +599,30 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     const dueDate = invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : "N/A";
     const totalAmount = Number(invoice.totalAmount).toFixed(2);
 
+    const itemsListHtml = billingRunItems && billingRunItems.length > 0
+      ? `
+  <div style="margin-top: 25px; margin-bottom: 25px;">
+    <h3 style="margin-top: 0; margin-bottom: 10px; color: #475569; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: bold;">Invoice Items</h3>
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
+      <thead>
+        <tr style="border-bottom: 2px solid #cbd5e1; text-align: left; color: #475569;">
+          <th style="padding: 8px 4px; font-weight: bold;">Description</th>
+          <th style="padding: 8px 4px; font-weight: bold; text-align: right; width: 120px;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${billingRunItems.map(item => `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 8px 4px; vertical-align: top;">${item.service?.name || 'Service Item'}</td>
+            <td style="padding: 8px 4px; text-align: right; vertical-align: top; font-weight: bold; color: #1e293b;">$${Number(item.clientAmount).toFixed(2)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+      `
+      : '';
+
     const emailSubject = `Payment Required: Invoice ${invoiceNumber} for ${practiceName}`;
     const emailBody = `
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0ece6; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
@@ -593,6 +658,8 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       </tr>
     </table>
   </div>
+
+  ${itemsListHtml}
 
   <div style="text-align: center; margin-bottom: 30px;">
     <a href="${hostedUrl}" target="_blank" style="display: inline-block; background-color: #6366f1; color: #ffffff; text-decoration: none; padding: 12px 28px; font-size: 15px; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1);">

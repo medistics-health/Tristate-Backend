@@ -225,6 +225,7 @@ export async function deleteVendorPayable(
     });
   }
 }
+
 export async function syncBillPaymentToQuickBooks(
   req: AuthenticatedRequest,
   res: Response,
@@ -249,6 +250,96 @@ export async function syncBillPaymentToQuickBooks(
     const status = (error as any).statusCode || 500;
     return res.status(status).json({
       message: "Unable to sync bill payment to QuickBooks.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getVendorPayableById(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) {
+      return res.status(400).json({ message: "id is required." });
+    }
+
+    const payable = await prisma.vendorPayable.findFirst({
+      where: { id },
+      include: { vendor: true, practice: true },
+    });
+
+    if (!payable) {
+      return res.status(404).json({ message: "Vendor payable not found." });
+    }
+
+    return res.status(200).json({
+      message: "Vendor payable fetched successfully.",
+      payable,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch vendor payable.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function payVendorPayable(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) {
+      return res.status(400).json({ message: "id is required." });
+    }
+
+    const payable = await prisma.vendorPayable.findFirst({ where: { id } });
+    if (!payable) {
+      return res.status(404).json({ message: "Vendor payable not found." });
+    }
+
+    const paymentDate = new Date();
+
+    // Update status to PAID locally
+    const updatedPayable = await prisma.vendorPayable.update({
+      where: { id },
+      data: {
+        status: "PAID",
+        paidAt: paymentDate,
+      },
+      include: { vendor: true, practice: true },
+    });
+
+    // Check if synced to QuickBooks and has a bill ID
+    let qbPaymentResult = null;
+    if (payable.quickbooksBillId) {
+      try {
+        // Trigger QuickBooks Bill Payment Sync automatically!
+        qbPaymentResult = await syncQuickBooksVendorBillPayment(id);
+      } catch (qbError) {
+        console.warn("Auto-syncing bill payment to QuickBooks failed during payment recording:", qbError);
+      }
+    }
+
+    return res.status(200).json({
+      message: "Vendor payable marked as paid successfully.",
+      payable: updatedPayable,
+      quickbooksSync: qbPaymentResult,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to pay vendor payable.",
       error: error instanceof Error ? error.message : error,
     });
   }
