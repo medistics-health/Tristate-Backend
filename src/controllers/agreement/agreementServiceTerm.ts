@@ -860,6 +860,7 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
 
 async function findOverlappingActiveTerm(params: {
   agreementId: string;
+  agreementVersionId?: string | null;
   serviceId: string;
   vendorId?: string | null;
   pricingModel: PricingModel;
@@ -869,6 +870,7 @@ async function findOverlappingActiveTerm(params: {
 }) {
   const {
     agreementId,
+    agreementVersionId,
     serviceId,
     vendorId,
     pricingModel,
@@ -880,6 +882,7 @@ async function findOverlappingActiveTerm(params: {
   return prisma.agreementServiceTerm.findFirst({
     where: {
       agreementId,
+      agreementVersionId: agreementVersionId || null,
       serviceId,
       vendorId: vendorId || null,
       pricingModel,
@@ -1880,6 +1883,7 @@ export async function createAgreementServiceTerm(
     if (workflowState.isActive) {
       const overlappingTerm = await findOverlappingActiveTerm({
         agreementId: agreementId as string,
+        agreementVersionId: agreementVersionId as string,
         serviceId: serviceId as string,
         vendorId: (vendorId as string) || null,
         pricingModel,
@@ -2130,6 +2134,7 @@ export async function updateAgreementServiceTerm(
     if (nextIsActive) {
       const overlappingTerm = await findOverlappingActiveTerm({
         agreementId: existingTerm.agreementId,
+        agreementVersionId: nextAgreementVersionId,
         serviceId: nextServiceId,
         vendorId: nextVendorId,
         pricingModel: nextPricingModel,
