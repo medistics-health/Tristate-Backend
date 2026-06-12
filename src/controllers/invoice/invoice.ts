@@ -5,7 +5,6 @@ import { stripe } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 
-
 type InvoiceBody = {
   practiceId?: string;
   agreementId?: string | null;
@@ -158,7 +157,7 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const invoice = await prisma.invoice.findFirst({
-      where: { id,  },
+      where: { id },
       include: {
         practice: true,
         agreement: true,
@@ -226,19 +225,26 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingInvoice = await prisma.invoice.findFirst({
-      where: { id,  },
+      where: { id },
     });
 
     if (!existingInvoice) {
       return res.status(404).json({ message: "Invoice not found." });
     }
 
-    if (totalAmount !== undefined && Number(totalAmount) !== Number(existingInvoice.totalAmount)) {
-      return res.status(400).json({ message: "Editing totalAmount is not allowed." });
+    if (
+      totalAmount !== undefined &&
+      Number(totalAmount) !== Number(existingInvoice.totalAmount)
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Editing totalAmount is not allowed." });
     }
 
     if (status !== undefined && status !== existingInvoice.status) {
-      return res.status(400).json({ message: "Editing status is not allowed." });
+      return res
+        .status(400)
+        .json({ message: "Editing status is not allowed." });
     }
 
     if (dueDate !== undefined && dueDate) {
@@ -246,7 +252,9 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       if (parsedDueDate < today) {
-        return res.status(400).json({ message: "Due date must be today or a future date." });
+        return res
+          .status(400)
+          .json({ message: "Due date must be today or a future date." });
       }
     }
 
@@ -337,7 +345,7 @@ export async function deleteInvoice(req: AuthenticatedRequest, res: Response) {
     }
 
     const existingInvoice = await prisma.invoice.findFirst({
-      where: { id,  },
+      where: { id },
     });
 
     if (!existingInvoice) {
@@ -416,7 +424,10 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
   }
 }
 
-export async function getInvoiceStripeEvents(req: AuthenticatedRequest, res: Response) {
+export async function getInvoiceStripeEvents(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
@@ -492,7 +503,10 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     if (!customerId) {
       const customer = await stripe.customers.create({
         name: invoice.practice.name,
-        email: "billing@" + invoice.practice.name.toLowerCase().replace(/[^a-z0-9]/g, "") + ".com",
+        email:
+          "billing@" +
+          invoice.practice.name.toLowerCase().replace(/[^a-z0-9]/g, "") +
+          ".com",
         metadata: { practiceId: invoice.practice.id },
       });
       customerId = customer.id;
@@ -541,7 +555,10 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       finalizedInvoice = await stripe.invoices.finalizeInvoice(stripeInvoiceId);
     } catch (err: any) {
       // If it's already finalized, just retrieve it
-      if (err.message && err.message.includes("can only be finalized in draft")) {
+      if (
+        err.message &&
+        err.message.includes("can only be finalized in draft")
+      ) {
         finalizedInvoice = await stripe.invoices.retrieve(stripeInvoiceId);
       } else {
         throw err;
@@ -581,9 +598,13 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
   }
 
   // Fetch recipient emails
-  const emails = invoice.practice.company?.persons
-    ?.map(cp => cp.person?.email)
-    .filter((email): email is string => typeof email === 'string' && email.includes('@')) || [];
+  const emails =
+    invoice.practice.company?.persons
+      ?.map((cp) => cp.person?.email)
+      .filter(
+        (email): email is string =>
+          typeof email === "string" && email.includes("@"),
+      ) || [];
 
   let recipientEmails = [...new Set(emails)];
   if (recipientEmails.length === 0 && invoice.practice.company?.email) {
@@ -593,89 +614,972 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
   if (recipientEmails.length > 0 && hostedUrl) {
     const practiceName = invoice.practice.name;
     const invoiceNumber = invoice.invoiceNumber || invoice.id.slice(0, 8);
-    const billingPeriodStart = invoice.billingPeriodStart ? new Date(invoice.billingPeriodStart).toLocaleDateString() : "N/A";
-    const billingPeriodEnd = invoice.billingPeriodEnd ? new Date(invoice.billingPeriodEnd).toLocaleDateString() : "N/A";
+    const billingPeriodStart = invoice.billingPeriodStart
+      ? new Date(invoice.billingPeriodStart).toLocaleDateString()
+      : "N/A";
+    const billingPeriodEnd = invoice.billingPeriodEnd
+      ? new Date(invoice.billingPeriodEnd).toLocaleDateString()
+      : "N/A";
     const billingPeriod = `${billingPeriodStart} to ${billingPeriodEnd}`;
-    const dueDate = invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : "N/A";
+    const dueDate = invoice.dueDate
+      ? new Date(invoice.dueDate).toLocaleDateString()
+      : "N/A";
     const totalAmount = Number(invoice.totalAmount).toFixed(2);
 
-    const itemsListHtml = billingRunItems && billingRunItems.length > 0
-      ? `
-  <div style="margin-top: 25px; margin-bottom: 25px;">
-    <h3 style="margin-top: 0; margin-bottom: 10px; color: #475569; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: bold;">Invoice Items</h3>
-    <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
-      <thead>
-        <tr style="border-bottom: 2px solid #cbd5e1; text-align: left; color: #475569;">
-          <th style="padding: 8px 4px; font-weight: bold;">Description</th>
-          <th style="padding: 8px 4px; font-weight: bold; text-align: right; width: 120px;">Amount</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${billingRunItems.map(item => `
-          <tr style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 8px 4px; vertical-align: top;">${item.service?.name || 'Service Item'}</td>
-            <td style="padding: 8px 4px; text-align: right; vertical-align: top; font-weight: bold; color: #1e293b;">$${Number(item.clientAmount).toFixed(2)}</td>
-          </tr>
-        `).join('')}
-      </tbody>
+    const itemsListHtml =
+  billingRunItems && billingRunItems.length > 0
+    ? `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 28px; margin-bottom: 24px;">
+    <tr>
+      <td>
+        <h3
+          class="section-title"
+          style="
+            margin: 0 0 12px 0;
+            font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+            font-size: 14px;
+            line-height: 20px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #0f4c81;
+          "
+        >
+          Invoice Items
+        </h3>
+
+        <table
+          role="presentation"
+          width="100%"
+          cellpadding="0"
+          cellspacing="0"
+          border="0"
+          class="items-table"
+          style="width: 100%; border-collapse: collapse;"
+        >
+          <thead>
+            <tr>
+              <th
+                align="left"
+                class="items-head"
+                style="
+                  padding: 10px 8px 10px 0;
+                  font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+                  font-size: 13px;
+                  line-height: 18px;
+                  font-weight: 700;
+                  color: #365066;
+                  border-bottom: 2px solid #cfdeea;
+                "
+              >
+                Description
+              </th>
+              <th
+                align="right"
+                class="items-head"
+                style="
+                  padding: 10px 0 10px 8px;
+                  font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+                  font-size: 13px;
+                  line-height: 18px;
+                  font-weight: 700;
+                  color: #365066;
+                  border-bottom: 2px solid #cfdeea;
+                  width: 140px;
+                "
+              >
+                Amount
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            ${billingRunItems
+              .map(
+                (item) => `
+              <tr>
+                <td
+                  class="items-cell"
+                  style="
+                    padding: 12px 8px 12px 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+                    font-size: 14px;
+                    line-height: 20px;
+                    color: #243b53;
+                    vertical-align: top;
+                    border-bottom: 1px solid #e5edf4;
+                  "
+                >
+                  ${item.service?.name || "Service Item"}
+                </td>
+                <td
+                  align="right"
+                  class="items-cell amount"
+                  style="
+                    padding: 12px 0 12px 8px;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+                    font-size: 14px;
+                    line-height: 20px;
+                    color: #0f2d46;
+                    vertical-align: top;
+                    font-weight: 700;
+                    border-bottom: 1px solid #e5edf4;
+                  "
+                >
+                  $${Number(item.clientAmount).toFixed(2)}
+                </td>
+              </tr>
+            `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  </table>
+`
+    : "";
+
+const invoicePdfLinkHtml = pdfUrl
+  ? `
+    <p style="margin: 12px 0 0 0; font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; font-size: 13px; line-height: 20px; text-align: center;">
+      <a
+        href="${pdfUrl}"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="contact-link"
+        style="color: #0f4c81; text-decoration: underline; font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;"
+      >
+        Download Invoice PDF
+      </a>
+    </p>
+  `
+  : "";
+
+const emailSubject = `Payment Required: Invoice ${invoiceNumber} for ${practiceName}`;
+
+const emailBody = `
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
+    <title>Invoice ${invoiceNumber}</title>
+
+    <!--[if !mso]><!-- -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <!--<![endif]-->
+
+    <style>
+      :root {
+        color-scheme: light dark;
+        supported-color-schemes: light dark;
+      }
+
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+      body,
+      table,
+      td,
+      p,
+      a,
+      h1,
+      h2,
+      h3,
+      span {
+        font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial,
+          sans-serif;
+      }
+
+      .email-bg {
+        background-color: #eef4f8;
+      }
+
+      .email-card {
+        background-color: #ffffff;
+        border: 1px solid #d7e3ef;
+        border-radius: 20px;
+      }
+
+      .brand-header {
+        background: linear-gradient(135deg, #0f4c81 0%, #0f766e 100%);
+      }
+
+      .title {
+        color: #0f2d46;
+      }
+
+      .text {
+        color: #3f556b;
+      }
+
+      .label {
+        color: #365066;
+        font-weight: 700;
+      }
+
+      .value {
+        color: #102a43;
+      }
+
+      .detail-card {
+        background-color: #f8fbfe;
+        border: 1px solid #dbe8f3;
+        border-radius: 14px;
+      }
+
+      .section-title {
+        color: #0f4c81;
+      }
+
+      .items-head {
+        color: #365066;
+        border-bottom: 2px solid #cfdeea;
+      }
+
+      .items-cell {
+        color: #243b53;
+        border-bottom: 1px solid #e5edf4;
+      }
+
+      .amount {
+        color: #0f2d46;
+        font-weight: 700;
+      }
+
+      .btn {
+        background-color: #0f4c81;
+        border: 1px solid #0f4c81;
+        border-radius: 10px;
+        color: #ffffff !important;
+        display: inline-block;
+        font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial,
+          sans-serif;
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 20px;
+        padding: 14px 28px;
+        text-decoration: none;
+      }
+
+      .support {
+        color: #5f7387;
+      }
+
+      .footer-card {
+        background-color: #f8fbfe;
+        border-top: 1px solid #dbe8f3;
+      }
+
+      .footer-title {
+        color: #0f2d46;
+      }
+
+      .contact-link {
+        color: #0f4c81 !important;
+        text-decoration: none;
+      }
+
+      @media only screen and (max-width: 640px) {
+        .container {
+          width: 100% !important;
+        }
+
+        .content-padding {
+          padding: 22px !important;
+        }
+
+        .header-padding {
+          padding: 24px 18px !important;
+        }
+
+        .logo-img {
+          width: 180px !important;
+          max-width: 100% !important;
+          height: auto !important;
+        }
+
+        .mobile-center {
+          text-align: center !important;
+        }
+      }
+
+      /* ---- DARK MODE ---- */
+
+      @media (prefers-color-scheme: dark) {
+        body,
+        .email-bg {
+          background-color: #0b1320 !important;
+        }
+
+        .email-card {
+          background-color: #101b2d !important;
+          border-color: #25364b !important;
+        }
+
+        .title {
+          color: #eaf2ff !important;
+        }
+
+        .text,
+        .support {
+          color: #a9bbce !important;
+        }
+
+        .label {
+          color: #c1d0df !important;
+        }
+
+        .value,
+        .amount,
+        .items-cell,
+        .footer-title {
+          color: #f3f8ff !important;
+        }
+
+        .detail-card {
+          background-color: #122033 !important;
+          border-color: #2a3f56 !important;
+        }
+
+        .items-head {
+          color: #d0dbea !important;
+          border-bottom-color: #31475f !important;
+        }
+
+        .items-cell {
+          border-bottom-color: #223348 !important;
+        }
+
+        .footer-card {
+          background-color: #0d1728 !important;
+          border-top-color: #25364b !important;
+        }
+
+        .contact-link {
+          color: #7cc9ff !important;
+        }
+
+        .btn {
+          background-color: #1f6fb4 !important;
+          border-color: #1f6fb4 !important;
+          color: #ffffff !important;
+        }
+      }
+
+      /* ---- OUTLOOK.COM DARK MODE ---- */
+
+      [data-ogsc] .email-bg {
+        background-color: #0b1320 !important;
+      }
+
+      [data-ogsc] .email-card {
+        background-color: #101b2d !important;
+        border-color: #25364b !important;
+      }
+
+      [data-ogsc] .title {
+        color: #eaf2ff !important;
+      }
+
+      [data-ogsc] .text,
+      [data-ogsc] .support {
+        color: #a9bbce !important;
+      }
+
+      [data-ogsc] .label {
+        color: #c1d0df !important;
+      }
+
+      [data-ogsc] .value,
+      [data-ogsc] .amount,
+      [data-ogsc] .items-cell,
+      [data-ogsc] .footer-title {
+        color: #f3f8ff !important;
+      }
+
+      [data-ogsc] .detail-card {
+        background-color: #122033 !important;
+        border-color: #2a3f56 !important;
+      }
+
+      [data-ogsc] .items-head {
+        color: #d0dbea !important;
+        border-bottom-color: #31475f !important;
+      }
+
+      [data-ogsc] .items-cell {
+        border-bottom-color: #223348 !important;
+      }
+
+      [data-ogsc] .footer-card {
+        background-color: #0d1728 !important;
+        border-top-color: #25364b !important;
+      }
+
+      [data-ogsc] .contact-link {
+        color: #7cc9ff !important;
+      }
+
+      [data-ogsc] .btn {
+        background-color: #1f6fb4 !important;
+        border-color: #1f6fb4 !important;
+        color: #ffffff !important;
+      }
+    </style>
+
+    <!--[if mso]>
+      <style>
+        body,
+        table,
+        td,
+        p,
+        a,
+        h1,
+        h2,
+        h3,
+        span {
+          font-family: 'Segoe UI', Arial, sans-serif !important;
+        }
+      </style>
+    <![endif]-->
+  </head>
+
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #eef4f8;
+      font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial,
+        sans-serif;
+    "
+  >
+    <!-- Preheader text -->
+    <div
+      style="
+        display: none;
+        max-height: 0;
+        overflow: hidden;
+        opacity: 0;
+        mso-hide: all;
+        color: transparent;
+      "
+    >
+      Invoice ${invoiceNumber} for ${practiceName}. Total amount
+      $${totalAmount}. Due ${dueDate}.
+    </div>
+
+    <table
+      role="presentation"
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      border="0"
+      class="email-bg"
+      style="
+        width: 100%;
+        background-color: #eef4f8;
+        margin: 0;
+        padding: 0;
+      "
+    >
+      <tr>
+        <td align="center" style="padding: 24px 12px;">
+          <!-- Main Card -->
+          <table
+            role="presentation"
+            width="100%"
+            cellpadding="0"
+            cellspacing="0"
+            border="0"
+            class="container email-card"
+            style="
+              width: 100%;
+              max-width: 680px;
+              background-color: #ffffff;
+              border: 1px solid #d7e3ef;
+              border-radius: 20px;
+              overflow: hidden;
+            "
+          >
+            <!-- ===== HEADER ===== -->
+            <tr>
+              <td
+                class="brand-header header-padding"
+                align="center"
+                style="
+                  padding: 28px 24px;
+                  background: linear-gradient(
+                    135deg,
+                    #ffffff 0%,
+                    #ffffff 100%
+                  );
+                  border-radius: 20px 20px 0 0;
+                "
+              >
+                <!-- Logo container -->
+                <table
+                  role="presentation"
+                  cellpadding="0"
+                  cellspacing="0"
+                  border="0"
+                  align="center"
+                  style="margin: 0 auto 16px auto;"
+                >
+                  <tr>
+                    <td
+                      style="
+                        background-color: #ffffff;
+                        border-radius: 14px;
+                        padding: 12px 16px;
+                      "
+                    >
+                      <img
+                        src="https://tristatemso.com/wp-content/uploads/tristate-health-mso-logo.png"
+                        alt="Tristate MSO"
+                        width="210"
+                        class="logo-img"
+                        style="
+                          display: block;
+                          width: 210px;
+                          max-width: 100%;
+                          height: auto;
+                          border: 0;
+                        "
+                      />
+                    </td>
+                  </tr>
+                </table>
+
+                <p
+                  style="
+                    margin: 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 13px;
+                    line-height: 20px;
+                    color: #21282c;
+                    letter-spacing: 0.08em;
+                    text-transform: uppercase;
+                    font-weight: 700;
+                  "
+                >
+                  Invoice Payment Request
+                </p>
+
+                <p
+                  style="
+                    margin: 6px 0 0 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 14px;
+                    line-height: 22px;
+                    color: #21282c;
+                  "
+                >
+                  Tristate MSO Billing Department
+                </p>
+              </td>
+            </tr>
+
+            <!-- ===== BODY ===== -->
+            <tr>
+              <td
+                class="content-padding"
+                style="padding: 30px 30px 24px 30px;"
+              >
+                <p
+                  class="title"
+                  style="
+                    margin: 0 0 14px 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 16px;
+                    line-height: 24px;
+                    color: #0f2d46;
+                    font-weight: 700;
+                  "
+                >
+                  Hello,
+                </p>
+
+                <p
+                  class="text"
+                  style="
+                    margin: 0 0 20px 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 15px;
+                    line-height: 24px;
+                    color: #3f556b;
+                  "
+                >
+                  An invoice has been generated for
+                  <strong>${practiceName}</strong>. Please find the invoice
+                  details and the payment link below:
+                </p>
+
+                <!-- Detail card -->
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  border="0"
+                  class="detail-card"
+                  style="
+                    width: 100%;
+                    background-color: #f8fbfe;
+                    border: 1px solid #dbe8f3;
+                    border-radius: 14px;
+                    margin-bottom: 26px;
+                  "
+                >
+                  <tr>
+                    <td style="padding: 18px 18px 8px 18px;">
+                      <table
+                        role="presentation"
+                        width="100%"
+                        cellpadding="0"
+                        cellspacing="0"
+                        border="0"
+                        style="width: 100%; border-collapse: collapse;"
+                      >
+                        <tr>
+                          <td
+                            class="label"
+                            style="
+                              padding: 0 0 10px 0;
+                              width: 42%;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #365066;
+                              font-weight: 700;
+                            "
+                          >
+                            Invoice Number:
+                          </td>
+                          <td
+                            class="value"
+                            style="
+                              padding: 0 0 10px 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #102a43;
+                            "
+                          >
+                            ${invoiceNumber}
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td
+                            class="label"
+                            style="
+                              padding: 0 0 10px 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #365066;
+                              font-weight: 700;
+                            "
+                          >
+                            Billing Period:
+                          </td>
+                          <td
+                            class="value"
+                            style="
+                              padding: 0 0 10px 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #102a43;
+                            "
+                          >
+                            ${billingPeriod}
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td
+                            class="label"
+                            style="
+                              padding: 0 0 10px 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #365066;
+                              font-weight: 700;
+                            "
+                          >
+                            Total Amount:
+                          </td>
+                          <td
+                            class="amount"
+                            style="
+                              padding: 0 0 10px 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 17px;
+                              line-height: 24px;
+                              color: #0f2d46;
+                              font-weight: 700;
+                            "
+                          >
+                            $${totalAmount}
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td
+                            class="label"
+                            style="
+                              padding: 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #365066;
+                              font-weight: 700;
+                            "
+                          >
+                            Due Date:
+                          </td>
+                          <td
+                            class="value"
+                            style="
+                              padding: 0;
+                              font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                                Roboto, Arial, sans-serif;
+                              font-size: 14px;
+                              line-height: 22px;
+                              color: #102a43;
+                            "
+                          >
+                            ${dueDate}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Invoice Items -->
+                ${itemsListHtml}
+
+                <!-- CTA Button -->
+                <table
+                  role="presentation"
+                  width="100%"
+                  cellpadding="0"
+                  cellspacing="0"
+                  border="0"
+                >
+                  <tr>
+                    <td align="center" style="padding: 8px 0 4px 0;">
+                      <!--[if mso]>
+                      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${hostedUrl}" style="height:48px;v-text-anchor:middle;width:260px;" arcsize="12%" strokecolor="#0f4c81" fillcolor="#0f4c81">
+                        <w:anchorlock/>
+                        <center style="color:#ffffff;font-family:'Segoe UI',Arial,sans-serif;font-size:15px;font-weight:bold;">
+                          Pay Invoice with Stripe
+                        </center>
+                      </v:roundrect>
+                      <![endif]-->
+
+                      <!--[if !mso]><!-- -->
+                      <a
+                        href="${hostedUrl}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="btn"
+                        style="
+                          background-color: #0f4c81;
+                          border: 1px solid #0f4c81;
+                          border-radius: 10px;
+                          color: #ffffff;
+                          display: inline-block;
+                          font-family: 'Google Sans', 'Inter', 'Segoe UI',
+                            Roboto, Arial, sans-serif;
+                          font-size: 15px;
+                          font-weight: 700;
+                          line-height: 20px;
+                          padding: 14px 28px;
+                          text-decoration: none;
+                        "
+                      >
+                        Pay Invoice with Stripe
+                      </a>
+                      <!--<![endif]-->
+                      ${invoicePdfLinkHtml}
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Support text -->
+                <p
+                  class="support"
+                  style="
+                    margin: 26px 0 0 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 13px;
+                    line-height: 22px;
+                    color: #5f7387;
+                  "
+                >
+                  If you have any questions regarding this invoice, please
+                  reach out to our billing team.
+                </p>
+
+                <p
+                  class="support"
+                  style="
+                    margin: 16px 0 0 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 13px;
+                    line-height: 22px;
+                    color: #5f7387;
+                  "
+                >
+                  Best regards,<br />
+                  <strong
+                    class="footer-title"
+                    style="color: #0f2d46;"
+                    >The Tristate Team</strong
+                  >
+                </p>
+              </td>
+            </tr>
+
+            <!-- ===== FOOTER ===== -->
+            <tr>
+              <td
+                class="footer-card content-padding"
+                style="
+                  padding: 22px 30px 26px 30px;
+                  background-color: #f8fbfe;
+                  border-top: 1px solid #dbe8f3;
+                  border-radius: 0 0 20px 20px;
+                "
+              >
+                <p
+                  class="footer-title"
+                  style="
+                    margin: 0 0 10px 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 15px;
+                    line-height: 22px;
+                    color: #0f2d46;
+                    font-weight: 700;
+                  "
+                >
+                  Tristate MSO
+                </p>
+
+                <p
+                  class="support"
+                  style="
+                    margin: 0;
+                    font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                      Arial, sans-serif;
+                    font-size: 13px;
+                    line-height: 22px;
+                    color: #5f7387;
+                  "
+                >
+                  <a
+                    href="mailto:info@tristatemso.com"
+                    class="contact-link"
+                    style="
+                      color: #0f4c81;
+                      text-decoration: none;
+                      font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                        Arial, sans-serif;
+                    "
+                  >
+                    info@tristatemso.com
+                  </a>
+                  <br />
+                  <a
+                    href="tel:+19083406110"
+                    class="contact-link"
+                    style="
+                      color: #0f4c81;
+                      text-decoration: none;
+                      font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                        Arial, sans-serif;
+                    "
+                  >
+                    (908) 340-6110
+                  </a>
+                  &nbsp;|&nbsp;
+                  <a
+                    href="tel:+19083406122"
+                    class="contact-link"
+                    style="
+                      color: #0f4c81;
+                      text-decoration: none;
+                      font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                        Arial, sans-serif;
+                    "
+                  >
+                    (908) 340-6122
+                  </a>
+                  <br />
+                  155 Willowbrook Blvd,<br />
+                  Ste 110 #3408 Wayne, NJ 07470
+                </p>
+              </td>
+            </tr>
+          </table>
+
+          <!-- Sub-footer note -->
+          <table
+            role="presentation"
+            width="100%"
+            cellpadding="0"
+            cellspacing="0"
+            border="0"
+            class="container"
+            style="width: 100%; max-width: 680px;"
+          >
+            <tr>
+              <td
+                align="center"
+                style="
+                  padding: 18px 12px 6px 12px;
+                  font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto,
+                    Arial, sans-serif;
+                  font-size: 11px;
+                  line-height: 18px;
+                  color: #8da0b5;
+                "
+              >
+                &copy; ${new Date().getFullYear()} Tristate MSO. All rights
+                reserved.<br />
+                This email was sent regarding Invoice ${invoiceNumber}.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
     </table>
-  </div>
-      `
-      : '';
-
-    const emailSubject = `Payment Required: Invoice ${invoiceNumber} for ${practiceName}`;
-    const emailBody = `
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #f0ece6; border-radius: 12px; background-color: #ffffff; color: #1e293b;">
-  <div style="border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px;">
-    <h2 style="margin: 0; color: #6366f1;">Tristate MSO</h2>
-    <span style="font-size: 14px; color: #94a3b8;">Invoice Payment Request</span>
-  </div>
-  
-  <p style="font-size: 16px; line-height: 1.5; color: #334155; margin-bottom: 20px;">
-    Hello,
-  </p>
-  <p style="font-size: 15px; line-height: 1.5; color: #334155; margin-bottom: 20px;">
-    An invoice has been generated for <strong>${practiceName}</strong>. Please find the invoice details and the payment link below:
-  </p>
-
-  <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 25px;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #475569;">
-      <tr>
-        <td style="padding: 6px 0; font-weight: bold; width: 40%;">Invoice Number:</td>
-        <td style="padding: 6px 0;">${invoiceNumber}</td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; font-weight: bold;">Billing Period:</td>
-        <td style="padding: 6px 0;">${billingPeriod}</td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; font-weight: bold;">Total Amount:</td>
-        <td style="padding: 6px 0; font-weight: bold; color: #1e293b; font-size: 16px;">$${totalAmount}</td>
-      </tr>
-      <tr>
-        <td style="padding: 6px 0; font-weight: bold;">Due Date:</td>
-        <td style="padding: 6px 0;">${dueDate}</td>
-      </tr>
-    </table>
-  </div>
-
-  ${itemsListHtml}
-
-  <div style="text-align: center; margin-bottom: 30px;">
-    <a href="${hostedUrl}" target="_blank" style="display: inline-block; background-color: #6366f1; color: #ffffff; text-decoration: none; padding: 12px 28px; font-size: 15px; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2), 0 2px 4px -1px rgba(99, 102, 241, 0.1);">
-      Pay Invoice with Stripe
-    </a>
-  </div>
-
-  <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin-bottom: 0;">
-    If you have any questions regarding this invoice, please reach out to our billing team.
-  </p>
-  <p style="font-size: 13px; line-height: 1.5; color: #64748b; margin-top: 15px; margin-bottom: 0;">
-    Best regards,<br/>
-    <strong>The Tristate Team</strong>
-  </p>
-</div>
-    `;
+  </body>
+</html>
+`;
 
     for (const email of recipientEmails) {
       try {
@@ -685,11 +1589,16 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       }
     }
   } else {
-    console.warn(`No recipient emails found or no hosted Stripe url available for invoice ${invoiceId}`);
+    console.warn(
+      `No recipient emails found or no hosted Stripe url available for invoice ${invoiceId}`,
+    );
   }
 }
 
-export async function resendStripeInvoice(req: AuthenticatedRequest, res: Response) {
+export async function resendStripeInvoice(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 

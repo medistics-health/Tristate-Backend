@@ -398,6 +398,17 @@ async function requestQuickBooks<T>(
 
     if (isUnauthorized && !retrying) {
       try {
+        // Double check if another concurrent request already refreshed the token
+        const latestConnection = await loadQuickBooksConnectionById(connection.id);
+        if (latestConnection && latestConnection.accessToken !== connection.accessToken) {
+          return requestQuickBooks<T>(
+            db,
+            latestConnection as QuickBooksConnectionRecord,
+            options,
+            true,
+          );
+        }
+
         const refreshed = await refreshQuickBooksTokens({
           refreshToken: connection.refreshToken,
           realmId: connection.realmId,
@@ -417,6 +428,16 @@ async function requestQuickBooks<T>(
           true,
         );
       } catch (refreshError) {
+        // If refresh failed, check if another concurrent request succeeded in refreshing it recently
+        const doubleCheckConnection = await loadQuickBooksConnectionById(connection.id);
+        if (doubleCheckConnection && doubleCheckConnection.accessToken !== connection.accessToken) {
+          return requestQuickBooks<T>(
+            db,
+            doubleCheckConnection as QuickBooksConnectionRecord,
+            options,
+            true,
+          );
+        }
         throw new QuickBooksServiceError(
           401,
           "QuickBooks session expired or connection was revoked. Please re-connect your QuickBooks account in settings.",
