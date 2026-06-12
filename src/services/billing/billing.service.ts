@@ -642,7 +642,61 @@ function computePricingFromModel(params: {
         break;
       }
 
-      const hasNestedPricingModel = subComponents.some(
+      // Map simple component types dynamically to nested pricing model structures
+      const mappedSubComponents = subComponents.map((componentValue) => {
+        if (!componentValue || typeof componentValue !== "object") {
+          return componentValue;
+        }
+
+        const componentConfig = componentValue as JsonObject;
+        if (typeof componentConfig.pricingModel === "string") {
+          return componentConfig;
+        }
+
+        const type = String(componentConfig.type || "");
+        const value = componentConfig.value;
+
+        if (type === "% Collections") {
+          return {
+            ...componentConfig,
+            pricingModel: PricingModel.PERCENT_COLLECTIONS,
+            percentage: value,
+            label: type,
+          };
+        } else if (type === "Per Encounter") {
+          return {
+            ...componentConfig,
+            pricingModel: PricingModel.PER_ENCOUNTER,
+            rate: value,
+            label: type,
+          };
+        } else if (type === "Per Patient") {
+          return {
+            ...componentConfig,
+            pricingModel: PricingModel.PER_PATIENT,
+            rate: value,
+            label: type,
+          };
+        } else if (type === "Monthly Minimum") {
+          return {
+            ...componentConfig,
+            pricingModel: PricingModel.MONTHLY_MINIMUM,
+            minimumAmount: value,
+            label: type,
+          };
+        } else if (type === "Fixed Monthly") {
+          return {
+            ...componentConfig,
+            pricingModel: PricingModel.FIXED_MONTHLY,
+            amount: value,
+            label: type,
+          };
+        }
+
+        return componentConfig;
+      });
+
+      const hasNestedPricingModel = mappedSubComponents.some(
         (componentValue) =>
           !!componentValue &&
           typeof componentValue === "object" &&
@@ -650,7 +704,7 @@ function computePricingFromModel(params: {
       );
 
       if (!hasNestedPricingModel) {
-        for (const componentValue of subComponents) {
+        for (const componentValue of mappedSubComponents) {
           if (!componentValue || typeof componentValue !== "object") {
             exceptionFlags.push("INVALID_COMPONENT_VALUE");
             continue;
@@ -676,7 +730,12 @@ function computePricingFromModel(params: {
         break;
       }
 
-      for (const componentValue of subComponents) {
+      let monthlyMinimumVal = 0;
+      let totalVariableCharges = 0;
+      let monthlyMinimumComponent: any = null;
+      const variableComponents: any[] = [];
+
+      for (const componentValue of mappedSubComponents) {
         if (!componentValue || typeof componentValue !== "object") {
           continue;
         }
@@ -703,10 +762,42 @@ function computePricingFromModel(params: {
               : nestedModelRaw,
         });
 
-        amount = roundMoney(amount + nestedResult.amount);
-        components.push(...nestedResult.components);
         metricResolutions.push(...nestedResult.metricResolutions);
         exceptionFlags.push(...nestedResult.exceptionFlags);
+
+        if (nestedModelRaw === PricingModel.MONTHLY_MINIMUM) {
+          monthlyMinimumVal = nestedResult.amount;
+          if (nestedResult.components.length > 0) {
+            monthlyMinimumComponent = nestedResult.components[0];
+          }
+        } else {
+          totalVariableCharges = roundMoney(totalVariableCharges + nestedResult.amount);
+          variableComponents.push(...nestedResult.components);
+        }
+      }
+
+      if (monthlyMinimumVal > 0) {
+        if (monthlyMinimumVal > totalVariableCharges) {
+          amount = monthlyMinimumVal;
+          if (monthlyMinimumComponent) {
+            components.push({
+              ...monthlyMinimumComponent,
+              amount: monthlyMinimumVal,
+            });
+          } else {
+            components.push({
+              componentType: PricingModel.MONTHLY_MINIMUM,
+              description: "Monthly Minimum Floor",
+              amount: monthlyMinimumVal,
+            });
+          }
+        } else {
+          amount = totalVariableCharges;
+          components.push(...variableComponents);
+        }
+      } else {
+        amount = totalVariableCharges;
+        components.push(...variableComponents);
       }
       break;
     }

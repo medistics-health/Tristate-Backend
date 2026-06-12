@@ -147,6 +147,16 @@ function validatePricingConfig(
       if (invalidComponent) {
         return fail("Each hybrid component must have a non-negative value.");
       }
+      const types = components.map(c => String((c as Record<string, unknown>).type || ""));
+      const hasMonthlyMin = types.includes("Monthly Minimum");
+      const hasFixedMonthly = types.includes("Fixed Monthly");
+      if (hasMonthlyMin && hasFixedMonthly) {
+        return fail("Cannot have both Monthly Minimum and Fixed Monthly components.");
+      }
+      const hasDuplicates = types.some((t, idx) => types.indexOf(t) !== idx);
+      if (hasDuplicates) {
+        return fail("Duplicate component types are not allowed.");
+      }
       return { valid: true as const };
     }
 
@@ -290,12 +300,35 @@ function getPricingTermApprovalData(
       ? Number(((grossMargin / clientAmount) * 100).toFixed(2))
       : 0;
 
+  let requiresApproval = clientAmount > 0 && marginPct < 20;
+
+  if (pricingModel === PricingModel.HYBRID) {
+    const components = Array.isArray(pricingConfig.components) ? pricingConfig.components : [];
+    const vendorComponents = vendorPricing && Array.isArray(vendorPricing.components) ? vendorPricing.components : [];
+    
+    let anyCompBelow20 = false;
+    for (let i = 0; i < components.length; i++) {
+      const cComp = components[i] as Record<string, unknown>;
+      const vComp = vendorComponents[i] as Record<string, unknown> | undefined;
+      const cVal = parseNumericValue(cComp?.value);
+      const vVal = vComp ? parseNumericValue(vComp.value) : 0;
+      
+      const compMargin = cVal - vVal;
+      const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
+      if (cVal > 0 && compMarginPct < 20) {
+        anyCompBelow20 = true;
+        break;
+      }
+    }
+    requiresApproval = anyCompBelow20;
+  }
+
   return {
     clientAmount,
     vendorAmount,
     grossMargin,
     marginPct,
-    requiresApproval: clientAmount > 0 && marginPct < 20,
+    requiresApproval,
     isPercentageBased, // ✅ NEW: Flag to indicate percentage-based pricing
   };
 }
@@ -413,9 +446,10 @@ function formatPricingConfigHtml(
           const type = escapeHtml(
             String((component as Record<string, unknown>).type ?? "Component"),
           );
-          const value = formatMoney(
-            (component as Record<string, unknown>).value,
-          );
+          const isPercent = type === "% Collections";
+          const value = isPercent
+            ? formatPercent((component as Record<string, unknown>).value)
+            : formatMoney((component as Record<string, unknown>).value);
           lines.push(`<li>${type}: <strong>${value}</strong></li>`);
         }
         lines.push(`</ul>`);
@@ -562,7 +596,9 @@ async function getApprovalRecipientEmails() {
   }
 
   const users = await prisma.user.findMany({
-    where: { role: UserRoles.INTERNAL },
+    where: {
+      role: { in: [UserRoles.INTERNAL, UserRoles.ADMIN] },
+    },
     select: { email: true },
   });
 
@@ -827,27 +863,96 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
         : "";
 
       const approvalSubject = `Internal Approval Required — Pricing Term for ${serviceName}`;
-      const approvalBody = `
-        <p>Hi Internal Admin/Manager,</p>
-        <p>A pricing term requires your approval for <strong>${escapeHtml(serviceName)}</strong> in agreement <strong>${escapeHtml(agreementName)}</strong>.</p>
-        <p><strong>Agreement:</strong> ${escapeHtml(agreementName)}</p>
-        <p><strong>Service:</strong> ${escapeHtml(serviceName)}</p>
-        <p><strong>Vendor:</strong> ${escapeHtml(vendorName)}</p>
-        <p><strong>Pricing Model:</strong> ${escapeHtml(term.pricingModel)}</p>
-        <p><strong>Effective Start Date:</strong> ${escapeHtml(effectiveStartDate)}</p>
-        <p><strong>Effective End Date:</strong> ${escapeHtml(effectiveEndDate)}</p>
-        <h3>Client Rates:</h3>
-        ${clientRatesHtml}
-        ${vendorRatesHtml ? `<h3>Vendor Rates:</h3>${vendorRatesHtml}` : ""}
-        <p><strong>${approvalData.isPercentageBased ? "Client Rate:" : "Client Amount:"}</strong> ${formatValue(approvalData.clientAmount)}</p>
-        <p><strong>${approvalData.isPercentageBased ? "Vendor Rate:" : "Vendor Amount:"}</strong> ${formatValue(approvalData.vendorAmount)}</p>
-        <p><strong>Gross Margin:</strong> ${formatValue(approvalData.grossMargin)}</p>
-        <p><strong>Margin %:</strong> ${approvalData.marginPct.toFixed(2)}%</p>
-        <p style="background:#fef3c7;border:1px solid #fde047;color:#92400e;padding:14px;border-radius:8px;font-weight:600;">⚠ Margin below threshold (${approvalData.marginPct.toFixed(2)}%)</p>
-        <p><a href="${internalApprovalUrl}" style="display:inline-block;padding:10px 16px;border-radius:6px;background:#4f63ea;color:#ffffff;text-decoration:none;">Review Pricing Term</a></p>
-        <p>If the button does not work, copy and paste this URL into your browser:</p>
-        <p>${escapeHtml(internalApprovalUrl)}</p>
-      `;
+      const clientApprovalStatus =
+        (pricingConfig.clientApprovalStatus as string) ?? "Pending";
+      const internalApprovalStatus =
+        (pricingConfig.internalApprovalStatus as string) ?? "Pending";
+      const termStatus = term.isActive ? "Active" : "Inactive";
+      const collectionSource =
+        typeof pricingConfig.collectionSource === "string" &&
+        pricingConfig.collectionSource.trim()
+          ? pricingConfig.collectionSource.trim()
+          : null;
+
+      let approvalBody = "";
+      if (term.pricingModel === PricingModel.HYBRID) {
+        const components = Array.isArray(pricingConfig.components) ? pricingConfig.components : [];
+        const vendorComponents = vendorPricing && Array.isArray(vendorPricing.components) ? vendorPricing.components : [];
+        
+        let hybridEmailMarginPreviewHtml = "";
+        for (let i = 0; i < components.length; i++) {
+          const cComp = components[i] as Record<string, unknown>;
+          const vComp = vendorComponents[i] as Record<string, unknown> | undefined;
+          const type = String(cComp?.type ?? `Component ${i + 1}`);
+          const cVal = parseNumericValue(cComp?.value);
+          const vVal = vComp ? parseNumericValue(vComp.value) : 0;
+          
+          const compMargin = cVal - vVal;
+          const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
+          const isPercent = type === "% Collections";
+          
+          const formatCompValue = (val: number) => {
+            if (isPercent) return `${val.toFixed(2)}%`;
+            return `$${val.toFixed(2)}`;
+          };
+          
+          hybridEmailMarginPreviewHtml += `
+            <p style="margin: 8px 0 4px 0;"><strong>${escapeHtml(type)}</strong></p>
+            <p style="margin: 0 0 0 12px; color: #555555; font-size: 0.95rem;">
+              Client Rate: <strong>${formatCompValue(cVal)}</strong><br/>
+              ${term.vendorId ? `Vendor Rate: <strong>${formatCompValue(vVal)}</strong><br/>
+              Gross Margin: <strong style="color: ${compMarginPct < 20 ? "#d97706" : "#10b981"};">${formatCompValue(compMargin)} (${compMarginPct.toFixed(2)}%)</strong>` : ""}
+            </p>
+          `;
+        }
+
+        approvalBody = `
+          <p>Hi Internal Admin/Manager,</p>
+          <p>A pricing term requires your approval for <strong>${escapeHtml(serviceName)}</strong> in agreement <strong>${escapeHtml(agreementName)}</strong>.</p>
+          
+          <h3>Basic Information</h3>
+          <p style="margin: 4px 0;"><strong>Agreement:</strong> ${escapeHtml(agreementName)}</p>
+          <p style="margin: 4px 0;"><strong>Service:</strong> ${escapeHtml(serviceName)}</p>
+          <p style="margin: 4px 0;"><strong>Pricing Model:</strong> Hybrid / Multi-Component</p>
+          <p style="margin: 4px 0;"><strong>Vendor:</strong> ${escapeHtml(vendorName)}</p>
+          <p style="margin: 4px 0;"><strong>Client Approval Status:</strong> ${escapeHtml(clientApprovalStatus)}</p>
+          <p style="margin: 4px 0;"><strong>Internal Approval Status:</strong> ${escapeHtml(internalApprovalStatus)}</p>
+          <p style="margin: 4px 0;"><strong>Term Status:</strong> ${escapeHtml(termStatus)}</p>
+          <p style="margin: 4px 0;"><strong>Effective Start Date:</strong> ${escapeHtml(effectiveStartDate)}</p>
+          <p style="margin: 4px 0;"><strong>Effective End Date:</strong> ${escapeHtml(effectiveEndDate)}</p>
+          ${collectionSource ? `<p style="margin: 4px 0;"><strong>Collection Source:</strong> ${escapeHtml(collectionSource)}</p>` : ""}
+          
+          <h3>Margin Preview</h3>
+          ${hybridEmailMarginPreviewHtml}
+          
+          <p style="background:#fef3c7;border:1px solid #fde047;color:#92400e;padding:14px;border-radius:8px;font-weight:600;margin-top:16px;">⚠ Margin below threshold (${approvalData.marginPct.toFixed(2)}%)</p>
+          <p style="margin-top:16px;"><a href="${internalApprovalUrl}" style="display:inline-block;padding:10px 16px;border-radius:6px;background:#4f63ea;color:#ffffff;text-decoration:none;">Review Pricing Term</a></p>
+          <p>If the button does not work, copy and paste this URL into your browser:</p>
+          <p>${escapeHtml(internalApprovalUrl)}</p>
+        `;
+      } else {
+        approvalBody = `
+          <p>Hi Internal Admin/Manager,</p>
+          <p>A pricing term requires your approval for <strong>${escapeHtml(serviceName)}</strong> in agreement <strong>${escapeHtml(agreementName)}</strong>.</p>
+          <p><strong>Agreement:</strong> ${escapeHtml(agreementName)}</p>
+          <p><strong>Service:</strong> ${escapeHtml(serviceName)}</p>
+          <p><strong>Vendor:</strong> ${escapeHtml(vendorName)}</p>
+          <p><strong>Pricing Model:</strong> ${escapeHtml(term.pricingModel)}</p>
+          <p><strong>Effective Start Date:</strong> ${escapeHtml(effectiveStartDate)}</p>
+          <p><strong>Effective End Date:</strong> ${escapeHtml(effectiveEndDate)}</p>
+          <h3>Client Rates:</h3>
+          ${clientRatesHtml}
+          ${vendorRatesHtml ? `<h3>Vendor Rates:</h3>${vendorRatesHtml}` : ""}
+          <p><strong>${approvalData.isPercentageBased ? "Client Rate:" : "Client Amount:"}</strong> ${formatValue(approvalData.clientAmount)}</p>
+          <p><strong>${approvalData.isPercentageBased ? "Vendor Rate:" : "Vendor Amount:"}</strong> ${formatValue(approvalData.vendorAmount)}</p>
+          <p><strong>Gross Margin:</strong> ${formatValue(approvalData.grossMargin)}</p>
+          <p><strong>Margin %:</strong> ${approvalData.marginPct.toFixed(2)}%</p>
+          <p style="background:#fef3c7;border:1px solid #fde047;color:#92400e;padding:14px;border-radius:8px;font-weight:600;">⚠ Margin below threshold (${approvalData.marginPct.toFixed(2)}%)</p>
+          <p><a href="${internalApprovalUrl}" style="display:inline-block;padding:10px 16px;border-radius:6px;background:#4f63ea;color:#ffffff;text-decoration:none;">Review Pricing Term</a></p>
+          <p>If the button does not work, copy and paste this URL into your browser:</p>
+          <p>${escapeHtml(internalApprovalUrl)}</p>
+        `;
+      }
 
       await Promise.all(
         approvalEmails.map((email) =>
@@ -1014,6 +1119,66 @@ export async function getAgreementServiceTermApprovalPage(
     const isAlreadyDecided =
       internalApprovalStatus !== ApprovalDecisionStatus.PENDING;
 
+    let marginPreviewHtml = "";
+    if (term.pricingModel === PricingModel.HYBRID) {
+      const components = Array.isArray(pricingConfig.components) ? pricingConfig.components : [];
+      const vendorComponents = vendorPricing && Array.isArray(vendorPricing.components) ? vendorPricing.components : [];
+      
+      marginPreviewHtml = `<div class="rate-section" style="margin-top:12px; display:flex; flex-direction:column; gap:16px;">`;
+      for (let i = 0; i < components.length; i++) {
+        const cComp = components[i] as Record<string, unknown>;
+        const vComp = vendorComponents[i] as Record<string, unknown> | undefined;
+        const type = String(cComp?.type ?? `Component ${i + 1}`);
+        const cVal = parseNumericValue(cComp?.value);
+        const vVal = vComp ? parseNumericValue(vComp.value) : 0;
+        
+        const compMargin = cVal - vVal;
+        const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
+        const isPercent = type === "% Collections";
+        
+        const formatCompValue = (val: number) => {
+          if (isPercent) return `${val.toFixed(2)}%`;
+          return `$${val.toFixed(2)}`;
+        };
+
+        marginPreviewHtml += `
+          <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:8px; padding:14px; box-shadow:0 1px 3px rgba(0,0,0,0.05); margin-bottom:8px;">
+            <div style="font-weight:600; color:#1a202c; font-size:0.95rem; margin-bottom:8px; border-bottom:1px solid #f1f5f9; padding-bottom:6px;">
+              ${escapeHtml(type)}
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:4px;">
+              <span style="color:#64748b;">Client Rate:</span>
+              <strong style="color:#4f46e5; margin-left:auto;">${formatCompValue(cVal)}</strong>
+            </div>
+            ${term.vendorId ? `
+              <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:6px;">
+                <span style="color:#64748b;">Vendor Rate:</span>
+                <strong style="color:#ef4444; margin-left:auto;">${formatCompValue(vVal)}</strong>
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size:0.9rem; border-top:1px dashed #e2e8f0; padding-top:6px; font-weight:600;">
+                <span style="color:#334155;">Gross Margin:</span>
+                <span style="color:${compMarginPct < 20 ? "#d97706" : "#10b981"}; margin-left:auto;">
+                  ${formatCompValue(compMargin)} (${compMarginPct.toFixed(2)}%)
+                </span>
+              </div>
+            ` : ""}
+          </div>
+        `;
+      }
+      marginPreviewHtml += `</div>`;
+      if (approvalData.requiresApproval) {
+        marginPreviewHtml += `<div class="note-card" style="background:#fef3c7;border-color:#fde047;color:#92400e;margin-top:12px;"><strong>⚠ One or more components margin is below threshold (20%)</strong></div>`;
+      }
+    } else {
+      marginPreviewHtml = `
+        ${clientRevenue ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Client Rate" : "Est. Client Revenue"}</dt><dd style="color:#4f46e5;font-size:1.2rem;">${escapeHtml(clientRevenue)}</dd></div>` : ""}
+        ${vendorCost ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Vendor Rate" : "Est. Vendor Cost"}</dt><dd style="color:#ef4444;font-size:1.2rem;">${escapeHtml(vendorCost)}</dd></div>` : ""}
+        ${grossMargin ? `<div class="detail-card"><dt>Est. Gross Margin</dt><dd style="color:#10b981;font-size:1.2rem;">${escapeHtml(grossMargin)}</dd></div>` : ""}
+        ${marginPct ? `<div class="detail-card"><dt>Margin %</dt><dd style="color:${approvalData.marginPct < 20 ? "#f59e0b" : "#10b981"};font-size:1.2rem;">${escapeHtml(marginPct)}</dd></div>` : ""}
+        ${approvalData.requiresApproval ? `<div class="note-card" style="background:#fef3c7;border-color:#fde047;color:#92400e;"><strong>⚠ Margin below threshold (${approvalData.marginPct.toFixed(2)}%)</strong></div>` : ""}
+      `;
+    }
+
     const html = `
       <!doctype html>
       <html lang="en">
@@ -1061,11 +1226,7 @@ export async function getAgreementServiceTermApprovalPage(
 
           <div class="section">
             <h2>Margin Preview</h2>
-            ${clientRevenue ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Client Rate" : "Est. Client Revenue"}</dt><dd style="color:#4f46e5;font-size:1.2rem;">${escapeHtml(clientRevenue)}</dd></div>` : ""}
-            ${vendorCost ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Vendor Rate" : "Est. Vendor Cost"}</dt><dd style="color:#ef4444;font-size:1.2rem;">${escapeHtml(vendorCost)}</dd></div>` : ""}
-            ${grossMargin ? `<div class="detail-card"><dt>Est. Gross Margin</dt><dd style="color:#10b981;font-size:1.2rem;">${escapeHtml(grossMargin)}</dd></div>` : ""}
-            ${marginPct ? `<div class="detail-card"><dt>Margin %</dt><dd style="color:${approvalData.marginPct < 20 ? "#f59e0b" : "#10b981"};font-size:1.2rem;">${escapeHtml(marginPct)}</dd></div>` : ""}
-            ${approvalData.requiresApproval ? `<div class="note-card" style="background:#fef3c7;border-color:#fde047;color:#92400e;"><strong>⚠ Margin below threshold (${approvalData.marginPct.toFixed(2)}%)</strong></div>` : ""}
+            ${marginPreviewHtml}
           </div>
 
           ${

@@ -1327,9 +1327,9 @@ export async function createAgreement(
             docSlug: s.slug,
             fieldValues: s.fieldValues,
             approval_status:
-              req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
+              ["ADMIN", "INTERNAL"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
             // submissionApprovalStatus:
-            //   req.user?.role === "ADMIN" ? "APPROVED" : "PENDING_APPROVAL",
+            //   ["ADMIN", "INTERNAL"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
             submissionApprovalStatus: "APPROVED",
             signers: {
               create: s?.submitters?.map((init: any, index: number) => ({
