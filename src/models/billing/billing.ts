@@ -48,7 +48,7 @@ export type BillingReadinessIssue = {
 
 export type BillingReadinessSummary = {
   activeAgreementCount: number;
-  currentVersionCount: number;
+  currentVersionCount: number | string;
   activeServiceTermCount: number;
   billableServiceTermCount: number;
 };

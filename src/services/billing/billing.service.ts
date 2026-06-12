@@ -415,9 +415,10 @@ function computePricingFromModel(params: {
   snapshots: SnapshotMetric[];
   serviceId: string;
   minimumFee?: number | null;
+  maximumFee?: number | null;
   label?: string;
 }): ComputedPricingResult {
-  const { pricingModel, config, snapshots, serviceId, minimumFee, label } = params;
+  const { pricingModel, config, snapshots, serviceId, minimumFee, maximumFee, label } = params;
   const exceptionFlags: string[] = [];
   const components: ComputedComponent[] = [];
   const metricResolutions: MetricResolution[] = [];
@@ -444,6 +445,27 @@ function computePricingFromModel(params: {
       },
     });
     amount = roundMoney(minimumFee);
+  };
+
+  const addMaximumFeeAdjustment = () => {
+    if (maximumFee === null || maximumFee === undefined) {
+      return;
+    }
+
+    if (amount <= maximumFee) {
+      return;
+    }
+
+    const adjustment = roundMoney(maximumFee - amount);
+    components.push({
+      componentType: "MAXIMUM_FEE_ADJUSTMENT",
+      description: "Maximum fee adjustment",
+      amount: adjustment,
+      metadata: {
+        maximumFee,
+      },
+    });
+    amount = roundMoney(maximumFee);
   };
 
   switch (pricingModel) {
@@ -701,6 +723,7 @@ function computePricingFromModel(params: {
   }
 
   addMinimumFeeAdjustment();
+  addMaximumFeeAdjustment();
 
   return {
     amount: roundMoney(amount),
@@ -1017,6 +1040,9 @@ async function getActiveAgreementTermsForRun(
         practiceId,
         status: "ACTIVE",
       },
+      agreementVersion: {
+        isCurrent: true,
+      },
       AND: [
         {
           OR: [{ effectiveDate: null }, { effectiveDate: { lte: periodEnd } }],
@@ -1081,6 +1107,7 @@ export async function getBillingReadiness(params: {
         include: {
           service: true,
           vendor: true,
+          agreementVersion: true,
         },
         orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
       },
@@ -1099,12 +1126,14 @@ export async function getBillingReadiness(params: {
   }
 
   let currentVersionCount = 0;
+  const currentVersionNumbers: string[] = [];
   let activeServiceTermCount = 0;
   let billableServiceTermCount = 0;
 
   for (const agreement of activeAgreements) {
     const currentVersions = agreement.versions.filter((version) => version.isCurrent);
     currentVersionCount += currentVersions.length;
+    currentVersionNumbers.push(...currentVersions.map((v) => `${v.versionNumber}`));
 
     if (agreement.versions.length > 0 && currentVersions.length === 0) {
       issues.push({
@@ -1133,6 +1162,9 @@ export async function getBillingReadiness(params: {
       if (!term.isActive) {
         return false;
       }
+      if (term.agreementVersion && !term.agreementVersion.isCurrent) {
+        return false;
+      }
 
       return datesOverlap(term.effectiveDate, term.endDate, periodStart, periodEnd);
     });
@@ -1142,6 +1174,9 @@ export async function getBillingReadiness(params: {
     if (activeTerms.length === 0) {
       const activeTermsOutsidePeriod = agreement.serviceTerms.filter((term) => {
         if (!term.isActive) {
+          return false;
+        }
+        if (term.agreementVersion && !term.agreementVersion.isCurrent) {
           return false;
         }
         return !datesOverlap(term.effectiveDate, term.endDate, periodStart, periodEnd);
@@ -1259,7 +1294,7 @@ export async function getBillingReadiness(params: {
       billableServiceTermCount > 0,
     summary: {
       activeAgreementCount: activeAgreements.length,
-      currentVersionCount,
+      currentVersionCount: currentVersionNumbers.length > 0 ? currentVersionNumbers.join(", ") : "0",
       activeServiceTermCount,
       billableServiceTermCount,
     },
@@ -1304,11 +1339,20 @@ function computeVendorAmount(
       typeof nestedModelRaw === "string" &&
       Object.values(PricingModel).includes(nestedModelRaw as PricingModel)
     ) {
+      const vendorMinFee = vendorPricing.minimumFee !== undefined && vendorPricing.minimumFee !== null && vendorPricing.minimumFee !== ""
+        ? Number(vendorPricing.minimumFee)
+        : null;
+      const vendorMaxFee = vendorPricing.maximumFee !== undefined && vendorPricing.maximumFee !== null && vendorPricing.maximumFee !== ""
+        ? Number(vendorPricing.maximumFee)
+        : null;
+
       return computePricingFromModel({
         pricingModel: nestedModelRaw as PricingModel,
         config: vendorPricing,
         snapshots,
         serviceId,
+        minimumFee: vendorMinFee,
+        maximumFee: vendorMaxFee,
       }).amount;
     }
   }
@@ -1538,6 +1582,13 @@ export async function listBillingRuns(params: {
       include: {
         practice: true,
         approvedByUser: true,
+        items: {
+          select: {
+            clientAmount: true,
+            vendorAmount: true,
+            marginAmount: true,
+          },
+        },
         _count: {
           select: {
             inputSnapshots: true,
@@ -1680,12 +1731,20 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
 
   const calculatedItems: CalculatedRunItem[] = runTerms.map((term) => {
     const pricingConfig = toJsonObject(term.pricingConfig);
+    const clientMinFee = pricingConfig.minimumFee !== undefined && pricingConfig.minimumFee !== null && pricingConfig.minimumFee !== ""
+      ? Number(pricingConfig.minimumFee)
+      : null;
+    const clientMaxFee = pricingConfig.maximumFee !== undefined && pricingConfig.maximumFee !== null && pricingConfig.maximumFee !== ""
+      ? Number(pricingConfig.maximumFee)
+      : null;
+
     const clientResult = computePricingFromModel({
       pricingModel: term.pricingModel,
       config: pricingConfig,
       snapshots,
       serviceId: term.serviceId,
-      minimumFee: term.minimumFee ? Number(term.minimumFee) : null,
+      minimumFee: clientMinFee,
+      maximumFee: clientMaxFee,
       label: term.service.name,
     });
 
@@ -1706,7 +1765,8 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
     const formulaSnapshot: Prisma.InputJsonObject = {
       pricingModel: term.pricingModel,
       pricingConfig: pricingConfig as Prisma.InputJsonValue,
-      minimumFee: term.minimumFee ? Number(term.minimumFee) : null,
+      minimumFee: clientMinFee,
+      maximumFee: clientMaxFee,
       releasePolicy,
       agreementVersionId: term.agreementVersionId,
     };
@@ -2123,7 +2183,7 @@ export async function postBillingRun(billingRunId: string, userId: string) {
       invoices: createdInvoices,
       vendorPayables: createdVendorPayables,
     };
-  });
+  }, { timeout: 60000 });
 }
 
 export async function recordManualPayment(body: RecordPaymentBody) {
