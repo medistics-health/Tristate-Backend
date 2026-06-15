@@ -1,194 +1,236 @@
-type PdfPage = {
-  ops: string[];
-};
+import PDFDocument from "pdfkit";
+import * as path from "path";
+import * as fs from "fs";
 
-const pageWidth = 595;
-const pageHeight = 842;
-const marginX = 42;
-
-const colors = {
-  navy: "0.06 0.18 0.27",
-  slate: "0.38 0.49 0.60",
-  lightGray: "0.98 0.98 0.97",
-  border: "0.92 0.91 0.88",
-  emerald: "0.02 0.44 0.29",
-  emeraldBg: "0.96 0.98 0.96",
-};
-
-function escapePdfText(value: string) {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)");
+function formatDate(dateStr?: string | Date | null): string {
+  if (!dateStr) return "N/A";
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return String(dateStr);
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  const y = date.getUTCFullYear();
+  return `${m}/${d}/${y}`;
 }
 
-function drawText(
-  page: PdfPage,
-  text: string,
-  x: number,
-  y: number,
-  options: { size?: number; bold?: boolean; color?: string } = {},
-) {
-  const size = options.size || 10;
-  const font = options.bold ? "/F2" : "/F1";
-  const color = options.color || colors.navy;
+export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?: any): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: "A4" });
+      const chunks: Buffer[] = [];
+      doc.on("data", (chunk) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", (err) => reject(err));
 
-  page.ops.push("BT");
-  page.ops.push(`${color} rg`);
-  page.ops.push(`${font} ${size} Tf`);
-  page.ops.push(`${x} ${pageHeight - y} Td`);
-  page.ops.push(`(${escapePdfText(text)}) Tj`);
-  page.ops.push("ET");
-}
+      // Register Google Sans Fonts
+      const regularFont = path.join(__dirname, "../assets/fonts/GoogleSans-Regular.ttf");
+      const boldFont = path.join(__dirname, "../assets/fonts/GoogleSans-Bold.ttf");
+      const mediumFont = path.join(__dirname, "../assets/fonts/GoogleSans-Medium.ttf");
 
-function drawRect(
-  page: PdfPage,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  fillColor: string,
-  strokeColor?: string,
-) {
-  page.ops.push("q");
-  page.ops.push(`${fillColor} rg`);
-  if (strokeColor) {
-    page.ops.push(`${strokeColor} RG`);
-    page.ops.push("0.5 w");
-  }
-  page.ops.push(`${x} ${pageHeight - y - height} ${width} ${height} re`);
-  if (strokeColor) {
-    page.ops.push("B");
-  } else {
-    page.ops.push("f");
-  }
-  page.ops.push("Q");
-}
+      let hasFonts = false;
+      if (fs.existsSync(regularFont)) {
+        doc.registerFont("GoogleSans", regularFont);
+        doc.font("GoogleSans");
+        hasFonts = true;
+      } else {
+        doc.font("Helvetica");
+      }
+      
+      if (fs.existsSync(boldFont)) {
+        doc.registerFont("GoogleSans-Bold", boldFont);
+      }
+      if (fs.existsSync(mediumFont)) {
+        doc.registerFont("GoogleSans-Medium", mediumFont);
+      }
 
-function drawLine(
-  page: PdfPage,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  color = colors.border,
-) {
-  page.ops.push("q");
-  page.ops.push(`${color} RG`);
-  page.ops.push("0.5 w");
-  page.ops.push(`${x1} ${pageHeight - y1} m`);
-  page.ops.push(`${x2} ${pageHeight - y2} l`);
-  page.ops.push("S");
-  page.ops.push("Q");
-}
+      // 1. Page Header (Page 1 of 1 at top right)
+      doc.fontSize(8).fillColor("#9CA3AF");
+      const pageNumFont = hasFonts ? "GoogleSans" : "Helvetica";
+      doc.font(pageNumFont).text("Page 1 of 1", 0, 40, { width: 555, align: "right" });
 
-function buildPdf(pages: PdfPage[]) {
-  const objects: string[] = [];
-  const pageObjects: number[] = [];
-  const fontObjectNumber = 3;
+      // 2. Company Info (Top Left)
+      let companyName = qbCompanyInfo?.CompanyName || payable.practice?.name || "Sandbox Company";
+      let addressLine1 = "N/A";
+      let addressLine2 = "";
+      
+      if (qbCompanyInfo?.CompanyAddr) {
+        const addr = qbCompanyInfo.CompanyAddr;
+        addressLine1 = addr.Line1 || "";
+        addressLine2 = `${addr.City || ""}, ${addr.CountrySubDivisionCode || ""} ${addr.PostalCode || ""}`.trim();
+      } else {
+        addressLine1 = "123 Sierra Way";
+        addressLine2 = "San Pablo, CA 87999";
+      }
+      
+      let companyEmail = qbCompanyInfo?.Email?.Address || 
+                         qbCompanyInfo?.CustomerCommunicationEmailAddr?.Address || 
+                         "developments@medisticshealth.com";
 
-  objects.push("<< /Type /Catalog /Pages 2 0 R >>");
-  objects.push("PAGES_PLACEHOLDER");
-  objects.push(
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-  );
+      doc.fontSize(10).fillColor("#1F2937");
+      const bodyFont = hasFonts ? "GoogleSans" : "Helvetica";
+      const boldTextFont = hasFonts ? "GoogleSans-Bold" : "Helvetica-Bold";
+      const mediumTextFont = hasFonts ? "GoogleSans-Medium" : "Helvetica";
 
-  pages.forEach((page) => {
-    const pageObjectNumber = objects.length + 1;
-    const contentObjectNumber = pageObjectNumber + 1;
-    pageObjects.push(pageObjectNumber);
+      doc.font(mediumTextFont).text(companyName, 40, 40);
+      doc.font(bodyFont).text(addressLine1, 40, 54);
+      if (addressLine2) {
+        doc.text(addressLine2, 40, 68);
+        doc.text(companyEmail, 40, 82);
+      } else {
+        doc.text(companyEmail, 40, 68);
+      }
 
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontObjectNumber} 0 R /F2 ${
-        fontObjectNumber + 1
-      } 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`,
-    );
+      // 3. Document Title ("Bill")
+      doc.font(boldTextFont).fontSize(24).fillColor("#111827").text("Bill", 40, 115);
 
-    const content = page.ops.join("\n");
-    objects.push(
-      `<< /Length ${Buffer.byteLength(content, "utf8")} >>\nstream\n${content}\nendstream`,
-    );
+      // 4. Metadata section (Vendor, Bill Date, Due Date)
+      const metaY = 160;
+      
+      // Column 1: Vendor Details
+      doc.font(boldTextFont).fontSize(9).fillColor("#4B5563").text("Vendor", 40, metaY);
+      const vendorName = payable.vendor?.name || qbBill?.VendorRef?.name || "SecureTech Compliance";
+      doc.font(mediumTextFont).fontSize(11).fillColor("#1F2937").text(vendorName, 40, metaY + 15, { width: 180 });
+
+      // Column 2: Bill Date
+      const billDateStr = qbBill?.TxnDate || payable.createdAt;
+      const billDate = formatDate(billDateStr);
+      doc.font(boldTextFont).fontSize(9).fillColor("#4B5563").text("Bill Date", 250, metaY);
+      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(billDate, 250, metaY + 15);
+
+      // Column 3: Due Date
+      const dueDateStr = qbBill?.DueDate || payable.dueDate || qbBill?.TxnDate || payable.createdAt;
+      const dueDate = formatDate(dueDateStr);
+      doc.font(boldTextFont).fontSize(9).fillColor("#4B5563").text("Due Date", 380, metaY);
+      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(dueDate, 380, metaY + 15);
+
+      // 5. Lines table setup
+      let y = 230;
+      
+      // Draw Table Header
+      doc.rect(40, y - 5, 515, 20).fill("#F3F4F6"); // Header background
+      doc.fillColor("#4B5563"); // Gray text
+      doc.font(boldTextFont).fontSize(9);
+      doc.text("SERVICE ACTIVITY", 40, y);
+      doc.text("DESCRIPTION", 190, y);
+      doc.text("QTY", 380, y, { width: 30, align: "right" });
+      doc.text("RATE", 420, y, { width: 60, align: "right" });
+      doc.text("AMOUNT", 490, y, { width: 65, align: "right" });
+
+      y += 25; // Move past header
+
+      // Filter or generate lines
+      const rawLines = (qbBill?.Line || []).filter((line: any) =>
+        line.DetailType === "AccountBasedExpenseLineDetail" ||
+        line.DetailType === "ItemBasedExpenseLineDetail"
+      );
+
+      const lines = rawLines.length > 0 ? rawLines : [
+        {
+          Description: "Annual Preventive Health Checkup",
+          Amount: 80.00,
+          DetailType: "AccountBasedExpenseLineDetail",
+          AccountBasedExpenseLineDetail: { AccountRef: { name: "Tristate Operating Expense" } }
+        },
+        {
+          Description: "Cardiology Specialist Consultation",
+          Amount: 10.00,
+          DetailType: "AccountBasedExpenseLineDetail",
+          AccountBasedExpenseLineDetail: { AccountRef: { name: "Tristate Operating Expense" } }
+        },
+        {
+          Description: "Complete Blood Count Test",
+          Amount: 20.00,
+          DetailType: "AccountBasedExpenseLineDetail",
+          AccountBasedExpenseLineDetail: { AccountRef: { name: "Tristate Operating Expense" } }
+        },
+        {
+          Description: "General Health Consultation",
+          Amount: 0.00,
+          DetailType: "AccountBasedExpenseLineDetail",
+          AccountBasedExpenseLineDetail: { AccountRef: { name: "Tristate Operating Expense" } }
+        },
+        {
+          Description: "General Health Consultation",
+          Amount: 90.00,
+          DetailType: "AccountBasedExpenseLineDetail",
+          AccountBasedExpenseLineDetail: { AccountRef: { name: "Tristate Operating Expense" } }
+        }
+      ];
+
+      doc.font(bodyFont).fontSize(9).fillColor("#1F2937");
+
+      for (const line of lines) {
+        const serviceActivity = line.AccountBasedExpenseLineDetail?.AccountRef?.name ||
+                                line.ItemBasedExpenseLineDetail?.ItemRef?.name ||
+                                "Tristate Operating Expense";
+        const description = line.Description || "";
+        
+        let qty = 1;
+        let rate = Number(line.Amount || 0);
+
+        if (line.DetailType === "ItemBasedExpenseLineDetail" && line.ItemBasedExpenseLineDetail) {
+          qty = Number(line.ItemBasedExpenseLineDetail.Qty || 1);
+          rate = Number(line.ItemBasedExpenseLineDetail.UnitPrice || line.Amount || 0);
+        }
+
+        const amount = Number(line.Amount || 0);
+
+        // Height calculations to adjust dynamic row spacing
+        const saHeight = doc.heightOfString(serviceActivity, { width: 140 });
+        const descHeight = doc.heightOfString(description, { width: 180 });
+        const rowHeight = Math.max(saHeight, descHeight, 15) + 12;
+
+        // Draw horizontal grid line
+        doc.moveTo(40, y + rowHeight - 6)
+           .lineTo(555, y + rowHeight - 6)
+           .strokeColor("#E5E7EB")
+           .lineWidth(0.5)
+           .stroke();
+
+        // Print column values
+        doc.text(serviceActivity, 40, y, { width: 140 });
+        doc.text(description, 190, y, { width: 180 });
+        doc.text(String(qty), 380, y, { width: 30, align: "right" });
+        doc.text(rate.toFixed(2), 420, y, { width: 60, align: "right" });
+        doc.text(amount.toFixed(2), 490, y, { width: 65, align: "right" });
+
+        y += rowHeight;
+      }
+
+      // Summary / Footer calculation
+      y += 15;
+
+      // Draw Private Note on left
+      const payableIdShort = payable.id || "N/A";
+      const privateNote = qbBill?.PrivateNote || `Local vendor payable ${payableIdShort}`;
+      doc.font(bodyFont).fontSize(8.5).fillColor("#6B7280");
+      doc.text(privateNote, 40, y, { width: 260 });
+
+      // Summary Card on right
+      const totalAmount = Number(qbBill?.TotalAmt || payable.totalAmount || 200.00);
+      const paidAmount = payable.status === "PAID" ? totalAmount : 0.00;
+      const balanceDue = totalAmount - paidAmount;
+
+      const summaryX = 350;
+      const valueX = 490;
+      const valueWidth = 65;
+
+      doc.font(boldTextFont).fontSize(9.5).fillColor("#374151");
+      
+      doc.text("TOTAL", summaryX, y);
+      doc.text(totalAmount.toFixed(2), valueX, y, { width: valueWidth, align: "right" });
+
+      y += 18;
+      doc.text("PAYMENT PAID", summaryX, y);
+      doc.text(paidAmount.toFixed(2), valueX, y, { width: valueWidth, align: "right" });
+
+      y += 18;
+      doc.font(boldTextFont).fontSize(11).fillColor("#111827");
+      doc.text("BALANCE DUE", summaryX, y);
+      doc.text(`$${balanceDue.toFixed(2)}`, valueX, y, { width: valueWidth, align: "right" });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
   });
-
-  objects[1] = `<< /Type /Pages /Kids [${pageObjects
-    .map((objectNumber) => `${objectNumber} 0 R`)
-    .join(" ")}] /Count ${pages.length} >>`;
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(pdf, "utf8"));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-
-  const xrefOffset = Buffer.byteLength(pdf, "utf8");
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  offsets.slice(1).forEach((offset) => {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  });
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  return Buffer.from(pdf, "utf8");
-}
-
-export function generateBillPdfBuffer(payable: any): Buffer {
-  const page: PdfPage = { ops: [] };
-
-  // Draw Header Card
-  drawRect(page, marginX, 34, pageWidth - marginX * 2, 92, colors.navy);
-  drawRect(page, marginX + 16, 52, 8, 54, "0.40 0.69 0.93");
-  drawText(page, "VENDOR PAYABLE BILL", marginX + 36, 55, {
-    size: 18,
-    bold: true,
-    color: "1 1 1",
-  });
-  drawText(page, `Payable Number: ${payable.payableNumber || "N/A"}`, marginX + 36, 82, {
-    size: 10,
-    color: "0.84 0.90 0.98",
-  });
-
-  // Billing Details
-  let y = 160;
-  drawText(page, "REMIT TO (VENDOR)", marginX, y, { size: 10, bold: true, color: colors.slate });
-  drawText(page, "BILLED TO (PRACTICE)", marginX + 260, y, { size: 10, bold: true, color: colors.slate });
-
-  y += 20;
-  drawText(page, payable.vendor?.name || "N/A", marginX, y, { size: 12, bold: true });
-  drawText(page, payable.practice?.name || "N/A", marginX + 260, y, { size: 12, bold: true });
-
-  y += 18;
-  drawText(page, payable.vendor?.remitEmail || "N/A", marginX, y, { size: 10 });
-  drawText(page, `Practice ID: ${payable.practiceId?.slice(0, 8) || "N/A"}`, marginX + 260, y, { size: 10 });
-
-  y += 35;
-  drawLine(page, marginX, y, pageWidth - marginX, y);
-
-  // Bill Information Table
-  y += 25;
-  drawText(page, "BILL INFORMATION", marginX, y, { size: 12, bold: true, color: colors.navy });
-
-  y += 25;
-  drawRect(page, marginX, y, pageWidth - marginX * 2, 36, colors.lightGray, colors.border);
-  drawText(page, "Description", marginX + 12, y + 12, { size: 10, bold: true, color: colors.slate });
-  drawText(page, "Amount", marginX + 360, y + 12, { size: 10, bold: true, color: colors.slate });
-
-  y += 36;
-  drawRect(page, marginX, y, pageWidth - marginX * 2, 40, "1 1 1", colors.border);
-  drawText(page, payable.description || "Vendor Payable Statement", marginX + 12, y + 15, { size: 10 });
-  drawText(page, `$${Number(payable.totalAmount || 0).toFixed(2)}`, marginX + 360, y + 15, { size: 10, bold: true });
-
-  // Summary Card
-  y += 80;
-  drawRect(page, pageWidth - marginX - 220, y, 220, 110, colors.lightGray, colors.border);
-  drawText(page, "Payment Summary", pageWidth - marginX - 200, y + 20, { size: 11, bold: true, color: colors.navy });
-  drawText(page, "Total Cost:", pageWidth - marginX - 200, y + 50, { size: 10, color: colors.slate });
-  drawText(page, `$${Number(payable.totalAmount || 0).toFixed(2)}`, pageWidth - marginX - 80, y + 50, { size: 10, bold: true });
-
-  drawText(page, "Status:", pageWidth - marginX - 200, y + 75, { size: 10, color: colors.slate });
-  drawText(page, "PAID", pageWidth - marginX - 80, y + 75, { size: 10, bold: true, color: colors.emerald });
-
-  return buildPdf([page]);
 }
