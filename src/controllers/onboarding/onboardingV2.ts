@@ -383,31 +383,72 @@ async function attachSubmissionPdfToOnboarding(onboarding: any) {
   const fileName = `onboarding-submission-${practiceFileNamePart}-${generatedAt
     .toISOString()
     .replace(/[:.]/g, "-")}.pdf`;
-  const pdfBuffer = generateOnboardingPdfBuffer(onboarding);
-  const upload = await uploadBufferToAzureBlob({
-    folder: `${practiceFolderName}/onboarding-submission`,
-    fileName,
-    buffer: pdfBuffer,
-    contentType: "application/pdf",
-  });
 
-  await prisma.onboardingDocument.create({
-    data: {
+  try {
+    console.info("[onboarding-pdf] generation_started", {
       onboardingId: onboarding.id,
-      documentType: [DocumentTypes.OTHER],
+      practiceId: onboarding.practiceId,
+      practiceName: practiceFolderName,
       fileName,
-      fileUrl: upload.sasUrl,
-      required: false,
-      status: DocumentStatus.RECEIVED,
-      dateReceived: generatedAt,
-      notes: "Auto-generated onboarding submission PDF.",
-    },
-  });
+    });
 
-  return prisma.onboarding.findUnique({
-    where: { id: onboarding.id },
-    include: onboardingInclude,
-  } as any);
+    const pdfBuffer = generateOnboardingPdfBuffer(
+      onboarding,
+      practiceFolderName,
+    );
+
+    console.info("[onboarding-pdf] buffer_generated", {
+      onboardingId: onboarding.id,
+      fileName,
+      sizeBytes: pdfBuffer.length,
+    });
+
+    const upload = await uploadBufferToAzureBlob({
+      folder: `${practiceFolderName}/onboarding-submission`,
+      fileName,
+      buffer: pdfBuffer,
+      contentType: "application/pdf",
+    });
+
+    console.info("[onboarding-pdf] upload_completed", {
+      onboardingId: onboarding.id,
+      fileName,
+      blobName: upload.blobName,
+      blobUrl: upload.url,
+    });
+
+    const document = await prisma.onboardingDocument.create({
+      data: {
+        onboardingId: onboarding.id,
+        documentType: [DocumentTypes.OTHER],
+        fileName,
+        fileUrl: upload.sasUrl,
+        required: false,
+        status: DocumentStatus.RECEIVED,
+        dateReceived: generatedAt,
+        notes: "Auto-generated onboarding submission PDF.",
+      },
+    });
+
+    console.info("[onboarding-pdf] document_attached", {
+      onboardingId: onboarding.id,
+      documentId: document.id,
+      fileName,
+    });
+
+    return prisma.onboarding.findUnique({
+      where: { id: onboarding.id },
+      include: onboardingInclude,
+    } as any);
+  } catch (error) {
+    console.error("[onboarding-pdf] generation_failed", {
+      onboardingId: onboarding.id,
+      practiceId: onboarding.practiceId,
+      fileName,
+      error: error instanceof Error ? error.message : error,
+    });
+    throw error;
+  }
 }
 
 async function ensureUniquePracticeOnboarding(
@@ -820,10 +861,6 @@ async function createOnboardingRecord(body: OnboardingBody) {
     include: onboardingInclude as any,
   } as any)) as any;
 
-  if (body.status === OnboardingStatus.COMPLETED) {
-    await handleCompletedOnboarding(onboarding.id);
-  }
-
   return onboarding;
 }
 
@@ -887,9 +924,16 @@ export async function createOnboarding(
     }
 
     const body = req.body as OnboardingBody;
-    const onboarding = await createOnboardingRecord(body);
+    let onboarding = await createOnboardingRecord(body);
 
     if (body.status === OnboardingStatus.COMPLETED) {
+      console.info("[onboarding-pdf] completed_status_detected", {
+        source: "createOnboarding",
+        onboardingId: onboarding.id,
+        practiceId: onboarding.practiceId,
+        status: body.status,
+      });
+      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
       await handleCompletedOnboarding(onboarding.id);
     }
 
@@ -977,11 +1021,14 @@ export async function createExternalOnboarding(req: Request, res: Response) {
       practiceId,
     });
 
-    if (body.status === OnboardingStatus.IN_PROGRESS) {
-      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
-    }
-
     if (body.status === OnboardingStatus.COMPLETED) {
+      console.info("[onboarding-pdf] completed_status_detected", {
+        source: "createExternalOnboarding",
+        onboardingId: onboarding.id,
+        practiceId: onboarding.practiceId,
+        status: body.status,
+      });
+      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
       await handleCompletedOnboarding(onboarding.id);
     }
 
@@ -1837,14 +1884,27 @@ export async function updateOnboarding(
       body.status === OnboardingStatus.COMPLETED &&
       existing.status !== OnboardingStatus.COMPLETED
     ) {
-      await handleCompletedOnboarding(onboarding.id);
-    }
-
-    if (
-      body.status === OnboardingStatus.IN_PROGRESS &&
-      existing.status !== OnboardingStatus.IN_PROGRESS
-    ) {
+      console.info("[onboarding-pdf] completed_status_transition_detected", {
+        source: "updateOnboarding",
+        onboardingId: onboarding.id,
+        practiceId: onboarding.practiceId,
+        previousStatus: existing.status,
+        nextStatus: body.status,
+      });
       onboarding = await attachSubmissionPdfToOnboarding(onboarding);
+      await handleCompletedOnboarding(onboarding.id);
+    } else {
+      console.info("[onboarding-pdf] completed_status_transition_skipped", {
+        source: "updateOnboarding",
+        onboardingId: onboarding.id,
+        practiceId: onboarding.practiceId,
+        previousStatus: existing.status,
+        nextStatus: body.status,
+        reason:
+          body.status === OnboardingStatus.COMPLETED
+            ? "already_completed"
+            : "next_status_not_completed",
+      });
     }
 
     return res.status(200).json({

@@ -105,7 +105,33 @@ function wrapText(text: string, maxWidth: number, fontSize: number) {
   const lines: string[] = [];
   let currentLine = "";
 
+  const splitLongWord = (word: string) => {
+    const chunks: string[] = [];
+    let chunk = "";
+
+    for (const char of word) {
+      if (chunk && textWidth(`${chunk}${char}`, fontSize) > maxWidth) {
+        chunks.push(chunk);
+        chunk = char;
+      } else {
+        chunk += char;
+      }
+    }
+
+    if (chunk) chunks.push(chunk);
+    return chunks;
+  };
+
   for (const word of words) {
+    if (textWidth(word, fontSize) > maxWidth) {
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = "";
+      }
+      lines.push(...splitLongWord(word));
+      continue;
+    }
+
     const nextLine = currentLine ? `${currentLine} ${word}` : word;
     if (textWidth(nextLine, fontSize) > maxWidth && currentLine) {
       lines.push(currentLine);
@@ -203,8 +229,9 @@ class OnboardingPdf {
 
     while (index < normalizedFields.length) {
       const firstField = normalizedFields[index];
+      const secondField = normalizedFields[index + 1];
       const rowFields =
-        columns === 1 || firstField.span === 2
+        columns === 1 || firstField.span === 2 || secondField?.span === 2
           ? [firstField]
           : normalizedFields.slice(index, index + 2);
       const rowHeights = rowFields.map((field) =>
@@ -318,9 +345,7 @@ class OnboardingPdf {
       bold: true,
       color: "1 1 1",
     });
-    const subtitle = this.practiceName
-      ? `Generated copy of the submitted client onboarding form for ${this.practiceName}`
-      : "Generated copy of the submitted client onboarding form";
+    const subtitle = "Generated copy of the submitted client onboarding form";
     wrapText(subtitle, pageWidth - marginX * 2 - 72, 10).forEach(
       (line, index) => {
         drawText(this.page, line, marginX + 36, 82 + index * 13, {
@@ -329,6 +354,21 @@ class OnboardingPdf {
         });
       },
     );
+
+    if (this.practiceName) {
+      wrapText(
+        `Practice: ${this.practiceName}`,
+        pageWidth - marginX * 2 - 72,
+        11,
+      ).forEach((line, index) => {
+        drawText(this.page, line, marginX + 36, 98 + index * 13, {
+          size: 11,
+          bold: true,
+          color: "1 1 1",
+        });
+      });
+    }
+
     this.y = 148;
   }
 
@@ -485,8 +525,13 @@ function buildPdf(pages: PdfPage[]) {
   return Buffer.from(pdf, "utf8");
 }
 
-export function generateOnboardingPdfBuffer(onboarding: any) {
-  const pdf = new OnboardingPdf(getOnboardingPracticeName(onboarding));
+export function generateOnboardingPdfBuffer(
+  onboarding: any,
+  practiceName?: string,
+) {
+  const pdf = new OnboardingPdf(
+    practiceName || getOnboardingPracticeName(onboarding),
+  );
   const practices = onboarding.practices ?? [];
   const contacts = onboarding.contacts ?? [];
   const marketing = onboarding.marketing ?? onboarding.OnboardingMarketing;
