@@ -820,10 +820,6 @@ async function createOnboardingRecord(body: OnboardingBody) {
     include: onboardingInclude as any,
   } as any)) as any;
 
-  if (body.status === OnboardingStatus.COMPLETED) {
-    await handleCompletedOnboarding(onboarding.id);
-  }
-
   return onboarding;
 }
 
@@ -887,9 +883,10 @@ export async function createOnboarding(
     }
 
     const body = req.body as OnboardingBody;
-    const onboarding = await createOnboardingRecord(body);
+    let onboarding = await createOnboardingRecord(body);
 
     if (body.status === OnboardingStatus.COMPLETED) {
+      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
       await handleCompletedOnboarding(onboarding.id);
     }
 
@@ -977,11 +974,8 @@ export async function createExternalOnboarding(req: Request, res: Response) {
       practiceId,
     });
 
-    if (body.status === OnboardingStatus.IN_PROGRESS) {
-      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
-    }
-
     if (body.status === OnboardingStatus.COMPLETED) {
+      onboarding = await attachSubmissionPdfToOnboarding(onboarding);
       await handleCompletedOnboarding(onboarding.id);
     }
 
@@ -1837,14 +1831,8 @@ export async function updateOnboarding(
       body.status === OnboardingStatus.COMPLETED &&
       existing.status !== OnboardingStatus.COMPLETED
     ) {
-      await handleCompletedOnboarding(onboarding.id);
-    }
-
-    if (
-      body.status === OnboardingStatus.IN_PROGRESS &&
-      existing.status !== OnboardingStatus.IN_PROGRESS
-    ) {
       onboarding = await attachSubmissionPdfToOnboarding(onboarding);
+      await handleCompletedOnboarding(onboarding.id);
     }
 
     return res.status(200).json({
