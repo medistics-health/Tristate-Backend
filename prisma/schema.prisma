@@ -206,6 +206,7 @@ model Person {
   firstName           String               @map("first_name")
   lastName            String               @map("last_name")
   role                PersonRole
+  status              PersonStatus         @default(ACTIVE)
   designation         String?
   influence           InfluenceLevel
   email               String?
@@ -1341,6 +1342,11 @@ enum PersonRole {
   OTHER
 }
 
+enum PersonStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum InfluenceLevel {
   LOW
   MEDIUM
@@ -1371,6 +1377,7 @@ enum AgreementStatus {
   DRAFT
   SENT
   ACTIVE
+  INACTIVE
   EXPIRED
   TERMINATED
   SIGNED

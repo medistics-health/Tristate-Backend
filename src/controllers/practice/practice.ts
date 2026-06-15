@@ -694,16 +694,32 @@ export async function deletePractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    await prisma.practice.delete({
+    const practice = await prisma.practice.update({
       where: { id },
+      data: {
+        status: PracticeStatus.INACTIVE,
+      },
+      include: {
+        company: true,
+        practiceGroup: true,
+        taxId: true,
+        groupNpis: true,
+        agreements: true,
+        persons: {
+          include: {
+            person: true,
+          },
+        },
+      },
     });
 
     return res.status(200).json({
-      message: "Practice deleted successfully.",
+      message: "Practice marked inactive successfully.",
+      practice,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to delete practice.",
+      message: "Unable to mark practice inactive.",
       error: error instanceof Error ? error.message : error,
     });
   }
