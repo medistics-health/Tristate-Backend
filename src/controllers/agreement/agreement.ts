@@ -1548,12 +1548,27 @@ export async function deleteAgreement(
       return res.status(404).json({ message: "Agreement not found." });
     }
 
-    await prisma.agreement.delete({ where: { id } });
+    const agreement = await prisma.agreement.update({
+      where: { id },
+      data: {
+        status: AgreementStatus.INACTIVE,
+      },
+      include: {
+        practice: true,
+        deal: true,
+        channelPartners: true,
+        docusealSubmissions: true,
+        versions: true,
+      },
+    });
 
-    return res.status(200).json({ message: "Agreement deleted successfully." });
+    return res.status(200).json({
+      message: "Agreement marked inactive successfully.",
+      agreement,
+    });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to delete agreement.",
+      message: "Unable to mark agreement inactive.",
       error: error instanceof Error ? error.message : error,
     });
   }

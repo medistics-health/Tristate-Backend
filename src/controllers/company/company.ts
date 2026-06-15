@@ -394,16 +394,23 @@ export async function deleteCompany(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    await prisma.company.delete({
+    const company = await prisma.company.update({
       where: { id },
+      data: {
+        status: CompanyStatus.INACTIVE,
+      },
+      include: {
+        taxIds: true,
+      },
     });
 
     return res.status(200).json({
-      message: "Company deleted successfully.",
+      message: "Company marked inactive successfully.",
+      company,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to delete company.",
+      message: "Unable to mark company inactive.",
       error: error instanceof Error ? error.message : error,
     });
   }

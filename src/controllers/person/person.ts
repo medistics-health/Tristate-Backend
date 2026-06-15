@@ -1,4 +1,8 @@
-import { PersonRole, InfluenceLevel } from "../../../generated/prisma/client";
+import {
+  PersonRole,
+  InfluenceLevel,
+  PersonStatus,
+} from "../../../generated/prisma/client";
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
@@ -13,6 +17,7 @@ type PersonBody = {
   influence?: string;
   email?: string;
   phone?: string;
+  status?: string;
 };
 
 function isPersonRole(role: string): role is PersonRole {
@@ -341,6 +346,7 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
       phone,
       practiceIds,
       companyIds,
+      status,
     } = req.body as PersonBody;
 
     if (!req.user?.sub) {
@@ -429,6 +435,10 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
 
     if (phone !== undefined) {
       updateData.phone = phone;
+    }
+
+    if (status !== undefined) {
+      updateData.status = status;
     }
 
     if (practiceIds !== undefined) {
@@ -580,18 +590,32 @@ export async function deletePerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    await prisma.person.delete({
-      where: {
-        id,
+    const person = await prisma.person.update({
+      where: { id },
+      data: {
+        status: PersonStatus.INACTIVE,
+      },
+      include: {
+        practices: {
+          include: {
+            practice: true,
+          },
+        },
+        companies: {
+          include: {
+            company: true,
+          },
+        },
       },
     });
 
     return res.status(200).json({
-      message: "Person deleted successfully.",
+      message: "Person marked inactive successfully.",
+      person,
     });
   } catch (error) {
     return res.status(500).json({
-      message: "Unable to delete person.",
+      message: "Unable to mark person inactive.",
       error: error instanceof Error ? error.message : error,
     });
   }

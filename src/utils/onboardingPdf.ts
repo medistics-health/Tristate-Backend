@@ -161,7 +161,7 @@ class OnboardingPdf {
   private page: PdfPage;
   private y = 42;
 
-  constructor() {
+  constructor(private readonly practiceName?: string) {
     this.page = this.createPage();
     this.drawCoverHeader();
   }
@@ -318,12 +318,16 @@ class OnboardingPdf {
       bold: true,
       color: "1 1 1",
     });
-    drawText(
-      this.page,
-      "Generated copy of the submitted client onboarding form",
-      marginX + 36,
-      82,
-      { size: 10, color: "0.84 0.90 0.98" },
+    const subtitle = this.practiceName
+      ? `Generated copy of the submitted client onboarding form for ${this.practiceName}`
+      : "Generated copy of the submitted client onboarding form";
+    wrapText(subtitle, pageWidth - marginX * 2 - 72, 10).forEach(
+      (line, index) => {
+        drawText(this.page, line, marginX + 36, 82 + index * 13, {
+          size: 10,
+          color: "0.84 0.90 0.98",
+        });
+      },
     );
     this.y = 148;
   }
@@ -419,6 +423,16 @@ function documentValue(value: PdfFieldValue) {
   return getDocumentReference(value);
 }
 
+function getOnboardingPracticeName(onboarding: any) {
+  return (
+    onboarding.practices?.[0]?.practiceName ||
+    onboarding.practice?.name ||
+    onboarding.legalCompanyName ||
+    onboarding.dbaName ||
+    undefined
+  );
+}
+
 function buildPdf(pages: PdfPage[]) {
   const objects: string[] = [];
   const pageObjects: number[] = [];
@@ -472,7 +486,7 @@ function buildPdf(pages: PdfPage[]) {
 }
 
 export function generateOnboardingPdfBuffer(onboarding: any) {
-  const pdf = new OnboardingPdf();
+  const pdf = new OnboardingPdf(getOnboardingPracticeName(onboarding));
   const practices = onboarding.practices ?? [];
   const contacts = onboarding.contacts ?? [];
   const marketing = onboarding.marketing ?? onboarding.OnboardingMarketing;
