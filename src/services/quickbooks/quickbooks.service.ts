@@ -2054,35 +2054,31 @@ export async function getQuickBooksBillPdf(vendorPayableId: string): Promise<Buf
     : null;
   const qbBillId = vendorPayable.quickbooksBillId;
 
+  let qbBill: any = null;
+  let qbCompanyInfo: any = null;
+
   if (connection && qbBillId) {
     try {
-      // 1. Query QuickBooks for Attachables linked to this Bill
-      console.log(`[QB-ATTACHMENT] Querying attachments for Bill ID: ${qbBillId}`);
-      const attachableResponse = await queryQuickBooks<any>(
-        prisma,
-        connection as any,
-        `select * from attachable where AttachToRef.Id = '${qbBillId}' and AttachToRef.Type = 'Bill'`,
-      );
+      console.log(`[QB-BILL-DOWNLOAD] Fetching Bill ${qbBillId} from QBO`);
+      const qbBillResponse = await requestQuickBooks<any>(prisma, connection as any, {
+        method: "GET",
+        path: `/bill/${qbBillId}`,
+      });
+      qbBill = qbBillResponse?.Bill || qbBillResponse || null;
 
-      const attachables = attachableResponse.Attachable || [];
-      const pdfAttachable = attachables.find((att: any) =>
-        att.ContentType === "application/pdf" ||
-        (att.FileName && att.FileName.toLowerCase().endsWith(".pdf")),
-      ) || attachables[0];
-
-      if (pdfAttachable && pdfAttachable.TempDownloadUri) {
-        console.log(`[QB-ATTACHMENT] Downloading attachment from ${pdfAttachable.TempDownloadUri}`);
-        const response = await axios.get(pdfAttachable.TempDownloadUri, { responseType: "arraybuffer" });
-        return Buffer.from(response.data);
-      }
+      console.log(`[QB-BILL-DOWNLOAD] Fetching CompanyInfo for realmId: ${connection.realmId}`);
+      const qbCompanyInfoResponse = await requestQuickBooks<any>(prisma, connection as any, {
+        method: "GET",
+        path: `/companyinfo/${connection.realmId}`,
+      });
+      qbCompanyInfo = qbCompanyInfoResponse?.CompanyInfo || null;
     } catch (qbError) {
-      console.warn("[QB-ATTACHMENT] Failed to fetch QuickBooks attachable, falling back to local generation:", qbError);
+      console.warn("[QB-BILL-DOWNLOAD] Failed to fetch QuickBooks info, falling back to local metadata:", qbError);
     }
   }
 
-  // 2. Fallback to generating a local PDF using bill details
-  console.log(`[QB-BILL] No QBO attachment available for payable ${vendorPayableId}, generating local PDF`);
-  return generateBillPdfBuffer(vendorPayable);
+  console.log(`[QB-BILL] Generating custom Google Sans PDF for payable ${vendorPayableId}`);
+  return await generateBillPdfBuffer(vendorPayable, qbBill, qbCompanyInfo);
 }
 
 export { QuickBooksServiceError };

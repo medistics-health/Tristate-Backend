@@ -629,20 +629,55 @@ async function processStripeWebhookEvent(event: any) {
 
         if (uniqueEmails.length > 0) {
           let pdfBuffer: Buffer | null = null;
-          const pdfUrl = stripeInvoice.invoice_pdf || stripeInvoice.hosted_invoice_url;
+          let pdfUrl = stripeInvoice.invoice_pdf || stripeInvoice.hosted_invoice_url;
+          let isReceipt = false;
+          let chargeId = stripeInvoice.charge;
+
+          if (!chargeId && stripeInvoice.payment_intent) {
+            try {
+              const pi = await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent as string);
+              chargeId = pi.latest_charge;
+            } catch (piErr) {
+              console.error(`[stripe-webhook] Failed to retrieve payment intent ${stripeInvoice.payment_intent}:`, piErr);
+            }
+          }
+
+          if (chargeId) {
+            try {
+              console.log(`[stripe-webhook] Retrieving charge details for ID: ${chargeId}`);
+              const charge = await stripe.charges.retrieve(chargeId as string);
+              if (charge.receipt_url) {
+                // Stripe payment receipts can be fetched in PDF format by appending /pdf?s=ap to the base receipt URL
+                pdfUrl = `${charge.receipt_url.split("?")[0]}/pdf?s=ap`;
+                isReceipt = true;
+                console.log(`[stripe-webhook] Resolved payment receipt PDF URL: ${pdfUrl}`);
+              }
+            } catch (chargeErr) {
+              console.error(`[stripe-webhook] Failed to retrieve charge details:`, chargeErr);
+            }
+          }
+
           if (pdfUrl) {
             try {
-              const axiosResponse = await axios.get(pdfUrl, { responseType: "arraybuffer" });
+              console.log(`[stripe-webhook] Downloading PDF from ${pdfUrl}`);
+              const axiosResponse = await axios.get(pdfUrl, {
+                responseType: "arraybuffer",
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                }
+              });
               pdfBuffer = Buffer.from(axiosResponse.data);
-            } catch (downloadErr) {
-              console.error(`[stripe-webhook] Failed to download invoice PDF from ${pdfUrl}:`, downloadErr);
+              console.log(`[stripe-webhook] Downloaded PDF successfully (${pdfBuffer.length} bytes)`);
+            } catch (downloadErr: any) {
+              console.error(`[stripe-webhook] Failed to download PDF from ${pdfUrl}:`, downloadErr.message);
             }
           }
 
           let attachments: any[] = [];
           if (pdfBuffer) {
+            const docName = isReceipt ? "receipt" : "invoice";
             attachments.push({
-              name: `receipt-invoice-${invoice.invoiceNumber || invoice.id.slice(0, 8)}.pdf`,
+              name: `${docName}-${invoice.invoiceNumber || invoice.id.slice(0, 8)}.pdf`,
               contentType: "application/pdf",
               contentBytes: pdfBuffer.toString("base64"),
             });
