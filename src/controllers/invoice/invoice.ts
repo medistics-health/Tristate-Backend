@@ -89,13 +89,20 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    let calculatedDueDate = dueDate ? new Date(dueDate) : undefined;
+    if (!calculatedDueDate) {
+      const settings = await prisma.systemSettings.findFirst();
+      const dueDays = settings?.invoiceDueDays ?? 15;
+      calculatedDueDate = new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000);
+    }
+
     const invoice = await prisma.invoice.create({
       data: {
         practiceId,
         agreementId: agreementId ?? undefined,
         totalAmount,
         status,
-        dueDate: dueDate ? new Date(dueDate) : undefined,
+        dueDate: calculatedDueDate,
         ...(invoiceNumber !== undefined
           ? { invoiceNumber: invoiceNumber || null }
           : {}),
@@ -540,7 +547,10 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       customer: customerId,
       auto_advance: false,
       collection_method: "send_invoice",
-      days_until_due: 30,
+      due_date: invoice.dueDate
+        ? Math.floor(new Date(invoice.dueDate).getTime() / 1000)
+        : undefined,
+      days_until_due: invoice.dueDate ? undefined : 30,
       pending_invoice_items_behavior: "include",
       metadata: { invoiceId: invoice.id },
     });
@@ -614,16 +624,18 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
   if (recipientEmails.length > 0 && hostedUrl) {
     const practiceName = invoice.practice.name;
     const invoiceNumber = invoice.invoiceNumber || invoice.id.slice(0, 8);
+    const formatUTCDate = (d: Date | string) => {
+      const date = new Date(d);
+      return `${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}/${date.getUTCFullYear()}`;
+    };
     const billingPeriodStart = invoice.billingPeriodStart
-      ? new Date(invoice.billingPeriodStart).toLocaleDateString()
+      ? formatUTCDate(invoice.billingPeriodStart)
       : "N/A";
     const billingPeriodEnd = invoice.billingPeriodEnd
-      ? new Date(invoice.billingPeriodEnd).toLocaleDateString()
+      ? formatUTCDate(invoice.billingPeriodEnd)
       : "N/A";
     const billingPeriod = `${billingPeriodStart} to ${billingPeriodEnd}`;
-    const dueDate = invoice.dueDate
-      ? new Date(invoice.dueDate).toLocaleDateString()
-      : "N/A";
+    const dueDate = invoice.dueDate ? formatUTCDate(invoice.dueDate) : "N/A";
     const totalAmount = Number(invoice.totalAmount).toFixed(2);
 
     const itemsListHtml =

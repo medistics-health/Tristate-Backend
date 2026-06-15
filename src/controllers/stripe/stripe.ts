@@ -1,8 +1,10 @@
 import { ExternalEntityType, ExternalSyncStatus, ExternalSystem, InvoiceStatus, PaymentStatus } from "../../../generated/prisma/client";
 import type { Response, Request } from "express";
+import axios from "axios";
 import { prisma } from "../../lib/prisma";
 import { stripe, getStripeWebhookSecret } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { sendOutlookEmail } from "../../utils/outlook";
 
 function normalizeCurrency(currency?: string | null) {
   return (currency || "USD").toLowerCase();
@@ -580,6 +582,103 @@ async function processStripeWebhookEvent(event: any) {
           });
         }
       }
+
+      // Download paid invoice receipt and send it to practice persons
+      try {
+        const practice = await prisma.practice.findUnique({
+          where: { id: invoice.practiceId },
+          include: {
+            persons: {
+              include: {
+                person: true,
+              },
+            },
+            company: {
+              include: {
+                persons: {
+                  include: {
+                    person: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const emails: string[] = [];
+        if (practice) {
+          if (practice.persons) {
+            for (const pp of practice.persons) {
+              if (pp.person?.email && pp.person.email.includes("@")) {
+                emails.push(pp.person.email.trim());
+              }
+            }
+          }
+          if (practice.company?.persons) {
+            for (const cp of practice.company.persons) {
+              if (cp.person?.email && cp.person.email.includes("@")) {
+                emails.push(cp.person.email.trim());
+              }
+            }
+          }
+          if (practice.company?.email && practice.company.email.includes("@")) {
+            emails.push(practice.company.email.trim());
+          }
+        }
+        const uniqueEmails = [...new Set(emails)];
+
+        if (uniqueEmails.length > 0) {
+          let pdfBuffer: Buffer | null = null;
+          const pdfUrl = stripeInvoice.invoice_pdf || stripeInvoice.hosted_invoice_url;
+          if (pdfUrl) {
+            try {
+              const axiosResponse = await axios.get(pdfUrl, { responseType: "arraybuffer" });
+              pdfBuffer = Buffer.from(axiosResponse.data);
+            } catch (downloadErr) {
+              console.error(`[stripe-webhook] Failed to download invoice PDF from ${pdfUrl}:`, downloadErr);
+            }
+          }
+
+          let attachments: any[] = [];
+          if (pdfBuffer) {
+            attachments.push({
+              name: `receipt-invoice-${invoice.invoiceNumber || invoice.id.slice(0, 8)}.pdf`,
+              contentType: "application/pdf",
+              contentBytes: pdfBuffer.toString("base64"),
+            });
+          }
+
+          const invoiceNum = invoice.invoiceNumber || invoice.id.slice(0, 8);
+          const emailSubject = `Payment Receipt for Invoice #${invoiceNum}`;
+          const emailBody = `
+            <p>Dear Partner,</p>
+            <p>We have received your payment for Invoice <strong>#${invoiceNum}</strong>.</p>
+            <p><strong>Payment Summary:</strong></p>
+            <ul>
+              <li><strong>Invoice Number:</strong> #${invoiceNum}</li>
+              <li><strong>Amount Paid:</strong> $${(Number(stripeInvoice.amount_paid || 0) / 100).toFixed(2)}</li>
+              <li><strong>Status:</strong> Paid / Completed</li>
+            </ul>
+            <p>Please find your official invoice receipt attached to this email.</p>
+            <p>If you have any questions or require further assistance, please feel free to reach out to our support team.</p>
+            <p>Best regards,<br/>The Tristate Team</p>
+          `;
+
+          for (const email of uniqueEmails) {
+            try {
+              await sendOutlookEmail(email, emailSubject, emailBody, { attachments });
+              console.log(`[stripe-webhook] Receipt email sent successfully to ${email} for invoice ${invoice.id}`);
+            } catch (emailErr) {
+              console.error(`[stripe-webhook] Failed to send receipt email to ${email}:`, emailErr);
+            }
+          }
+        } else {
+          console.warn(`[stripe-webhook] No receipt recipients found for practice ${invoice.practiceId}`);
+        }
+      } catch (err) {
+        console.error("[stripe-webhook] Error in sending invoice paid email receipt:", err);
+      }
+
       return;
     }
 

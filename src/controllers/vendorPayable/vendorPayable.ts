@@ -1,7 +1,7 @@
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
-import { syncQuickBooksVendorBill, syncQuickBooksVendorBillPayment } from "../../services/quickbooks/quickbooks.service";
+import { syncQuickBooksVendorBill, syncQuickBooksVendorBillPayment, getQuickBooksBillPdf } from "../../services/quickbooks/quickbooks.service";
 
 export async function getAllVendorPayables(
   req: AuthenticatedRequest,
@@ -340,6 +340,46 @@ export async function payVendorPayable(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to pay vendor payable.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function downloadQuickBooksBillHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!id) {
+      return res.status(400).json({ message: "Vendor payable id is required." });
+    }
+
+    const payable = await prisma.vendorPayable.findFirst({ where: { id } });
+    if (!payable) {
+      return res.status(404).json({ message: "Vendor payable not found." });
+    }
+
+    if (payable.status !== "PAID") {
+      return res.status(400).json({ message: "Bill download is only available for PAID vendor payables." });
+    }
+
+    if (!payable.quickbooksBillId) {
+      return res.status(400).json({ message: "This bill has not been synced to QuickBooks yet." });
+    }
+
+    const pdfBuffer = await getQuickBooksBillPdf(payable.id);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="bill-${payable.payableNumber || payable.id}.pdf"`);
+    return res.send(pdfBuffer);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to download QuickBooks bill.",
       error: error instanceof Error ? error.message : error,
     });
   }
