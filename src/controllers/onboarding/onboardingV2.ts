@@ -358,6 +358,7 @@ function getCreateConflictMessage(practiceId: string) {
 function getOnboardingPracticeFolderName(onboarding: any) {
   return (
     onboarding.practices?.[0]?.practiceName ||
+    onboarding.practice?.name ||
     onboarding.legalCompanyName ||
     onboarding.dbaName ||
     onboarding.practiceId ||
@@ -365,10 +366,21 @@ function getOnboardingPracticeFolderName(onboarding: any) {
   );
 }
 
+function sanitizeFileNamePart(value: string) {
+  return value
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+}
+
 async function attachSubmissionPdfToOnboarding(onboarding: any) {
   const practiceFolderName = getOnboardingPracticeFolderName(onboarding);
+  const practiceFileNamePart = sanitizeFileNamePart(practiceFolderName);
   const generatedAt = new Date();
-  const fileName = `onboarding-submission-${generatedAt
+  const fileName = `onboarding-submission-${practiceFileNamePart}-${generatedAt
     .toISOString()
     .replace(/[:.]/g, "-")}.pdf`;
   const pdfBuffer = generateOnboardingPdfBuffer(onboarding);
