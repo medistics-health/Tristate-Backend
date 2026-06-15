@@ -105,7 +105,33 @@ function wrapText(text: string, maxWidth: number, fontSize: number) {
   const lines: string[] = [];
   let currentLine = "";
 
+  const splitLongWord = (word: string) => {
+    const chunks: string[] = [];
+    let chunk = "";
+
+    for (const char of word) {
+      if (chunk && textWidth(`${chunk}${char}`, fontSize) > maxWidth) {
+        chunks.push(chunk);
+        chunk = char;
+      } else {
+        chunk += char;
+      }
+    }
+
+    if (chunk) chunks.push(chunk);
+    return chunks;
+  };
+
   for (const word of words) {
+    if (textWidth(word, fontSize) > maxWidth) {
+      if (currentLine) {
+        lines.push(currentLine);
+        currentLine = "";
+      }
+      lines.push(...splitLongWord(word));
+      continue;
+    }
+
     const nextLine = currentLine ? `${currentLine} ${word}` : word;
     if (textWidth(nextLine, fontSize) > maxWidth && currentLine) {
       lines.push(currentLine);
@@ -203,8 +229,9 @@ class OnboardingPdf {
 
     while (index < normalizedFields.length) {
       const firstField = normalizedFields[index];
+      const secondField = normalizedFields[index + 1];
       const rowFields =
-        columns === 1 || firstField.span === 2
+        columns === 1 || firstField.span === 2 || secondField?.span === 2
           ? [firstField]
           : normalizedFields.slice(index, index + 2);
       const rowHeights = rowFields.map((field) =>
