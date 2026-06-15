@@ -318,9 +318,7 @@ class OnboardingPdf {
       bold: true,
       color: "1 1 1",
     });
-    const subtitle = this.practiceName
-      ? `Generated copy of the submitted client onboarding form for ${this.practiceName}`
-      : "Generated copy of the submitted client onboarding form";
+    const subtitle = "Generated copy of the submitted client onboarding form";
     wrapText(subtitle, pageWidth - marginX * 2 - 72, 10).forEach(
       (line, index) => {
         drawText(this.page, line, marginX + 36, 82 + index * 13, {
@@ -329,6 +327,21 @@ class OnboardingPdf {
         });
       },
     );
+
+    if (this.practiceName) {
+      wrapText(
+        `Practice: ${this.practiceName}`,
+        pageWidth - marginX * 2 - 72,
+        11,
+      ).forEach((line, index) => {
+        drawText(this.page, line, marginX + 36, 98 + index * 13, {
+          size: 11,
+          bold: true,
+          color: "1 1 1",
+        });
+      });
+    }
+
     this.y = 148;
   }
 
@@ -485,8 +498,13 @@ function buildPdf(pages: PdfPage[]) {
   return Buffer.from(pdf, "utf8");
 }
 
-export function generateOnboardingPdfBuffer(onboarding: any) {
-  const pdf = new OnboardingPdf(getOnboardingPracticeName(onboarding));
+export function generateOnboardingPdfBuffer(
+  onboarding: any,
+  practiceName?: string,
+) {
+  const pdf = new OnboardingPdf(
+    practiceName || getOnboardingPracticeName(onboarding),
+  );
   const practices = onboarding.practices ?? [];
   const contacts = onboarding.contacts ?? [];
   const marketing = onboarding.marketing ?? onboarding.OnboardingMarketing;
