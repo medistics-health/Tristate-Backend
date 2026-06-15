@@ -2096,6 +2096,9 @@ export async function postBillingRun(billingRunId: string, userId: string) {
     const createdInvoices = [];
     const createdVendorPayables = [];
 
+    const settings = await tx.systemSettings.findFirst();
+    const dueDays = settings?.invoiceDueDays ?? 15;
+
     for (const group of invoiceGroups.values()) {
       const subtotalAmount = roundMoney(
         group.items.reduce((sum, item) => sum + Number(item.clientAmount), 0),
@@ -2113,7 +2116,7 @@ export async function postBillingRun(billingRunId: string, userId: string) {
           currency: normalizeCurrency(run.practice.defaultCurrency),
           billingPeriodStart: run.periodStart,
           billingPeriodEnd: run.periodEnd,
-          dueDate: new Date(run.periodEnd.getTime() + 30 * 24 * 60 * 60 * 1000),
+          dueDate: new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000),
         },
       });
 

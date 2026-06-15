@@ -10,6 +10,7 @@ import {
   syncBillPaymentToQuickBooks,
   getVendorPayableById,
   payVendorPayable,
+  downloadQuickBooksBillHandler,
 } from "../controllers/vendorPayable/vendorPayable";
 
 const vendorPayableRouter = Router();
@@ -18,6 +19,7 @@ vendorPayableRouter.use(verifyAuthToken);
 
 vendorPayableRouter.get("/", getAllVendorPayables);
 vendorPayableRouter.get("/:id", getVendorPayableById);
+vendorPayableRouter.get("/:id/download-bill", downloadQuickBooksBillHandler);
 vendorPayableRouter.post("/", createVendorPayable);
 vendorPayableRouter.post("/:id/release", releaseVendorPayable);
 vendorPayableRouter.post("/:id/sync-qb", syncVendorPayableToQuickBooks);

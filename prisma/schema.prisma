@@ -359,6 +359,8 @@ model Invoice {
   stripeHostedInvoiceUrl String?             @map("stripe_hosted_invoice_url")
   stripeInvoicePdfUrl    String?             @map("stripe_invoice_pdf_url")
   quickbooksInvoiceId    String?             @map("quickbooks_invoice_id")
+  dueReminder5DaysSent   Boolean             @default(false) @map("due_reminder_5_days_sent")
+  dueReminderOverdueSent Boolean             @default(false) @map("due_reminder_overdue_sent")
   createdAt              DateTime            @default(now()) @map("created_at")
   updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at")
   lineItems              InvoiceLineItem[]
@@ -1241,6 +1243,8 @@ model SystemSettings {
   supportEmail     String?  @default("support@tristate-mso.com") @map("support_email")
   authorizedSigner String?  @map("authorized_signer")
   notifyTo         String[] @default([]) @map("notify_to")
+  invoiceDueDays       Int      @default(15) @map("invoice_due_days")
+  invoiceReminderDays  Int      @default(5) @map("invoice_reminder_days")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")

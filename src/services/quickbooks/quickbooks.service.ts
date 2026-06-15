@@ -7,6 +7,8 @@ import {
 } from "../../../generated/prisma/client";
 import { randomUUID } from "crypto";
 import { prisma } from "../../lib/prisma";
+import axios from "axios";
+import { generateBillPdfBuffer } from "../../utils/billPdf";
 import {
   decodeQuickBooksState,
   buildQuickBooksAuthUrl,
@@ -1943,6 +1945,144 @@ export async function syncQuickBooksVendorBillPayment(vendorPayableId: string) {
       };
     },
   );
+}
+
+async function requestQuickBooksPdf(
+  db: DbClient,
+  connection: QuickBooksConnectionRecord,
+  options: QuickBooksRequestOptions,
+  retrying = false,
+): Promise<Buffer> {
+  const baseUrl = getQuickBooksApiBaseUrl(connection.isSandbox, connection.realmId);
+  const url = new URL(`${baseUrl}${options.path}`);
+
+  if (options.query) {
+    for (const [key, value] of Object.entries(options.query)) {
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+
+  try {
+    console.log(`[QB-PDF-REQUEST] ${options.method} ${url.toString()}`);
+    const response = await fetch(url.toString(), {
+      method: options.method,
+      headers: {
+        Authorization: `Bearer ${connection.accessToken}`,
+        Accept: "application/pdf",
+      },
+    });
+
+    if (!response.ok) {
+      const errorPayload = await response.text();
+      throw new QuickBooksServiceError(
+        response.status,
+        `QuickBooks PDF request failed with status ${response.status}: ${errorPayload}`,
+      );
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (error) {
+    const isUnauthorized =
+      error instanceof QuickBooksServiceError && error.statusCode === 401;
+
+    if (isUnauthorized && !retrying) {
+      try {
+        const latestConnection = await loadQuickBooksConnectionById(connection.id);
+        if (latestConnection && latestConnection.accessToken !== connection.accessToken) {
+          return requestQuickBooksPdf(
+            db,
+            latestConnection as QuickBooksConnectionRecord,
+            options,
+            true,
+          );
+        }
+
+        const refreshed = await refreshQuickBooksTokens({
+          refreshToken: connection.refreshToken,
+          realmId: connection.realmId,
+        });
+
+        const updatedConnection = await persistQuickBooksTokens(connection.id, {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+          refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
+        });
+
+        return requestQuickBooksPdf(
+          db,
+          updatedConnection as QuickBooksConnectionRecord,
+          options,
+          true,
+        );
+      } catch (refreshError) {
+        const doubleCheckConnection = await loadQuickBooksConnectionById(connection.id);
+        if (doubleCheckConnection && doubleCheckConnection.accessToken !== connection.accessToken) {
+          return requestQuickBooksPdf(
+            db,
+            doubleCheckConnection as QuickBooksConnectionRecord,
+            options,
+            true,
+          );
+        }
+        throw refreshError;
+      }
+    }
+    throw error;
+  }
+}
+
+export async function getQuickBooksBillPdf(vendorPayableId: string): Promise<Buffer> {
+  const vendorPayable = await prisma.vendorPayable.findUnique({
+    where: { id: vendorPayableId },
+    include: {
+      practice: true,
+      vendor: true,
+    },
+  });
+
+  if (!vendorPayable) {
+    throw new Error("Vendor payable not found.");
+  }
+
+  const companyId = vendorPayable.practice?.companyId;
+  const connection = companyId
+    ? await prisma.quickBooksConnection.findUnique({ where: { companyId } })
+    : null;
+  const qbBillId = vendorPayable.quickbooksBillId;
+
+  if (connection && qbBillId) {
+    try {
+      // 1. Query QuickBooks for Attachables linked to this Bill
+      console.log(`[QB-ATTACHMENT] Querying attachments for Bill ID: ${qbBillId}`);
+      const attachableResponse = await queryQuickBooks<any>(
+        prisma,
+        connection as any,
+        `select * from attachable where AttachToRef.Id = '${qbBillId}' and AttachToRef.Type = 'Bill'`,
+      );
+
+      const attachables = attachableResponse.Attachable || [];
+      const pdfAttachable = attachables.find((att: any) =>
+        att.ContentType === "application/pdf" ||
+        (att.FileName && att.FileName.toLowerCase().endsWith(".pdf")),
+      ) || attachables[0];
+
+      if (pdfAttachable && pdfAttachable.TempDownloadUri) {
+        console.log(`[QB-ATTACHMENT] Downloading attachment from ${pdfAttachable.TempDownloadUri}`);
+        const response = await axios.get(pdfAttachable.TempDownloadUri, { responseType: "arraybuffer" });
+        return Buffer.from(response.data);
+      }
+    } catch (qbError) {
+      console.warn("[QB-ATTACHMENT] Failed to fetch QuickBooks attachable, falling back to local generation:", qbError);
+    }
+  }
+
+  // 2. Fallback to generating a local PDF using bill details
+  console.log(`[QB-BILL] No QBO attachment available for payable ${vendorPayableId}, generating local PDF`);
+  return generateBillPdfBuffer(vendorPayable);
 }
 
 export { QuickBooksServiceError };

@@ -36,6 +36,8 @@ export async function getSystemSettings(req: AuthenticatedRequest, res: Response
           domain: "tristate-mso.com",
           address: "123 Enterprise Way, Suite 500, New Jersey, NJ 07102",
           notifyTo: [],
+          invoiceDueDays: 15,
+          invoiceReminderDays: 5,
         },
       });
     }
@@ -61,6 +63,8 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       supportEmail,
       authorizedSigner,
       notifyTo,
+      invoiceDueDays,
+      invoiceReminderDays,
     } = req.body;
 
     const normalizedAuthorizedSigner = normalizeOptionalEmail(authorizedSigner);
@@ -85,6 +89,21 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       });
     }
 
+    const parsedInvoiceDueDays = invoiceDueDays !== undefined ? parseInt(invoiceDueDays, 10) : 15;
+    const parsedInvoiceReminderDays = invoiceReminderDays !== undefined ? parseInt(invoiceReminderDays, 10) : 5;
+
+    if (isNaN(parsedInvoiceDueDays) || parsedInvoiceDueDays <= 0) {
+      return res.status(400).json({
+        message: "Invoice due days must be a positive integer.",
+      });
+    }
+
+    if (isNaN(parsedInvoiceReminderDays) || parsedInvoiceReminderDays <= 0) {
+      return res.status(400).json({
+        message: "Invoice reminder days must be a positive integer.",
+      });
+    }
+
     const existing = await prisma.systemSettings.findFirst();
     const data = {
       organizationName,
@@ -93,6 +112,8 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       supportEmail,
       authorizedSigner: normalizedAuthorizedSigner,
       notifyTo: normalizedNotifyTo,
+      invoiceDueDays: parsedInvoiceDueDays,
+      invoiceReminderDays: parsedInvoiceReminderDays,
     };
 
     let settings;

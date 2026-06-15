@@ -58,8 +58,15 @@ async function getAuthenticatedClient() {
   });
 }
 
+type EmailAttachment = {
+  name: string;
+  contentType: string;
+  contentBytes: string; // Base64 encoded string
+};
+
 type SendOutlookEmailOptions = {
   cc?: string[];
+  attachments?: EmailAttachment[];
 };
 
 function wrapEmailInTheme(body: string, subject: string): string {
@@ -229,6 +236,12 @@ export async function sendOutlookEmail(
           emailAddress: {
             address: email,
           },
+        })),
+        attachments: (options.attachments || []).map((att) => ({
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: att.name,
+          contentType: att.contentType,
+          contentBytes: att.contentBytes,
         })),
       },
       saveToSentItems: "true",
