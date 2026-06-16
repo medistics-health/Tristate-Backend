@@ -641,9 +641,45 @@ async function processStripeWebhookEvent(event: any) {
           }
 
           let pdfBuffer: Buffer | null = null;
-          let pdfUrl = latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url;
           let isReceipt = false;
           let chargeId = latestStripeInvoice.charge;
+          
+          // Construct direct receipt download URL (invoicedata.stripe.com)
+          let receiptFileUrl = "";
+          if (latestStripeInvoice.hosted_invoice_url) {
+            try {
+              const urlObj = new URL(latestStripeInvoice.hosted_invoice_url);
+              const parts = urlObj.pathname.split("/").filter(Boolean);
+              const iIndex = parts.indexOf("i");
+              if (iIndex !== -1 && parts.length > iIndex + 2) {
+                const acctId = parts[iIndex + 1];
+                const invoiceIdPart = parts[iIndex + 2];
+                receiptFileUrl = `https://invoicedata.stripe.com/invoice_receipt_file_url/${acctId}/${invoiceIdPart}`;
+                console.log(`[stripe-webhook] Constructed direct receipt metadata URL: ${receiptFileUrl}`);
+              }
+            } catch (err) {
+              console.error("[stripe-webhook] Error constructing direct receipt URL:", err);
+            }
+          }
+
+          let pdfUrl = latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url;
+          let receiptUrl = latestStripeInvoice.hosted_invoice_url || "";
+
+          if (receiptFileUrl) {
+            try {
+              console.log(`[stripe-webhook] Fetching direct receipt PDF metadata from ${receiptFileUrl}`);
+              const metaResponse = await axios.get(receiptFileUrl);
+              const fileUrl = (metaResponse.data as { file_url?: string })?.file_url;
+              if (fileUrl) {
+                pdfUrl = fileUrl;
+                isReceipt = true;
+                receiptUrl = fileUrl;
+                console.log(`[stripe-webhook] Resolved direct receipt PDF file URL from metadata: ${pdfUrl}`);
+              }
+            } catch (metaErr: any) {
+              console.error(`[stripe-webhook] Failed to fetch receipt PDF URL metadata from ${receiptFileUrl}:`, metaErr.message);
+            }
+          }
 
           if (!chargeId && latestStripeInvoice.payment_intent) {
             try {
@@ -659,10 +695,14 @@ async function processStripeWebhookEvent(event: any) {
               console.log(`[stripe-webhook] Retrieving charge details for ID: ${chargeId}`);
               const charge = await stripe.charges.retrieve(chargeId as string);
               if (charge.receipt_url) {
-                // Stripe payment receipts can be fetched in PDF format by appending /pdf to the base receipt URL
-                pdfUrl = `${charge.receipt_url.split("?")[0]}/pdf`;
-                isReceipt = true;
-                console.log(`[stripe-webhook] Resolved payment receipt PDF URL: ${pdfUrl}`);
+                if (!pdfUrl || !receiptFileUrl) {
+                  pdfUrl = `${charge.receipt_url.split("?")[0]}/pdf`;
+                  isReceipt = true;
+                }
+                if (!receiptUrl || !receiptFileUrl) {
+                  receiptUrl = charge.receipt_url;
+                }
+                console.log(`[stripe-webhook] Resolved payment receipt URL from charge: ${charge.receipt_url}`);
               }
             } catch (chargeErr) {
               console.error(`[stripe-webhook] Failed to retrieve charge details:`, chargeErr);
@@ -675,13 +715,31 @@ async function processStripeWebhookEvent(event: any) {
               const axiosResponse = await axios.get(pdfUrl, {
                 responseType: "arraybuffer",
                 headers: {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 }
               });
               pdfBuffer = Buffer.from(axiosResponse.data);
               console.log(`[stripe-webhook] Downloaded PDF successfully (${pdfBuffer.length} bytes)`);
             } catch (downloadErr: any) {
               console.error(`[stripe-webhook] Failed to download PDF from ${pdfUrl}:`, downloadErr.message);
+              // Fallback to invoice PDF if downloading receipt PDF failed
+              if (isReceipt && (latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url)) {
+                const fallbackUrl = latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url;
+                console.log(`[stripe-webhook] Attempting fallback PDF download from ${fallbackUrl}`);
+                try {
+                  const fallbackResponse = await axios.get(fallbackUrl, {
+                    responseType: "arraybuffer",
+                    headers: {
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                  });
+                  pdfBuffer = Buffer.from(fallbackResponse.data);
+                  isReceipt = false;
+                  console.log(`[stripe-webhook] Downloaded fallback PDF successfully (${pdfBuffer.length} bytes)`);
+                } catch (fallbackErr: any) {
+                  console.error(`[stripe-webhook] Failed to download fallback PDF from ${fallbackUrl}:`, fallbackErr.message);
+                }
+              }
             }
           }
 
@@ -706,7 +764,27 @@ async function processStripeWebhookEvent(event: any) {
               <li><strong>Amount Paid:</strong> $${(Number(stripeInvoice.amount_paid || 0) / 100).toFixed(2)}</li>
               <li><strong>Status:</strong> Paid / Completed</li>
             </ul>
-            <p>Please find your official invoice receipt attached to this email.</p>
+            ${
+              receiptUrl
+                ? `
+            <p>You can view and download your official Stripe payment receipt by clicking the button below:</p>
+            <p style="margin: 24px 0;">
+              <!--[if mso]>
+              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${receiptUrl}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="12%" strokecolor="#0f4c81" fillcolor="#0f4c81">
+                <w:anchorlock/>
+                <center style="color:#ffffff;font-family:'Segoe UI',Arial,sans-serif;font-size:15px;font-weight:bold;">
+                  Download Receipt
+                </center>
+              </v:roundrect>
+              <![endif]-->
+              <!--[if !mso]><!-- -->
+              <a href="${receiptUrl}" target="_blank" style="background-color: #0f4c81; border: 1px solid #0f4c81; border-radius: 10px; color: #ffffff; display: inline-block; font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; font-size: 15px; font-weight: 700; line-height: 20px; padding: 14px 28px; text-decoration: none;">Download Receipt</a>
+              <!--<![endif]-->
+            </p>
+            `
+                : ""
+            }
+            <p>Please find your official payment document attached to this email.</p>
             <p>If you have any questions or require further assistance, please feel free to reach out to our support team.</p>
             <p>Best regards,<br/>The Tristate Team</p>
           `;
