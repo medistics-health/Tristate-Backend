@@ -2077,8 +2077,21 @@ export async function getQuickBooksBillPdf(vendorPayableId: string): Promise<Buf
     }
   }
 
+  let logoBuffer: Buffer | null = null;
+  try {
+    console.log("[QB-BILL-DOWNLOAD] Fetching company logo...");
+    const logoResponse = await axios.get("https://tristatemso.com/wp-content/uploads/tristate-health-mso-logo.png", {
+      responseType: "arraybuffer",
+      timeout: 5000,
+    });
+    logoBuffer = Buffer.from(logoResponse.data);
+    console.log("[QB-BILL-DOWNLOAD] Company logo fetched successfully.");
+  } catch (err) {
+    console.warn("[QB-BILL-DOWNLOAD] Failed to fetch company logo:", err);
+  }
+
   console.log(`[QB-BILL] Generating custom Google Sans PDF for payable ${vendorPayableId}`);
-  return await generateBillPdfBuffer(vendorPayable, qbBill, qbCompanyInfo);
+  return await generateBillPdfBuffer(vendorPayable, qbBill, qbCompanyInfo, logoBuffer);
 }
 
 export { QuickBooksServiceError };

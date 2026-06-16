@@ -628,17 +628,29 @@ async function processStripeWebhookEvent(event: any) {
         const uniqueEmails = [...new Set(emails)];
 
         if (uniqueEmails.length > 0) {
-          let pdfBuffer: Buffer | null = null;
-          let pdfUrl = stripeInvoice.invoice_pdf || stripeInvoice.hosted_invoice_url;
-          let isReceipt = false;
-          let chargeId = stripeInvoice.charge;
+          // Wait 5 seconds to let Stripe finalize and associate the charge/receipt details
+          console.log("[stripe-webhook] Waiting 5 seconds for Stripe to finalize charge/receipt details...");
+          await new Promise((resolve) => setTimeout(resolve, 5000));
 
-          if (!chargeId && stripeInvoice.payment_intent) {
+          let latestStripeInvoice = stripeInvoice;
+          try {
+            console.log(`[stripe-webhook] Retrieving fresh invoice data for ID: ${stripeInvoice.id}`);
+            latestStripeInvoice = await stripe.invoices.retrieve(stripeInvoice.id) as any;
+          } catch (retrieveErr) {
+            console.error(`[stripe-webhook] Failed to retrieve fresh invoice data:`, retrieveErr);
+          }
+
+          let pdfBuffer: Buffer | null = null;
+          let pdfUrl = latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url;
+          let isReceipt = false;
+          let chargeId = latestStripeInvoice.charge;
+
+          if (!chargeId && latestStripeInvoice.payment_intent) {
             try {
-              const pi = await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent as string);
+              const pi = await stripe.paymentIntents.retrieve(latestStripeInvoice.payment_intent as string);
               chargeId = pi.latest_charge;
             } catch (piErr) {
-              console.error(`[stripe-webhook] Failed to retrieve payment intent ${stripeInvoice.payment_intent}:`, piErr);
+              console.error(`[stripe-webhook] Failed to retrieve payment intent ${latestStripeInvoice.payment_intent}:`, piErr);
             }
           }
 
@@ -647,8 +659,8 @@ async function processStripeWebhookEvent(event: any) {
               console.log(`[stripe-webhook] Retrieving charge details for ID: ${chargeId}`);
               const charge = await stripe.charges.retrieve(chargeId as string);
               if (charge.receipt_url) {
-                // Stripe payment receipts can be fetched in PDF format by appending /pdf?s=ap to the base receipt URL
-                pdfUrl = `${charge.receipt_url.split("?")[0]}/pdf?s=ap`;
+                // Stripe payment receipts can be fetched in PDF format by appending /pdf to the base receipt URL
+                pdfUrl = `${charge.receipt_url.split("?")[0]}/pdf`;
                 isReceipt = true;
                 console.log(`[stripe-webhook] Resolved payment receipt PDF URL: ${pdfUrl}`);
               }

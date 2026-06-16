@@ -12,7 +12,12 @@ function formatDate(dateStr?: string | Date | null): string {
   return `${m}/${d}/${y}`;
 }
 
-export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?: any): Promise<Buffer> {
+export function generateBillPdfBuffer(
+  payable: any,
+  qbBill?: any,
+  qbCompanyInfo?: any,
+  logoBuffer?: Buffer | null
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: "A4" });
@@ -42,12 +47,15 @@ export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?
         doc.registerFont("GoogleSans-Medium", mediumFont);
       }
 
+      // Add top border
+      doc.rect(0, 0, 595.28, 5).fill("#c3a97c");
+
       // 1. Page Header (Page 1 of 1 at top right)
       doc.fontSize(8).fillColor("#9CA3AF");
       const pageNumFont = hasFonts ? "GoogleSans" : "Helvetica";
-      doc.font(pageNumFont).text("Page 1 of 1", 0, 40, { width: 555, align: "right" });
+      doc.font(pageNumFont).text("Page 1 of 1", 0, 20, { width: 555, align: "right" });
 
-      // 2. Company Info (Top Left)
+      // 2. Company Info (Left Side) & Company Logo (Right Side)
       let companyName = qbCompanyInfo?.CompanyName || payable.practice?.name || "Sandbox Company";
       let addressLine1 = "N/A";
       let addressLine2 = "";
@@ -65,52 +73,89 @@ export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?
                          qbCompanyInfo?.CustomerCommunicationEmailAddr?.Address || 
                          "developments@medisticshealth.com";
 
-      doc.fontSize(10).fillColor("#1F2937");
+      doc.fontSize(9.5).fillColor("#1F2937");
       const bodyFont = hasFonts ? "GoogleSans" : "Helvetica";
       const boldTextFont = hasFonts ? "GoogleSans-Bold" : "Helvetica-Bold";
       const mediumTextFont = hasFonts ? "GoogleSans-Medium" : "Helvetica";
 
-      doc.font(mediumTextFont).text(companyName, 40, 40);
-      doc.font(bodyFont).text(addressLine1, 40, 54);
+      // Draw Company Info on the Left
+      doc.font(mediumTextFont).text(companyName, 40, 35);
+      doc.font(bodyFont).text(addressLine1, 40, 48);
       if (addressLine2) {
-        doc.text(addressLine2, 40, 68);
-        doc.text(companyEmail, 40, 82);
+        doc.text(addressLine2, 40, 61);
+        doc.text(companyEmail, 40, 74);
       } else {
-        doc.text(companyEmail, 40, 68);
+        doc.text(companyEmail, 40, 61);
       }
 
-      // 3. Document Title ("Bill")
-      doc.font(boldTextFont).fontSize(24).fillColor("#111827").text("Bill", 40, 115);
+      // Draw Logo on the Right (if exists)
+      if (logoBuffer) {
+        try {
+          doc.image(logoBuffer, 425, 35, { width: 130 });
+        } catch (logoErr) {
+          console.warn("Failed to render logo in PDF, drawing without logo:", logoErr);
+        }
+      }
 
-      // 4. Metadata section (Vendor, Bill Date, Due Date)
-      const metaY = 160;
+      // Set fixed offsetY for subsequent sections since logo is side-by-side
+      const offsetY = 95;
+
+      // 3. Document Title ("Bill") & PAID Status Badge
+      doc.font(boldTextFont).fontSize(22).fillColor("#111827").text("Bill", 40, 32 + offsetY);
+      
+      const isPaid = payable.status === "PAID";
+      if (isPaid) {
+        // Draw a premium rounded green PAID badge next to the title
+        doc.save();
+        doc.fillColor("#E6F4EA"); // Very light green background
+        doc.roundedRect(82, 33 + offsetY, 42, 17, 4).fill();
+        doc.font(boldTextFont).fontSize(9).fillColor("#137333").text("PAID", 92, 37 + offsetY); // Dark green text
+        doc.restore();
+      }
+
+      // 4. Metadata section (Vendor, Bill Number, Bill Date, Due Date, Date Paid)
+      const metaY = 70 + offsetY;
       
       // Column 1: Vendor Details
-      doc.font(boldTextFont).fontSize(9).fillColor("#4B5563").text("Vendor", 40, metaY);
+      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Vendor", 40, metaY);
       const vendorName = payable.vendor?.name || qbBill?.VendorRef?.name || "SecureTech Compliance";
-      doc.font(mediumTextFont).fontSize(11).fillColor("#1F2937").text(vendorName, 40, metaY + 15, { width: 180 });
+      doc.font(mediumTextFont).fontSize(11).fillColor("#1F2937").text(vendorName, 40, metaY + 14, { width: 170 });
 
-      // Column 2: Bill Date
+      // Column 2: Bill Number
+      const billNumber = qbBill?.DocNumber || payable.payableNumber || "N/A";
+      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Bill Number", 225, metaY);
+      doc.font(mediumTextFont).fontSize(11).fillColor("#1F2937").text(billNumber, 225, metaY + 14, { width: 95 });
+
+      // Column 3: Bill Date
       const billDateStr = qbBill?.TxnDate || payable.createdAt;
       const billDate = formatDate(billDateStr);
-      doc.font(boldTextFont).fontSize(9).fillColor("#4B5563").text("Bill Date", 250, metaY);
-      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(billDate, 250, metaY + 15);
+      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Bill Date", 335, metaY);
+      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(billDate, 335, metaY + 14);
 
-      // Column 3: Due Date
+      // Column 4: Due Date
       const dueDateStr = qbBill?.DueDate || payable.dueDate || qbBill?.TxnDate || payable.createdAt;
       const dueDate = formatDate(dueDateStr);
-      doc.font(boldTextFont).fontSize(9).fillColor("#4B5563").text("Due Date", 380, metaY);
-      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(dueDate, 380, metaY + 15);
+      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Due Date", 445, metaY);
+      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(dueDate, 445, metaY + 14);
+
+      // Extra: Date Paid (if Paid)
+      let extraHeight = 0;
+      if (isPaid) {
+        const paidDateStr = payable.paidAt || qbBill?.MetaData?.LastUpdatedTime || new Date();
+        const paidDate = formatDate(paidDateStr);
+        doc.font(boldTextFont).fontSize(8.5).fillColor("#137333").text("Date Paid", 335, metaY + 36);
+        doc.font(bodyFont).fontSize(11).fillColor("#137333").text(paidDate, 335, metaY + 50);
+        extraHeight = 40;
+      }
 
       // 5. Lines table setup
-      let y = 230;
+      let y = metaY + 52 + extraHeight;
       
       // Draw Table Header
       doc.rect(40, y - 5, 515, 20).fill("#F3F4F6"); // Header background
-      doc.fillColor("#4B5563"); // Gray text
-      doc.font(boldTextFont).fontSize(9);
-      doc.text("SERVICE ACTIVITY", 40, y);
-      doc.text("DESCRIPTION", 190, y);
+      doc.fillColor("#4B5563");
+      doc.font(boldTextFont).fontSize(8.5);
+      doc.text("DESCRIPTION", 40, y);
       doc.text("QTY", 380, y, { width: 30, align: "right" });
       doc.text("RATE", 420, y, { width: 60, align: "right" });
       doc.text("AMOUNT", 490, y, { width: 65, align: "right" });
@@ -159,9 +204,6 @@ export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?
       doc.font(bodyFont).fontSize(9).fillColor("#1F2937");
 
       for (const line of lines) {
-        const serviceActivity = line.AccountBasedExpenseLineDetail?.AccountRef?.name ||
-                                line.ItemBasedExpenseLineDetail?.ItemRef?.name ||
-                                "Tristate Operating Expense";
         const description = line.Description || "";
         
         let qty = 1;
@@ -175,9 +217,8 @@ export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?
         const amount = Number(line.Amount || 0);
 
         // Height calculations to adjust dynamic row spacing
-        const saHeight = doc.heightOfString(serviceActivity, { width: 140 });
-        const descHeight = doc.heightOfString(description, { width: 180 });
-        const rowHeight = Math.max(saHeight, descHeight, 15) + 12;
+        const descHeight = doc.heightOfString(description, { width: 330 });
+        const rowHeight = Math.max(descHeight, 15) + 12;
 
         // Draw horizontal grid line
         doc.moveTo(40, y + rowHeight - 6)
@@ -187,8 +228,7 @@ export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?
            .stroke();
 
         // Print column values
-        doc.text(serviceActivity, 40, y, { width: 140 });
-        doc.text(description, 190, y, { width: 180 });
+        doc.text(description, 40, y, { width: 330 });
         doc.text(String(qty), 380, y, { width: 30, align: "right" });
         doc.text(rate.toFixed(2), 420, y, { width: 60, align: "right" });
         doc.text(amount.toFixed(2), 490, y, { width: 65, align: "right" });
@@ -196,18 +236,15 @@ export function generateBillPdfBuffer(payable: any, qbBill?: any, qbCompanyInfo?
         y += rowHeight;
       }
 
-      // Summary / Footer calculation
-      y += 15;
 
-      // Draw Private Note on left
-      const payableIdShort = payable.id || "N/A";
-      const privateNote = qbBill?.PrivateNote || `Local vendor payable ${payableIdShort}`;
-      doc.font(bodyFont).fontSize(8.5).fillColor("#6B7280");
-      doc.text(privateNote, 40, y, { width: 260 });
+      // Summary / Footer calculation
+      y += 20;
+
+      // Note: Removed the "Local vendor payable UUID" note block from the left as requested.
 
       // Summary Card on right
       const totalAmount = Number(qbBill?.TotalAmt || payable.totalAmount || 200.00);
-      const paidAmount = payable.status === "PAID" ? totalAmount : 0.00;
+      const paidAmount = isPaid ? totalAmount : 0.00;
       const balanceDue = totalAmount - paidAmount;
 
       const summaryX = 350;
