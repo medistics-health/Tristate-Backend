@@ -465,8 +465,8 @@ function documentValue(value: PdfFieldValue) {
 
 function getOnboardingPracticeName(onboarding: any) {
   return (
-    onboarding.practices?.[0]?.practiceName ||
     onboarding.practice?.name ||
+    onboarding.practices?.[0]?.practiceName ||
     onboarding.legalCompanyName ||
     onboarding.dbaName ||
     undefined
@@ -772,7 +772,6 @@ export function generateOnboardingPdfBuffer(
             { label: "DEA Number", value: provider.deaNumber },
             { label: "SSN (Full Digits)", value: provider.ssnFullDigits },
             { label: "CLIA Number", value: provider.cliaNumber },
-            { label: "License Number", value: provider.licenseNumber },
             {
               label: "State License Number",
               value: provider.stateLicenseNumber,
@@ -784,7 +783,6 @@ export function generateOnboardingPdfBuffer(
             { label: "State of License", value: provider.stateOfLicense },
             { label: "License Type", value: provider.licenseType },
             { label: "Taxonomy", value: provider.taxonomy },
-            { label: "Primary Specialty", value: provider.primarySpecialty },
             {
               label: "Secondary Specialty",
               value: provider.secondarySpecialty,
