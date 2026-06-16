@@ -357,8 +357,8 @@ function getCreateConflictMessage(practiceId: string) {
 
 function getOnboardingPracticeFolderName(onboarding: any) {
   return (
-    onboarding.practices?.[0]?.practiceName ||
     onboarding.practice?.name ||
+    onboarding.practices?.[0]?.practiceName ||
     onboarding.legalCompanyName ||
     onboarding.dbaName ||
     onboarding.practiceId ||
