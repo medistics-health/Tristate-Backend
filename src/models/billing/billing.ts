@@ -15,6 +15,7 @@ export type CreateBillingRunBody = {
   notes?: string;
   autoCalculate?: boolean;
   snapshots?: BillingSnapshotInput[];
+  agreementIds?: string[];
 };
 
 export type UpsertBillingSnapshotsBody = {

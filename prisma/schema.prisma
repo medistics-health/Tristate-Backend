@@ -508,6 +508,7 @@ model BillingRun {
   approvedByUser   User?                  @relation("BillingRunApprovedBy", fields: [approvedByUserId], references: [id])
   practice         Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   vendorPayables   VendorPayable[]
+  agreementIds     String[]               @default([]) @map("agreement_ids")
 
   @@index([practiceId])
   @@index([approvedByUserId])
