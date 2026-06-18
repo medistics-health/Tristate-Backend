@@ -74,9 +74,27 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
     };
   }
 
+  const stripeInvoice = await stripe.invoices.create({
+    customer: stripeCustomerId,
+    currency,
+    auto_advance: false,
+    collection_method: "send_invoice",
+    due_date: invoice.dueDate
+      ? Math.floor(invoice.dueDate.getTime() / 1000)
+      : undefined,
+    days_until_due: invoice.dueDate ? undefined : 30,
+    pending_invoice_items_behavior: "exclude",
+    metadata: {
+      localInvoiceId: invoice.id,
+      practiceId: invoice.practiceId,
+      agreementId: invoice.agreementId || "",
+    },
+  });
+
   for (const lineItem of invoice.lineItems) {
     await stripe.invoiceItems.create({
       customer: stripeCustomerId,
+      invoice: stripeInvoice.id,
       currency,
       amount: toStripeMinorUnit(lineItem.totalPrice.toString()),
       description:
@@ -91,22 +109,6 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
       },
     });
   }
-
-  const stripeInvoice = await stripe.invoices.create({
-    customer: stripeCustomerId,
-    currency,
-    auto_advance: false,
-    collection_method: "send_invoice",
-    due_date: invoice.dueDate
-      ? Math.floor(invoice.dueDate.getTime() / 1000)
-      : undefined,
-    days_until_due: invoice.dueDate ? undefined : 30,
-    metadata: {
-      localInvoiceId: invoice.id,
-      practiceId: invoice.practiceId,
-      agreementId: invoice.agreementId || "",
-    },
-  });
 
   await prisma.invoice.update({
     where: { id: invoice.id },

@@ -523,25 +523,6 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       });
     }
 
-    // 2. Create Invoice Items
-    if (billingRunItems.length > 0) {
-      for (const item of billingRunItems) {
-        await stripe.invoiceItems.create({
-          customer: customerId,
-          amount: Math.round(Number(item.clientAmount) * 100), // amount in cents
-          currency: "usd",
-          description: item.service?.name || "Service Item",
-        });
-      }
-    } else {
-      await stripe.invoiceItems.create({
-        customer: customerId,
-        amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
-        currency: "usd",
-        description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
-      });
-    }
-
     // 3. Create Invoice
     const stripeInvoice = await stripe.invoices.create({
       customer: customerId,
@@ -551,11 +532,32 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
         ? Math.floor(new Date(invoice.dueDate).getTime() / 1000)
         : undefined,
       days_until_due: invoice.dueDate ? undefined : 30,
-      pending_invoice_items_behavior: "include",
+      pending_invoice_items_behavior: "exclude",
       metadata: { invoiceId: invoice.id },
     });
 
     stripeInvoiceId = stripeInvoice.id;
+
+    // 2. Create Invoice Items
+    if (billingRunItems.length > 0) {
+      for (const item of billingRunItems) {
+        await stripe.invoiceItems.create({
+          customer: customerId,
+          invoice: stripeInvoiceId,
+          amount: Math.round(Number(item.clientAmount) * 100), // amount in cents
+          currency: "usd",
+          description: item.service?.name || "Service Item",
+        });
+      }
+    } else {
+      await stripe.invoiceItems.create({
+        customer: customerId,
+        invoice: stripeInvoiceId,
+        amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
+        currency: "usd",
+        description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
+      });
+    }
   }
 
   // Finalize the invoice if it needs to be finalized

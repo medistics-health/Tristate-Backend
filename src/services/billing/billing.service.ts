@@ -1123,6 +1123,7 @@ async function getActiveAgreementTermsForRun(
   practiceId: string,
   periodStart: Date,
   periodEnd: Date,
+  agreementIds?: string[],
 ) {
   return db.agreementServiceTerm.findMany({
     where: {
@@ -1130,6 +1131,7 @@ async function getActiveAgreementTermsForRun(
       agreement: {
         practiceId,
         status: "ACTIVE",
+        id: agreementIds && agreementIds.length > 0 ? { in: agreementIds } : undefined,
       },
       agreementVersion: {
         isCurrent: true,
@@ -1582,6 +1584,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         periodEnd,
         status: BillingRunStatus.PENDING,
         notes: body.notes || undefined,
+        agreementIds: body.agreementIds || [],
       },
     });
 
@@ -1790,6 +1793,7 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
     run.practiceId,
     run.periodStart,
     run.periodEnd,
+    run.agreementIds,
   );
   const snapshots = run.inputSnapshots.map(toSnapshotMetric);
 
