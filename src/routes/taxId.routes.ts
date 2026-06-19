@@ -6,16 +6,16 @@ import {
   updateTaxId,
   deleteTaxId,
 } from "../controllers/taxId/taxId";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 
 const taxIdRouter = Router();
 
 taxIdRouter.use(verifyAuthToken);
 
-taxIdRouter.post("/", createTaxId);
+taxIdRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createTaxId);
 taxIdRouter.get("/", getTaxIds);
 taxIdRouter.get("/:id", getTaxId);
-taxIdRouter.patch("/:id", updateTaxId);
-taxIdRouter.delete("/:id", deleteTaxId);
+taxIdRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateTaxId);
+taxIdRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteTaxId);
 
 export default taxIdRouter;

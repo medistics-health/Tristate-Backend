@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   completeQuickBooksConnectionHandler,
   disconnectQuickBooksConnectionHandler,
@@ -23,6 +23,7 @@ const quickBooksCallbackRouter = Router();
 quickBooksCallbackRouter.get("/", completeQuickBooksConnectionHandler);
 
 quickBooksRouter.use(verifyAuthToken);
+quickBooksRouter.use(requireRoles(ROLE_GROUPS.INTEGRATIONS));
 quickBooksRouter.post("/connect", startQuickBooksConnectionHandler);
 quickBooksRouter.get("/connections/:companyId", getQuickBooksConnectionStatusHandler);
 quickBooksRouter.delete("/connections/:companyId", disconnectQuickBooksConnectionHandler);

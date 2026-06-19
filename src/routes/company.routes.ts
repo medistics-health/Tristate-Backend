@@ -6,16 +6,16 @@ import {
   updateCompany,
   deleteCompany,
 } from "../controllers/company/company";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 
 const companyRouter = Router();
 
 companyRouter.use(verifyAuthToken);
 
-companyRouter.post("/", createCompany);
+companyRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createCompany);
 companyRouter.get("/", getCompanies);
 companyRouter.get("/:id", getCompany);
-companyRouter.patch("/:id", updateCompany);
-companyRouter.delete("/:id", deleteCompany);
+companyRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateCompany);
+companyRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteCompany);
 
 export default companyRouter;

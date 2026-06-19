@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   getMercuryAccountsHandler,
   getMercuryTransactionsHandler,
@@ -11,6 +11,7 @@ import {
 const mercuryRouter = Router();
 
 mercuryRouter.use(verifyAuthToken);
+mercuryRouter.use(requireRoles(ROLE_GROUPS.INTEGRATIONS));
 
 // Pull live accounts from Mercury API
 mercuryRouter.get("/accounts", getMercuryAccountsHandler);

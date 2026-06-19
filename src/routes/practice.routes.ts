@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createPractice,
   getPractices,
@@ -14,10 +14,14 @@ const practiceRouter = Router();
 practiceRouter.use(verifyAuthToken);
 
 practiceRouter.get("/", getPractices);
-practiceRouter.post("/", createPractice);
-practiceRouter.post("/send-onboarding-email", sendOnboardingEmail);
+practiceRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createPractice);
+practiceRouter.post(
+  "/send-onboarding-email",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  sendOnboardingEmail,
+);
 practiceRouter.get("/:id", getPractice);
-practiceRouter.patch("/:id", updatePractice);
-practiceRouter.delete("/:id", deletePractice);
+practiceRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updatePractice);
+practiceRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deletePractice);
 
 export default practiceRouter;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createDeal,
   getDeal,
@@ -13,9 +13,9 @@ const dealRouter = Router();
 dealRouter.use(verifyAuthToken);
 
 dealRouter.get("/", getAllDeals);
-dealRouter.post("/", createDeal);
+dealRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createDeal);
 dealRouter.get("/:id", getDeal);
-dealRouter.patch("/:id", updateDeal);
-dealRouter.delete("/:id", deleteDeal);
+dealRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateDeal);
+dealRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteDeal);
 
 export default dealRouter;

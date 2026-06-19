@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createPerson,
   getPersons,
@@ -13,9 +13,9 @@ const personRouter = Router();
 personRouter.use(verifyAuthToken);
 
 personRouter.get("/", getPersons);
-personRouter.post("/", createPerson);
+personRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createPerson);
 personRouter.get("/:id", getPerson);
-personRouter.patch("/:id", updatePerson);
-personRouter.delete("/:id", deletePerson);
+personRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updatePerson);
+personRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deletePerson);
 
 export default personRouter;

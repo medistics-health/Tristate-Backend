@@ -10,7 +10,7 @@ import {
   updateOnboarding,
   deleteOnboarding,
 } from "../controllers/onboarding/onboardingV2";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 
 const router = Router();
 
@@ -25,10 +25,10 @@ router.post("/external/delete-document", deleteExternalOnboardingDocument);
 
 router.use(verifyAuthToken);
 
-router.post("/", createOnboarding);
+router.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createOnboarding);
 router.get("/", getOnboardings);
 router.get("/:id", getOnboarding);
-router.put("/:id", updateOnboarding);
-router.delete("/:id", deleteOnboarding);
+router.put("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateOnboarding);
+router.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteOnboarding);
 
 export default router;
