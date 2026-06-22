@@ -44,6 +44,7 @@ export function verifyAuthToken(
   }
 }
 
+// Keep this in sync with docs/ROLE_ACCESS.md whenever role access changes.
 export const ROLE_GROUPS = {
   ALL: Object.values(UserRoles),
   BUSINESS_WRITE: [
@@ -65,17 +66,31 @@ export const ROLE_GROUPS = {
 
 export function requireRoles(allowedRoles: UserRoles[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    const role = req.user?.role as UserRoles | undefined;
+    const normalizedRole =
+      typeof req.user?.role === "string" ? req.user.role.trim().toUpperCase() : "";
+    const normalizedAllowedRoles = allowedRoles.map((role) => role.trim().toUpperCase());
 
-    if (!role) {
+    if (!normalizedRole) {
       return res.status(401).json({
         message: "Unauthorized. User role is missing.",
       });
     }
 
-    if (!allowedRoles.includes(role)) {
+    if (!normalizedAllowedRoles.includes(normalizedRole)) {
+      const debugMessage = `Forbidden for role "${normalizedRole}". Required roles: ${normalizedAllowedRoles.join(", ")}.`;
       return res.status(403).json({
-        message: "Forbidden. You do not have permission for this action.",
+        message:
+          process.env.NODE_ENV === "production"
+            ? "Forbidden. You do not have permission for this action."
+            : debugMessage,
+        ...(process.env.NODE_ENV !== "production"
+          ? {
+              path: req.originalUrl,
+              method: req.method,
+              currentRole: normalizedRole,
+              allowedRoles: normalizedAllowedRoles,
+            }
+          : {}),
       });
     }
 
