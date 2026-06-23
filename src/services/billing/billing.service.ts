@@ -185,6 +185,10 @@ function defaultMetricKeys(model: PricingModel) {
       return ["revenue", "total_revenue"];
     case PricingModel.PERCENT_PROFIT:
       return ["profit", "total_profit"];
+    case PricingModel.TIERED_VOLUME:
+      return ["encounters", "encounter_count", "patients", "patient_count", "units", "unit_count", "claims", "claim_count"];
+    case PricingModel.CUSTOM_ATTACHMENT_DEFINED:
+      return ["value"];
     default:
       return [];
   }
@@ -199,6 +203,7 @@ function resolveMetric(
   snapshots: SnapshotMetric[],
   serviceId: string,
   pricingModel: PricingModel,
+  agreementServiceTermId?: string,
 ): MetricResolution | null {
   const configuredKeys = getStringList(config.metricKeys);
   const candidateKeys =
@@ -210,10 +215,21 @@ function resolveMetric(
         ];
 
   for (const key of candidateKeys) {
-    const matchingSnapshots = snapshots.filter(
-      (snapshot) =>
-        snapshot.metricKey === key && metricMatchesService(snapshot.serviceId, serviceId),
-    );
+    const matchingSnapshots = snapshots.filter((snapshot) => {
+      // 1. Metric key must match
+      if (snapshot.metricKey !== key) {
+        return false;
+      }
+      // 2. If it is targeted to a specific term, it must match this term
+      if (snapshot.sourceReference) {
+        if (agreementServiceTermId && snapshot.sourceReference === agreementServiceTermId) {
+          return true;
+        }
+        return false;
+      }
+      // 3. Otherwise, it must match by serviceId
+      return metricMatchesService(snapshot.serviceId, serviceId);
+    });
 
     if (matchingSnapshots.length === 0) {
       continue;
@@ -335,6 +351,7 @@ function computeCptPricing(
   snapshots: SnapshotMetric[],
   serviceId: string,
   label: string,
+  agreementServiceTermId?: string,
 ) {
   const cptCodes = Array.isArray(config.cptCodes) ? config.cptCodes : [];
   const components: ComputedComponent[] = [];
@@ -366,10 +383,18 @@ function computeCptPricing(
       continue;
     }
 
-    const matchingSnapshots = snapshots.filter(
-      (snapshot) =>
-        snapshot.metricKey === code && metricMatchesService(snapshot.serviceId, serviceId),
-    );
+    const matchingSnapshots = snapshots.filter((snapshot) => {
+      if (snapshot.metricKey !== code) {
+        return false;
+      }
+      if (snapshot.sourceReference) {
+        if (agreementServiceTermId && snapshot.sourceReference === agreementServiceTermId) {
+          return true;
+        }
+        return false;
+      }
+      return metricMatchesService(snapshot.serviceId, serviceId);
+    });
 
     const quantity = matchingSnapshots.reduce(
       (sum, snapshot) => sum + (snapshot.metricValue ?? 0),
@@ -417,8 +442,9 @@ function computePricingFromModel(params: {
   minimumFee?: number | null;
   maximumFee?: number | null;
   label?: string;
+  agreementServiceTermId?: string;
 }): ComputedPricingResult {
-  const { pricingModel, config, snapshots, serviceId, minimumFee, maximumFee, label } = params;
+  const { pricingModel, config, snapshots, serviceId, minimumFee, maximumFee, label, agreementServiceTermId } = params;
   const exceptionFlags: string[] = [];
   const components: ComputedComponent[] = [];
   const metricResolutions: MetricResolution[] = [];
@@ -488,7 +514,7 @@ function computePricingFromModel(params: {
     case PricingModel.PER_PATIENT:
     case PricingModel.PER_PROVIDER:
     case PricingModel.PER_SITE: {
-      const metric = resolveMetric(config, snapshots, serviceId, pricingModel);
+      const metric = resolveMetric(config, snapshots, serviceId, pricingModel, agreementServiceTermId);
       const rate = getNumberValue(config.rate ?? config.unitRate);
 
       if (!metric) {
@@ -518,7 +544,7 @@ function computePricingFromModel(params: {
     }
 
     case PricingModel.PER_CPT_CODE: {
-      const cptResult = computeCptPricing(config, snapshots, serviceId, componentLabel);
+      const cptResult = computeCptPricing(config, snapshots, serviceId, componentLabel, agreementServiceTermId);
       amount = cptResult.amount;
       components.push(...cptResult.components);
       metricResolutions.push(...cptResult.metricResolutions);
@@ -534,7 +560,7 @@ function computePricingFromModel(params: {
         pricingModel === PricingModel.SUCCESS_FEE
           ? PricingModel.PERCENT_COLLECTIONS
           : pricingModel;
-      const metric = resolveMetric(config, snapshots, serviceId, percentMetricModel);
+      const metric = resolveMetric(config, snapshots, serviceId, percentMetricModel, agreementServiceTermId);
       const rate = getNumberValue(config.ratePercent ?? config.percentage ?? config.rate);
 
       if (!metric) {
@@ -566,7 +592,7 @@ function computePricingFromModel(params: {
     }
 
     case PricingModel.TIERED_VOLUME: {
-      const metric = resolveMetric(config, snapshots, serviceId, pricingModel);
+      const metric = resolveMetric(config, snapshots, serviceId, pricingModel, agreementServiceTermId);
 
       if (!metric) {
         exceptionFlags.push(`MISSING_METRIC_${pricingModel}`);
@@ -574,17 +600,38 @@ function computePricingFromModel(params: {
       }
 
       metricResolutions.push(metric);
-      const tieredResult = buildTieredAmount(metric.quantity, config.tiers);
-      amount = tieredResult.amount;
-      components.push(
-        ...tieredResult.components.map((component) => ({
-          ...component,
-          metadata: {
-            ...(component.metadata || {}),
-            metricKey: metric.metricKey,
-          },
-        })),
-      );
+
+      if (Array.isArray(config.tiers) && config.tiers.length > 0) {
+        const tieredResult = buildTieredAmount(metric.quantity, config.tiers);
+        amount = tieredResult.amount;
+        components.push(
+          ...tieredResult.components.map((component) => ({
+            ...component,
+            metadata: {
+              ...(component.metadata || {}),
+              metricKey: metric.metricKey,
+            },
+          })),
+        );
+      } else {
+        // Fallback: if tiers are missing/empty, check if a rate/amount is defined in the config (amount, rate, or unitRate)
+        const rate = getNumberValue(config.amount) ?? getNumberValue(config.rate) ?? getNumberValue(config.unitRate);
+        if (rate !== null) {
+          amount = roundMoney(metric.quantity * rate);
+          components.push({
+            componentType: "TIER",
+            description: `Flat Tiered Volume Rate`,
+            quantity: metric.quantity,
+            rate,
+            amount,
+            metadata: {
+              metricKey: metric.metricKey,
+            },
+          });
+        } else {
+          amount = 0;
+        }
+      }
       break;
     }
 
@@ -607,6 +654,7 @@ function computePricingFromModel(params: {
             config: baseCalculation,
             snapshots,
             serviceId,
+            agreementServiceTermId,
           });
           baseAmount = nestedResult.amount;
           components.push(...nestedResult.components);
@@ -760,6 +808,7 @@ function computePricingFromModel(params: {
             typeof componentConfig.label === "string"
               ? componentConfig.label
               : nestedModelRaw,
+          agreementServiceTermId,
         });
 
         metricResolutions.push(...nestedResult.metricResolutions);
@@ -803,7 +852,24 @@ function computePricingFromModel(params: {
     }
 
     case PricingModel.CUSTOM_ATTACHMENT_DEFINED: {
-      exceptionFlags.push("MANUAL_REVIEW_REQUIRED_CUSTOM_PRICING");
+      const metric = resolveMetric(config, snapshots, serviceId, pricingModel, agreementServiceTermId);
+      if (metric) {
+        metricResolutions.push(metric);
+        const rate = getNumberValue(config.amount) ?? getNumberValue(config.rate) ?? getNumberValue(config.unitRate);
+        if (rate !== null) {
+          amount = roundMoney(metric.quantity * rate);
+          components.push({
+            componentType: "CUSTOM_ATTACHMENT_DEFINED",
+            description: `${componentLabel} (${metric.metricKey})`,
+            quantity: metric.quantity,
+            rate,
+            amount,
+            metadata: {
+              metricKey: metric.metricKey,
+            },
+          });
+        }
+      }
       break;
     }
 
@@ -843,9 +909,12 @@ function datesOverlap(
   periodStart: Date,
   periodEnd: Date,
 ) {
-  const normalizedStart = rangeStart ?? new Date("1900-01-01T00:00:00.000Z");
-  const normalizedEnd = rangeEnd ?? new Date("9999-12-31T23:59:59.999Z");
-  return normalizedStart <= periodEnd && normalizedEnd >= periodStart;
+  const startMs = rangeStart ? new Date(rangeStart).setUTCHours(0, 0, 0, 0) : new Date("1900-01-01T00:00:00.000Z").getTime();
+  const endMs = rangeEnd ? new Date(rangeEnd).setUTCHours(23, 59, 59, 999) : new Date("9999-12-31T23:59:59.999Z").getTime();
+  const pStartMs = new Date(periodStart).setUTCHours(0, 0, 0, 0);
+  const pEndMs = new Date(periodEnd).setUTCHours(23, 59, 59, 999);
+
+  return startMs <= pEndMs && endMs >= pStartMs;
 }
 
 function validatePricingConfigForReadiness(params: {
@@ -977,15 +1046,6 @@ function validatePricingConfigForReadiness(params: {
       }
       break;
     case PricingModel.TIERED_VOLUME:
-      if (!Array.isArray(pricingConfig.tiers) || pricingConfig.tiers.length === 0) {
-        issues.push({
-          code: "MISSING_TIERS",
-          message: "Tiered-volume service term is missing tiers.",
-          severity: "ERROR",
-          agreementId,
-          agreementServiceTermId,
-        });
-      }
       break;
     case PricingModel.HYBRID:
     case PricingModel.MULTI_COMPONENT:
@@ -1017,13 +1077,6 @@ function validatePricingConfigForReadiness(params: {
       }
       break;
     case PricingModel.CUSTOM_ATTACHMENT_DEFINED:
-      issues.push({
-        code: "CUSTOM_PRICING_REQUIRES_REVIEW",
-        message: "Custom attachment defined pricing requires manual review before billing.",
-        severity: "WARNING",
-        agreementId,
-        agreementServiceTermId,
-      });
       break;
     default:
       break;
@@ -1424,6 +1477,7 @@ function computeVendorAmount(
   snapshots: SnapshotMetric[],
   serviceId: string,
   clientAmount: number,
+  agreementServiceTermId?: string,
 ) {
   const vendorPricing = toJsonObject(pricingConfig.vendorPricing);
   if (Object.keys(vendorPricing).length > 0) {
@@ -1446,6 +1500,7 @@ function computeVendorAmount(
         serviceId,
         minimumFee: vendorMinFee,
         maximumFee: vendorMaxFee,
+        agreementServiceTermId,
       }).amount;
     }
   }
@@ -1841,12 +1896,13 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
       minimumFee: clientMinFee,
       maximumFee: clientMaxFee,
       label: term.service.name,
+      agreementServiceTermId: term.id,
     });
 
     const clientAmount = roundMoney(clientResult.amount);
     const vendorAmount =
       term.vendorId !== null
-        ? computeVendorAmount(pricingConfig, snapshots, term.serviceId, clientAmount)
+        ? computeVendorAmount(pricingConfig, snapshots, term.serviceId, clientAmount, term.id)
         : null;
     const marginAmount =
       vendorAmount !== null ? roundMoney(clientAmount - vendorAmount) : null;
