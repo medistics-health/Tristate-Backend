@@ -5,6 +5,11 @@ import { prisma } from "../../lib/prisma";
 import { stripe, getStripeWebhookSecret } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
+import {
+  extractPaymentMethodInfo,
+  sendInvoiceFirstEmail,
+  sendPaymentReceiptEmail,
+} from "../../utils/stripeEmailFlow";
 
 function normalizeCurrency(currency?: string | null) {
   return (currency || "USD").toLowerCase();
@@ -585,7 +590,7 @@ async function processStripeWebhookEvent(event: any) {
         }
       }
 
-      // Download paid invoice receipt and send it to practice persons
+      // Send two-step email flow: Invoice first, then Payment Receipt with payment method info
       try {
         const practice = await prisma.practice.findUnique({
           where: { id: invoice.practiceId },
@@ -630,180 +635,55 @@ async function processStripeWebhookEvent(event: any) {
         const uniqueEmails = [...new Set(emails)];
 
         if (uniqueEmails.length > 0) {
-          // Wait 5 seconds to let Stripe finalize and associate the charge/receipt details
-          console.log("[stripe-webhook] Waiting 5 seconds for Stripe to finalize charge/receipt details...");
-          await new Promise((resolve) => setTimeout(resolve, 5000));
+          console.log("[stripe-webhook] Starting two-step email flow (Invoice → Receipt)");
 
-          let latestStripeInvoice = stripeInvoice;
-          try {
-            console.log(`[stripe-webhook] Retrieving fresh invoice data for ID: ${stripeInvoice.id}`);
-            latestStripeInvoice = await stripe.invoices.retrieve(stripeInvoice.id) as any;
-          } catch (retrieveErr) {
-            console.error(`[stripe-webhook] Failed to retrieve fresh invoice data:`, retrieveErr);
-          }
+          // STEP 1: Send Invoice PDF email
+          console.log("[stripe-webhook] Sending invoice email...");
+          await sendInvoiceFirstEmail(uniqueEmails, invoice, invoice.invoiceNumber, prisma);
 
-          let pdfBuffer: Buffer | null = null;
-          let isReceipt = false;
-          let chargeId = latestStripeInvoice.charge;
-          
-          // Construct direct receipt download URL (invoicedata.stripe.com)
-          let receiptFileUrl = "";
-          if (latestStripeInvoice.hosted_invoice_url) {
+          // Wait 2 seconds before sending receipt
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+
+          // STEP 2: Extract payment method information and send Receipt PDF email
+          console.log("[stripe-webhook] Extracting payment method information...");
+          let paymentMethodInfo = {
+            type: "stripe",
+          } as any;
+
+          // Get charge and payment intent for payment method details
+          let chargeId = stripeInvoice.charge;
+          if (!chargeId && stripeInvoice.payment_intent) {
             try {
-              const urlObj = new URL(latestStripeInvoice.hosted_invoice_url);
-              const parts = urlObj.pathname.split("/").filter(Boolean);
-              const iIndex = parts.indexOf("i");
-              if (iIndex !== -1 && parts.length > iIndex + 2) {
-                const acctId = parts[iIndex + 1];
-                const invoiceIdPart = parts[iIndex + 2];
-                receiptFileUrl = `https://invoicedata.stripe.com/invoice_receipt_file_url/${acctId}/${invoiceIdPart}`;
-                console.log(`[stripe-webhook] Constructed direct receipt metadata URL: ${receiptFileUrl}`);
-              }
-            } catch (err) {
-              console.error("[stripe-webhook] Error constructing direct receipt URL:", err);
-            }
-          }
-
-          let pdfUrl = latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url;
-          let receiptUrl = latestStripeInvoice.hosted_invoice_url || "";
-
-          if (receiptFileUrl) {
-            try {
-              console.log(`[stripe-webhook] Fetching direct receipt PDF metadata from ${receiptFileUrl}`);
-              const metaResponse = await axios.get(receiptFileUrl);
-              const fileUrl = (metaResponse.data as { file_url?: string })?.file_url;
-              if (fileUrl) {
-                pdfUrl = fileUrl;
-                isReceipt = true;
-                receiptUrl = fileUrl;
-                console.log(`[stripe-webhook] Resolved direct receipt PDF file URL from metadata: ${pdfUrl}`);
-              }
-            } catch (metaErr: any) {
-              console.error(`[stripe-webhook] Failed to fetch receipt PDF URL metadata from ${receiptFileUrl}:`, metaErr.message);
-            }
-          }
-
-          if (!chargeId && latestStripeInvoice.payment_intent) {
-            try {
-              const pi = await stripe.paymentIntents.retrieve(latestStripeInvoice.payment_intent as string);
+              const pi = await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent as string);
               chargeId = pi.latest_charge;
             } catch (piErr) {
-              console.error(`[stripe-webhook] Failed to retrieve payment intent ${latestStripeInvoice.payment_intent}:`, piErr);
+              console.warn("[stripe-webhook] Failed to retrieve payment intent:", piErr);
             }
           }
 
           if (chargeId) {
             try {
-              console.log(`[stripe-webhook] Retrieving charge details for ID: ${chargeId}`);
               const charge = await stripe.charges.retrieve(chargeId as string);
-              if (charge.receipt_url) {
-                if (!pdfUrl || !receiptFileUrl) {
-                  pdfUrl = `${charge.receipt_url.split("?")[0]}/pdf`;
-                  isReceipt = true;
-                }
-                if (!receiptUrl || !receiptFileUrl) {
-                  receiptUrl = charge.receipt_url;
-                }
-                console.log(`[stripe-webhook] Resolved payment receipt URL from charge: ${charge.receipt_url}`);
-              }
+              const pi = stripeInvoice.payment_intent
+                ? await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent as string)
+                : undefined;
+
+              paymentMethodInfo = await extractPaymentMethodInfo(charge, pi, stripe);
+              console.log("[stripe-webhook] Extracted payment method:", paymentMethodInfo);
             } catch (chargeErr) {
-              console.error(`[stripe-webhook] Failed to retrieve charge details:`, chargeErr);
+              console.warn("[stripe-webhook] Failed to extract payment method info:", chargeErr);
             }
           }
 
-          if (pdfUrl) {
-            try {
-              console.log(`[stripe-webhook] Downloading PDF from ${pdfUrl}`);
-              const axiosResponse = await axios.get(pdfUrl, {
-                responseType: "arraybuffer",
-                headers: {
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-              });
-              pdfBuffer = Buffer.from(axiosResponse.data);
-              console.log(`[stripe-webhook] Downloaded PDF successfully (${pdfBuffer.length} bytes)`);
-            } catch (downloadErr: any) {
-              console.error(`[stripe-webhook] Failed to download PDF from ${pdfUrl}:`, downloadErr.message);
-              // Fallback to invoice PDF if downloading receipt PDF failed
-              if (isReceipt && (latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url)) {
-                const fallbackUrl = latestStripeInvoice.invoice_pdf || latestStripeInvoice.hosted_invoice_url;
-                console.log(`[stripe-webhook] Attempting fallback PDF download from ${fallbackUrl}`);
-                try {
-                  const fallbackResponse = await axios.get(fallbackUrl, {
-                    responseType: "arraybuffer",
-                    headers: {
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    }
-                  });
-                  pdfBuffer = Buffer.from(fallbackResponse.data);
-                  isReceipt = false;
-                  console.log(`[stripe-webhook] Downloaded fallback PDF successfully (${pdfBuffer.length} bytes)`);
-                } catch (fallbackErr: any) {
-                  console.error(`[stripe-webhook] Failed to download fallback PDF from ${fallbackUrl}:`, fallbackErr.message);
-                }
-              }
-            }
-          }
+          console.log("[stripe-webhook] Sending payment receipt email with payment method info...");
+          await sendPaymentReceiptEmail(uniqueEmails, invoice, invoice.invoiceNumber, stripeInvoice, paymentMethodInfo, prisma);
 
-          let attachments: any[] = [];
-          if (pdfBuffer) {
-            const docName = isReceipt ? "receipt" : "invoice";
-            attachments.push({
-              name: `${docName}-${invoice.invoiceNumber || invoice.id.slice(0, 8)}.pdf`,
-              contentType: "application/pdf",
-              contentBytes: pdfBuffer.toString("base64"),
-            });
-          }
-
-          const invoiceNum = invoice.invoiceNumber || invoice.id.slice(0, 8);
-          const emailSubject = `Payment Receipt for Invoice #${invoiceNum}`;
-          const emailBody = `
-            <p>Dear Partner,</p>
-            <p>We have received your payment for Invoice <strong>#${invoiceNum}</strong>.</p>
-            <p><strong>Payment Summary:</strong></p>
-            <ul>
-              <li><strong>Invoice Number:</strong> #${invoiceNum}</li>
-              <li><strong>Amount Paid:</strong> $${(Number(stripeInvoice.amount_paid || 0) / 100).toFixed(2)}</li>
-              <li><strong>Status:</strong> Paid / Completed</li>
-            </ul>
-            ${
-              receiptUrl
-                ? `
-            <p>You can view and download your official Stripe payment receipt by clicking the button below:</p>
-            <p style="margin: 24px 0;">
-              <!--[if mso]>
-              <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" href="${receiptUrl}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="12%" strokecolor="#0f4c81" fillcolor="#0f4c81">
-                <w:anchorlock/>
-                <center style="color:#ffffff;font-family:'Segoe UI',Arial,sans-serif;font-size:15px;font-weight:bold;">
-                  Download Receipt
-                </center>
-              </v:roundrect>
-              <![endif]-->
-              <!--[if !mso]><!-- -->
-              <a href="${receiptUrl}" target="_blank" style="background-color: #0f4c81; border: 1px solid #0f4c81; border-radius: 10px; color: #ffffff; display: inline-block; font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; font-size: 15px; font-weight: 700; line-height: 20px; padding: 14px 28px; text-decoration: none;">Download Receipt</a>
-              <!--<![endif]-->
-            </p>
-            `
-                : ""
-            }
-            <p>Please find your official payment document attached to this email.</p>
-            <p>If you have any questions or require further assistance, please feel free to reach out to our support team.</p>
-            <p>Best regards,<br/>The Tristate Team</p>
-          `;
-
-          for (const email of uniqueEmails) {
-            try {
-              await sendOutlookEmail(email, emailSubject, emailBody, { attachments });
-              console.log(`[stripe-webhook] Receipt email sent successfully to ${email} for invoice ${invoice.id}`);
-            } catch (emailErr) {
-              console.error(`[stripe-webhook] Failed to send receipt email to ${email}:`, emailErr);
-            }
-          }
+          console.log("[stripe-webhook] Two-step email flow completed successfully");
         } else {
-          console.warn(`[stripe-webhook] No receipt recipients found for practice ${invoice.practiceId}`);
+          console.warn(`[stripe-webhook] No recipients found for practice ${invoice.practiceId}`);
         }
       } catch (err) {
-        console.error("[stripe-webhook] Error in sending invoice paid email receipt:", err);
+        console.error("[stripe-webhook] Error in two-step email flow:", err);
       }
 
       return;
