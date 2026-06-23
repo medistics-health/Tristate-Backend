@@ -4,6 +4,7 @@ import { prisma } from "../../lib/prisma";
 import { stripe } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
+import { generateInvoicePdfBufferFromDb } from "../../utils/invoicePdf";
 
 type InvoiceBody = {
   practiceId?: string;
@@ -756,15 +757,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
 const invoicePdfLinkHtml = pdfUrl
   ? `
     <p style="margin: 12px 0 0 0; font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; font-size: 13px; line-height: 20px; text-align: center;">
-      <a
-        href="${pdfUrl}"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="contact-link"
-        style="color: #0f4c81; text-decoration: underline; font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;"
-      >
-        Download Invoice PDF
-      </a>
+      
     </p>
   `
   : "";
@@ -1595,9 +1588,26 @@ const emailBody = `
 </html>
 `;
 
+    let pdfBuffer: Buffer | null = null;
+    try {
+      pdfBuffer = await generateInvoicePdfBufferFromDb(invoiceId, prisma);
+    } catch (pdfErr) {
+      console.error("[processAndEmailInvoice] Failed to generate PDF buffer:", pdfErr);
+    }
+
+    const pdfFileName = `Invoice-${invoiceNumber || "Document"}.pdf`;
+
     for (const email of recipientEmails) {
       try {
-        await sendOutlookEmail(email, emailSubject, emailBody);
+        await sendOutlookEmail(email, emailSubject, emailBody, {
+          attachments: pdfBuffer ? [
+            {
+              name: pdfFileName,
+              contentType: "application/pdf",
+              contentBytes: pdfBuffer.toString("base64"),
+            }
+          ] : undefined
+        });
       } catch (emailErr) {
         console.error(`Failed to send outlook email to ${email}:`, emailErr);
       }
