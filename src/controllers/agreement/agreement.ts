@@ -1193,6 +1193,7 @@ export async function createAgreement(
         versionNumber: 1,
         isCurrent: true,
         effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
+        endDate: renewalDate ? new Date(renewalDate) : undefined,
         notes: "Initial version auto-created with agreement creation.",
       },
     });
