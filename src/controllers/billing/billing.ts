@@ -205,10 +205,19 @@ export async function getBillingReadinessHandler(
       });
     }
 
+    const rawAgreementIds = Array.isArray(req.query.agreementIds)
+      ? req.query.agreementIds[0]
+      : req.query.agreementIds;
+    let agreementIds: string[] | undefined = undefined;
+    if (typeof rawAgreementIds === "string") {
+      agreementIds = rawAgreementIds.split(",").map((id) => id.trim()).filter(Boolean);
+    }
+
     const readiness = await getBillingReadiness({
       practiceId,
       periodStart,
       periodEnd,
+      agreementIds,
     });
 
     return res.status(200).json({
