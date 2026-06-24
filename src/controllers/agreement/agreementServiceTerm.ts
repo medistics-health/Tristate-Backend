@@ -2012,7 +2012,7 @@ export async function createAgreementServiceTerm(
     ) {
       return res.status(400).json({
         message:
-          "Service term effectiveDate cannot start after the agreement version endDate.",
+          "Service term EffectiveDate cannot start after the agreement version EndDate.",
       });
     }
 
@@ -2257,7 +2257,7 @@ export async function updateAgreementServiceTerm(
     ) {
       return res.status(400).json({
         message:
-          "Service term effectiveDate cannot start after the agreement version endDate.",
+          "Service term EffectiveDate cannot start after the agreement version's EndDate.",
       });
     }
 
@@ -2268,7 +2268,7 @@ export async function updateAgreementServiceTerm(
     ) {
       return res.status(400).json({
         message:
-          "Service term endDate cannot end before the agreement version effectiveDate.",
+          "Service term EndDate cannot end before the agreement version's EffectiveDate.",
       });
     }
 

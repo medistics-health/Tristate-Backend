@@ -1216,6 +1216,7 @@ export async function getBillingReadiness(params: {
   practiceId: string;
   periodStart: string | Date;
   periodEnd: string | Date;
+  agreementIds?: string[];
 }): Promise<BillingReadinessResponse> {
   const practiceId = params.practiceId.trim();
   const periodStart = asDate(params.periodStart, "periodStart");
@@ -1244,6 +1245,9 @@ export async function getBillingReadiness(params: {
     where: {
       practiceId,
       status: "ACTIVE",
+      ...(params.agreementIds && params.agreementIds.length > 0
+        ? { id: { in: params.agreementIds } }
+        : {}),
     },
     include: {
       versions: {
@@ -1281,13 +1285,25 @@ export async function getBillingReadiness(params: {
     currentVersionCount += currentVersions.length;
     currentVersionNumbers.push(...currentVersions.map((v) => `${v.versionNumber}`));
 
-    if (agreement.versions.length > 0 && currentVersions.length === 0) {
+    if (currentVersions.length === 0) {
       issues.push({
         code: "NO_CURRENT_AGREEMENT_VERSION",
-        message: "Active agreement has versions but none is marked current.",
+        message: "Active agreement has no version marked current.",
         severity: "ERROR",
         agreementId: agreement.id,
       });
+    } else {
+      for (const version of currentVersions) {
+        if (!version.effectiveDate || !version.endDate) {
+          issues.push({
+            code: "MISSING_AGREEMENT_VERSION_DATES",
+            message: "Current agreement version is missing start (effective) or end dates.",
+            severity: "ERROR",
+            agreementId: agreement.id,
+            agreementVersionId: version.id,
+          });
+        }
+      }
     }
 
     const overlappingCurrentVersions = currentVersions.filter((version) =>
@@ -1299,9 +1315,25 @@ export async function getBillingReadiness(params: {
         code: "CURRENT_VERSION_OUTSIDE_BILLING_PERIOD",
         message:
           "Current agreement version does not overlap the requested billing period.",
-        severity: "ERROR",
+        severity: "WARNING",
         agreementId: agreement.id,
       });
+    }
+
+    // Check if any active service terms are missing dates
+    for (const term of agreement.serviceTerms) {
+      if (!term.isActive) continue;
+      if (term.agreementVersion && !term.agreementVersion.isCurrent) continue;
+
+      if (!term.effectiveDate || !term.endDate) {
+        issues.push({
+          code: "MISSING_SERVICE_TERM_DATES",
+          message: `Agreement service term for "${term.service?.name ?? term.id}" is missing start (effective) or end dates.`,
+          severity: "ERROR",
+          agreementId: agreement.id,
+          agreementServiceTermId: term.id,
+        });
+      }
     }
 
     const activeTerms = agreement.serviceTerms.filter((term) => {
@@ -1355,7 +1387,7 @@ export async function getBillingReadiness(params: {
       issues.push({
         code: "NO_ACTIVE_SERVICE_TERMS",
         message,
-        severity: "ERROR",
+        severity: "WARNING",
         agreementId: agreement.id,
       });
     }
@@ -1416,6 +1448,14 @@ export async function getBillingReadiness(params: {
         billableServiceTermCount += 1;
       }
     }
+  }
+
+  if (billableServiceTermCount === 0 && activeAgreements.length > 0) {
+    issues.push({
+      code: "NO_BILLABLE_SERVICE_TERMS",
+      message: "There are no active, valid service terms to bill for the selected period.",
+      severity: "ERROR",
+    });
   }
 
   const uniqueIssues = issues.filter(
@@ -1904,8 +1944,7 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
       term.vendorId !== null
         ? computeVendorAmount(pricingConfig, snapshots, term.serviceId, clientAmount, term.id)
         : null;
-    const marginAmount =
-      vendorAmount !== null ? roundMoney(clientAmount - vendorAmount) : null;
+    const marginAmount = roundMoney(clientAmount - (vendorAmount || 0));
     const releasePolicy = determineReleasePolicy(pricingConfig);
     const sourceSnapshots = snapshots.filter(
       (snapshot) =>
