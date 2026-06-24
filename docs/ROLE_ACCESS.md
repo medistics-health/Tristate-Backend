@@ -20,6 +20,7 @@ Source of truth in code:
 - All protected routes require authentication via `verifyAuthToken`.
 - Endpoints with no `requireRoles(...)` after auth are available to all authenticated roles.
 - Endpoints with `requireRoles(...)` are restricted by the role group used on that route.
+- Special rule: `VIEWER` is globally read-only across protected routes (`GET` only). For `POST`, `PUT`, `PATCH`, `DELETE`, `VIEWER` is always denied.
 
 ## Role groups in use
 
@@ -92,8 +93,8 @@ Source of truth in code:
 - No finance/integration/admin/settings restricted actions.
 
 ### `VIEWER`
-- Read-only access to authenticated routes where no explicit role gate is applied.
-- No write access on endpoints protected by role groups.
+- Read-only access to all authenticated resources via `GET` endpoints, including routes that otherwise use restricted role groups.
+- No access to non-`GET` methods (`POST`, `PUT`, `PATCH`, `DELETE`) on any protected route.
 
 ## Public routes (no auth required)
 

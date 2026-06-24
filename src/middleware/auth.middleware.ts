@@ -69,10 +69,32 @@ export function requireRoles(allowedRoles: UserRoles[]) {
     const normalizedRole =
       typeof req.user?.role === "string" ? req.user.role.trim().toUpperCase() : "";
     const normalizedAllowedRoles = allowedRoles.map((role) => role.trim().toUpperCase());
+    const method = req.method.toUpperCase();
 
     if (!normalizedRole) {
       return res.status(401).json({
         message: "Unauthorized. User role is missing.",
+      });
+    }
+
+    // VIEWER has read-only access to all protected resources.
+    if (normalizedRole === UserRoles.VIEWER) {
+      if (method === "GET") {
+        return next();
+      }
+
+      return res.status(403).json({
+        message:
+          process.env.NODE_ENV === "production"
+            ? "Forbidden. VIEWER role has read-only access."
+            : `Forbidden for role "${normalizedRole}" on ${method}. VIEWER can only access GET endpoints.`,
+        ...(process.env.NODE_ENV !== "production"
+          ? {
+              path: req.originalUrl,
+              method,
+              currentRole: normalizedRole,
+            }
+          : {}),
       });
     }
 
