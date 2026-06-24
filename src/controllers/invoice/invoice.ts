@@ -470,15 +470,12 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     include: {
       practice: {
         include: {
-          company: {
+          persons: {
             include: {
-              persons: {
-                include: {
-                  person: true,
-                },
-              },
+              person: true,
             },
           },
+          company: true,
         },
       },
     },
@@ -612,7 +609,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
 
   // Fetch recipient emails
   const emails =
-    invoice.practice.company?.persons
+    invoice.practice.persons
       ?.map((cp) => cp.person?.email)
       .filter(
         (email): email is string =>

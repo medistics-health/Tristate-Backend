@@ -138,7 +138,8 @@ function formatRate(
     modelUpper.includes("SUCCESS") ||
     modelUpper === "SUCCESS_FEE"
   ) {
-    const val = rate <= 1 && rate > 0 ? Math.round(rate * 100) : rate;
+    const val =
+      rate <= 1 && rate > 0 ? parseFloat((rate * 100).toFixed(4)) : rate;
     return `${val}%`;
   }
   // Remove suffixes like /unit, /encounter, etc. Show only currency or percentage.
@@ -243,7 +244,11 @@ function calculateRowsForLineItem(
     let isFirstComp = true;
     for (const comp of components) {
       baseAmount += comp.clientValue || 0;
-      const compLabel = cleanComponentType(comp.type || "", serviceName);
+      let compLabel = cleanComponentType(comp.type || "", serviceName);
+
+      if (pricingModel === "PER_CPT_CODE" && comp.cptCode) {
+        compLabel = comp.cptCode;
+      }
 
       rows.push({
         service: isFirstComp ? serviceName : "",
@@ -445,11 +450,10 @@ export function generateInvoicePdfBuffer(
 
       // 2. Company Info (Left Side) & Company Logo (Right Side)
       const companyName = invoiceData.practiceInfo.name || "Tristate MSO";
-      const addressLine1 = invoiceData.practiceInfo.address || "N/A";
+      const addressLine1 = invoiceData.practiceInfo.address || "";
       const addressLine2 =
-        `${invoiceData.practiceInfo.city || ""}, ${invoiceData.practiceInfo.state || ""} ${invoiceData.practiceInfo.zipCode || ""}`.trim();
-      const companyEmail =
-        invoiceData.practiceInfo.email || "billing@tristatehealth.com";
+        `${invoiceData.practiceInfo.city || ""} ${invoiceData.practiceInfo.state || ""} ${invoiceData.practiceInfo.zipCode || ""}`.trim();
+      const companyEmail = invoiceData.practiceInfo.email || "";
       const companyPhone = invoiceData.practiceInfo.phone || "";
 
       doc.fontSize(9.5).fillColor("#1F2937");
@@ -608,14 +612,14 @@ export function generateInvoicePdfBuffer(
       let y = metaY + 52 + extraHeight + clientSectionHeight + 15;
 
       const drawTableHeader = (posY: number) => {
-        doc.rect(40, posY - 5, 515, 20).fill("#F3F4F6"); // Header background
+        doc.rect(40, posY - 5, 515, 20).fill("#F3F4F6");
         doc.fillColor("#4B5563");
         doc.font(boldTextFont).fontSize(8);
-        doc.text("SERVICES", 44, posY);
-        doc.text("CHARGE TYPE", 224, posY);
-        doc.text("RATE", 364, posY, { width: 65, align: "right" });
-        doc.text("QTY/COLLECTION", 439, posY, { width: 70, align: "right" });
-        doc.text("AMOUNT", 484, posY, { width: 66, align: "right" });
+        doc.text("SERVICES", 44, posY, { width: 170 });
+        doc.text("CHARGE TYPE", 220, posY, { width: 90 });
+        doc.text("RATE", 340, posY, { width: 60, align: "right" });
+        doc.text("QTY", 420, posY, { width: 40, align: "right" });
+        doc.text("AMOUNT", 490, posY, { width: 60, align: "right" });
       };
 
       drawTableHeader(y);
@@ -652,20 +656,33 @@ export function generateInvoicePdfBuffer(
 
           doc.font(fontToUse).fontSize(fontSizeToUse).fillColor(textColor);
 
-          // Col 1: SERVICES (x=44, width=170)
-          doc.text(row.service || "", 44, y + 4, { width: 170 });
+          // Col 1: SERVICES
+          doc.text(row.service || "", 44, y + 4, {
+            width: 170,
+          });
 
-          // Col 2: PRICING TERMS (x=224, width=130)
-          doc.text(row.pricingTerm || "", 224, y + 4, { width: 100 });
+          // Col 2: CHARGE TYPE
+          doc.text(row.pricingTerm || "", 220, y + 4, {
+            width: 90,
+          });
 
-          // Col 3: RATE (x=364, width=65, align right)
-          doc.text(row.rate || "", 364, y + 4, { width: 65, align: "right" });
+          // Col 3: RATE
+          doc.text(row.rate || "", 340, y + 4, {
+            width: 60,
+            align: "right",
+          });
 
-          // Col 4: QTY (x=439, width=35, align right)
-          doc.text(row.qty || "", 439, y + 4, { width: 70, align: "right" });
+          // Col 4: QTY
+          doc.text(String(row.qty || ""), 420, y + 4, {
+            width: 40,
+            align: "right",
+          });
 
-          // Col 5: AMOUNT (x=484, width=66, align right)
-          doc.text(row.amount || "", 484, y + 4, { width: 66, align: "right" });
+          // Col 5: AMOUNT
+          doc.text(row.amount || "", 490, y + 4, {
+            width: 60,
+            align: "right",
+          });
 
           if (row.isDivider) {
             doc
@@ -850,8 +867,24 @@ export async function generateInvoicePdfBufferFromDb(
 
   const lineItems: InvoiceLineItem[] = [];
 
+  // Sort the grouped billing run items by priority and creation date of the pricing terms
+  const sortedGroups = Array.from(groupedItems.values()).sort((a, b) => {
+    const priorityA = a.billingRunItem?.agreementServiceTerm?.priority ?? 1;
+    const priorityB = b.billingRunItem?.agreementServiceTerm?.priority ?? 1;
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+    const dateA = new Date(
+      a.billingRunItem?.agreementServiceTerm?.createdAt || 0,
+    ).getTime();
+    const dateB = new Date(
+      b.billingRunItem?.agreementServiceTerm?.createdAt || 0,
+    ).getTime();
+    return dateA - dateB;
+  });
+
   // Map grouped billing run items
-  for (const group of groupedItems.values()) {
+  for (const group of sortedGroups) {
     const { billingRunItem, service, lineItems: grpLineItems } = group;
     const totalPrice = grpLineItems.reduce(
       (sum, item) => sum + Number(item.totalPrice || 0),
@@ -933,12 +966,25 @@ export async function generateInvoicePdfBufferFromDb(
       } catch (e) {
         // Fallback
       }
+
+      let cptCode = "";
+      try {
+        if (dbComp?.metadata) {
+          const metaObj =
+            typeof dbComp.metadata === "string"
+              ? JSON.parse(dbComp.metadata)
+              : dbComp.metadata;
+          cptCode = metaObj?.cptCode || "";
+        }
+      } catch (e) {}
+
       return {
         type: line.description || service.name,
         clientValue: Number(line.totalPrice || 0),
         vendorValue,
         rate: rateVal,
         quantity: qtyVal,
+        cptCode,
       };
     });
 

@@ -621,13 +621,7 @@ async function processStripeWebhookEvent(event: any) {
               }
             }
           }
-          if (practice.company?.persons) {
-            for (const cp of practice.company.persons) {
-              if (cp.person?.email && cp.person.email.includes("@")) {
-                emails.push(cp.person.email.trim());
-              }
-            }
-          }
+
           if (practice.company?.email && practice.company.email.includes("@")) {
             emails.push(practice.company.email.trim());
           }
