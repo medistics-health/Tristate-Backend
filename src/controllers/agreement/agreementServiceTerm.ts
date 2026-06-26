@@ -147,11 +147,15 @@ function validatePricingConfig(
       if (invalidComponent) {
         return fail("Each hybrid component must have a non-negative value.");
       }
-      const types = components.map(c => String((c as Record<string, unknown>).type || ""));
+      const types = components.map((c) =>
+        String((c as Record<string, unknown>).type || ""),
+      );
       const hasMonthlyMin = types.includes("Monthly Minimum");
       const hasFixedMonthly = types.includes("Fixed Monthly");
       if (hasMonthlyMin && hasFixedMonthly) {
-        return fail("Cannot have both Monthly Minimum and Fixed Monthly components.");
+        return fail(
+          "Cannot have both Monthly Minimum and Fixed Monthly components.",
+        );
       }
       const hasDuplicates = types.some((t, idx) => types.indexOf(t) !== idx);
       if (hasDuplicates) {
@@ -213,7 +217,7 @@ function getPricingTotal(
     case "RETAINER":
     case "CUSTOM_ATTACHMENT_DEFINED":
       return parseNumericValue(pricingConfig.amount);
-      
+
     case "PERCENT_COLLECTIONS":
     case "PERCENT_REVENUE":
     case "PERCENT_PROFIT":
@@ -223,16 +227,14 @@ function getPricingTotal(
           pricingConfig.ratePercent ??
           pricingConfig.rate,
       );
-      
+
     case "PER_UNIT":
     case "PER_ENCOUNTER":
     case "PER_PATIENT":
     case "PER_PROVIDER":
     case "PER_SITE":
-      return parseNumericValue(
-        pricingConfig.unitRate ?? pricingConfig.rate,
-      );
-      
+      return parseNumericValue(pricingConfig.unitRate ?? pricingConfig.rate);
+
     case "PER_CPT_CODE": {
       const cptCodes = Array.isArray(pricingConfig.cptCodes)
         ? pricingConfig.cptCodes
@@ -242,7 +244,7 @@ function getPricingTotal(
         return sum + parseNumericValue((row as Record<string, unknown>).rate);
       }, 0);
     }
-    
+
     case "HYBRID":
     case "MULTI_COMPONENT": {
       const components = Array.isArray(pricingConfig.components)
@@ -255,7 +257,7 @@ function getPricingTotal(
         );
       }, 0);
     }
-    
+
     case "TIERED_VOLUME": {
       const tiers = Array.isArray(pricingConfig.tiers)
         ? pricingConfig.tiers
@@ -270,7 +272,7 @@ function getPricingTotal(
       }
       return parseNumericValue(pricingConfig.amount);
     }
-    
+
     default:
       return parseNumericValue(pricingConfig.amount);
   }
@@ -282,7 +284,7 @@ function getPricingTermApprovalData(
   pricingConfig: Record<string, unknown>,
 ) {
   const isPercentageBased = isPercentageBasedModel(pricingModel);
-  
+
   const clientAmount = getPricingTotal(pricingModel, pricingConfig);
   const vendorPricing = pricingConfig.vendorPricing as
     | Record<string, unknown>
@@ -303,16 +305,21 @@ function getPricingTermApprovalData(
   let requiresApproval = clientAmount > 0 && marginPct < 20;
 
   if (pricingModel === PricingModel.HYBRID) {
-    const components = Array.isArray(pricingConfig.components) ? pricingConfig.components : [];
-    const vendorComponents = vendorPricing && Array.isArray(vendorPricing.components) ? vendorPricing.components : [];
-    
+    const components = Array.isArray(pricingConfig.components)
+      ? pricingConfig.components
+      : [];
+    const vendorComponents =
+      vendorPricing && Array.isArray(vendorPricing.components)
+        ? vendorPricing.components
+        : [];
+
     let anyCompBelow20 = false;
     for (let i = 0; i < components.length; i++) {
       const cComp = components[i] as Record<string, unknown>;
       const vComp = vendorComponents[i] as Record<string, unknown> | undefined;
       const cVal = parseNumericValue(cComp?.value);
       const vVal = vComp ? parseNumericValue(vComp.value) : 0;
-      
+
       const compMargin = cVal - vVal;
       const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
       if (cVal > 0 && compMarginPct < 20) {
@@ -876,32 +883,43 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
 
       let approvalBody = "";
       if (term.pricingModel === PricingModel.HYBRID) {
-        const components = Array.isArray(pricingConfig.components) ? pricingConfig.components : [];
-        const vendorComponents = vendorPricing && Array.isArray(vendorPricing.components) ? vendorPricing.components : [];
-        
+        const components = Array.isArray(pricingConfig.components)
+          ? pricingConfig.components
+          : [];
+        const vendorComponents =
+          vendorPricing && Array.isArray(vendorPricing.components)
+            ? vendorPricing.components
+            : [];
+
         let hybridEmailMarginPreviewHtml = "";
         for (let i = 0; i < components.length; i++) {
           const cComp = components[i] as Record<string, unknown>;
-          const vComp = vendorComponents[i] as Record<string, unknown> | undefined;
+          const vComp = vendorComponents[i] as
+            | Record<string, unknown>
+            | undefined;
           const type = String(cComp?.type ?? `Component ${i + 1}`);
           const cVal = parseNumericValue(cComp?.value);
           const vVal = vComp ? parseNumericValue(vComp.value) : 0;
-          
+
           const compMargin = cVal - vVal;
           const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
           const isPercent = type === "% Collections";
-          
+
           const formatCompValue = (val: number) => {
             if (isPercent) return `${val.toFixed(2)}%`;
             return `$${val.toFixed(2)}`;
           };
-          
+
           hybridEmailMarginPreviewHtml += `
             <p style="margin: 8px 0 4px 0;"><strong>${escapeHtml(type)}</strong></p>
             <p style="margin: 0 0 0 12px; color: #555555; font-size: 0.95rem;">
               Client Rate: <strong>${formatCompValue(cVal)}</strong><br/>
-              ${term.vendorId ? `Vendor Rate: <strong>${formatCompValue(vVal)}</strong><br/>
-              Gross Margin: <strong style="color: ${compMarginPct < 20 ? "#d97706" : "#10b981"};">${formatCompValue(compMargin)} (${compMarginPct.toFixed(2)}%)</strong>` : ""}
+              ${
+                term.vendorId
+                  ? `Vendor Rate: <strong>${formatCompValue(vVal)}</strong><br/>
+              Gross Margin: <strong style="color: ${compMarginPct < 20 ? "#d97706" : "#10b981"};">${formatCompValue(compMargin)} (${compMarginPct.toFixed(2)}%)</strong>`
+                  : ""
+              }
             </p>
           `;
         }
@@ -1121,21 +1139,28 @@ export async function getAgreementServiceTermApprovalPage(
 
     let marginPreviewHtml = "";
     if (term.pricingModel === PricingModel.HYBRID) {
-      const components = Array.isArray(pricingConfig.components) ? pricingConfig.components : [];
-      const vendorComponents = vendorPricing && Array.isArray(vendorPricing.components) ? vendorPricing.components : [];
-      
+      const components = Array.isArray(pricingConfig.components)
+        ? pricingConfig.components
+        : [];
+      const vendorComponents =
+        vendorPricing && Array.isArray(vendorPricing.components)
+          ? vendorPricing.components
+          : [];
+
       marginPreviewHtml = `<div class="rate-section" style="margin-top:12px; display:flex; flex-direction:column; gap:16px;">`;
       for (let i = 0; i < components.length; i++) {
         const cComp = components[i] as Record<string, unknown>;
-        const vComp = vendorComponents[i] as Record<string, unknown> | undefined;
+        const vComp = vendorComponents[i] as
+          | Record<string, unknown>
+          | undefined;
         const type = String(cComp?.type ?? `Component ${i + 1}`);
         const cVal = parseNumericValue(cComp?.value);
         const vVal = vComp ? parseNumericValue(vComp.value) : 0;
-        
+
         const compMargin = cVal - vVal;
         const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
         const isPercent = type === "% Collections";
-        
+
         const formatCompValue = (val: number) => {
           if (isPercent) return `${val.toFixed(2)}%`;
           return `$${val.toFixed(2)}`;
@@ -1150,7 +1175,9 @@ export async function getAgreementServiceTermApprovalPage(
               <span style="color:#64748b;">Client Rate:</span>
               <strong style="color:#4f46e5; margin-left:auto;">${formatCompValue(cVal)}</strong>
             </div>
-            ${term.vendorId ? `
+            ${
+              term.vendorId
+                ? `
               <div style="display:flex; justify-content:space-between; font-size:0.9rem; margin-bottom:6px;">
                 <span style="color:#64748b;">Vendor Rate:</span>
                 <strong style="color:#ef4444; margin-left:auto;">${formatCompValue(vVal)}</strong>
@@ -1161,7 +1188,9 @@ export async function getAgreementServiceTermApprovalPage(
                   ${formatCompValue(compMargin)} (${compMarginPct.toFixed(2)}%)
                 </span>
               </div>
-            ` : ""}
+            `
+                : ""
+            }
           </div>
         `;
       }
@@ -1487,7 +1516,8 @@ export async function handleAgreementServiceTermClientApproval(
     ).filter(isValidEmail);
     if (signerEmails.length === 0) {
       return res
-        .status(400).send("Client approval is not required for this pricing term.");
+        .status(400)
+        .send("Client approval is not required for this pricing term.");
     }
 
     const currentClientApprovalStatus =
@@ -1668,7 +1698,11 @@ export async function handleAgreementServiceTermApproval(
     }
 
     if (action === "reject" && !note) {
-      return res.status(400).send("Please fix the validation errors before continuing. Rejection note is required.");
+      return res
+        .status(400)
+        .send(
+          "Please fix the validation errors before continuing. Rejection note is required.",
+        );
     }
 
     const decision =
@@ -1791,7 +1825,10 @@ export async function handleAgreementServiceTermApproval(
   }
 }
 
-export async function getAgreementServiceTerms(req: AuthenticatedRequest, res: Response) {
+export async function getAgreementServiceTerms(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
   try {
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -1932,7 +1969,11 @@ export async function createAgreementServiceTerm(
       });
     }
 
-    if (typeof pricingConfig !== "object" || pricingConfig === null || Array.isArray(pricingConfig)) {
+    if (
+      typeof pricingConfig !== "object" ||
+      pricingConfig === null ||
+      Array.isArray(pricingConfig)
+    ) {
       return res.status(400).json({
         message: "pricingConfig must be a valid object.",
       });
@@ -1947,7 +1988,11 @@ export async function createAgreementServiceTerm(
       return res.status(400).json({ message: pricingValidation.message });
     }
 
-    if (minimumFee !== undefined && minimumFee !== null && asNonNegativeNumber(minimumFee) === null) {
+    if (
+      minimumFee !== undefined &&
+      minimumFee !== null &&
+      asNonNegativeNumber(minimumFee) === null
+    ) {
       return res.status(400).json({
         message: "Vendor rate must be 0 or greater.",
       });
@@ -2152,7 +2197,27 @@ export async function updateAgreementServiceTerm(
         .status(404)
         .json({ message: "Agreement service term not found." });
     }
+    // Priority-only update
+    const keys = Object.keys(req.body);
 
+    if (keys.length === 1 && keys[0] === "priority") {
+      const term = await prisma.agreementServiceTerm.update({
+        where: { id },
+        data: {
+          priority,
+        },
+        include: {
+          agreement: { include: { practice: true } },
+          service: true,
+          vendor: true,
+        },
+      });
+
+      return res.status(200).json({
+        message: "Priority updated successfully.",
+        term,
+      });
+    }
     const nextPricingModel = pricingModel ?? existingTerm.pricingModel;
     const nextPricingConfig =
       pricingConfig !== undefined
@@ -2178,7 +2243,8 @@ export async function updateAgreementServiceTerm(
       return res.status(400).json({ message: pricingValidation.message });
     }
 
-    const nextMinimumFee = minimumFee !== undefined ? minimumFee : existingTerm.minimumFee;
+    const nextMinimumFee =
+      minimumFee !== undefined ? minimumFee : existingTerm.minimumFee;
     if (
       nextMinimumFee !== undefined &&
       nextMinimumFee !== null &&
@@ -2278,9 +2344,13 @@ export async function updateAgreementServiceTerm(
       });
     }
 
-    const nextServiceId = serviceId ? (serviceId as string) : existingTerm.serviceId;
+    const nextServiceId = serviceId
+      ? (serviceId as string)
+      : existingTerm.serviceId;
     const nextVendorId =
-      vendorId !== undefined ? ((vendorId as string) || null) : existingTerm.vendorId;
+      vendorId !== undefined
+        ? (vendorId as string) || null
+        : existingTerm.vendorId;
     const workflowState = getPricingTermWorkflowState({
       pricingModel: nextPricingModel,
       pricingConfig: nextPricingConfig as Record<string, unknown>,
@@ -2317,7 +2387,8 @@ export async function updateAgreementServiceTerm(
       data: {
         agreementVersionId: nextAgreementVersionId,
         serviceId: serviceId ? (serviceId as string) : undefined,
-        vendorId: vendorId !== undefined ? ((vendorId as string) || null) : undefined,
+        vendorId:
+          vendorId !== undefined ? (vendorId as string) || null : undefined,
         pricingModel: pricingModel ?? undefined,
         currency: currency ?? undefined,
         priority: priority ?? undefined,
@@ -2343,7 +2414,6 @@ export async function updateAgreementServiceTerm(
     void sendPricingTermNotificationEmails(req, term).catch((error) => {
       console.error("Pricing term notification error:", error);
     });
-
     return res.status(200).json({
       message: "Agreement service term updated successfully.",
       term,

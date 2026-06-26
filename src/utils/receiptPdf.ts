@@ -7,8 +7,8 @@ function formatDate(dateStr?: string | Date | null): string {
   if (!dateStr) return "N/A";
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return String(dateStr);
-  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(date.getUTCDate()).padStart(2, '0');
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
   const y = date.getUTCFullYear();
   return `${m}/${d}/${y}`;
 }
@@ -21,6 +21,67 @@ function formatCurrency(amount: number, currency: string = "USD"): string {
     maximumFractionDigits: 2,
   });
   return formatter.format(amount);
+}
+
+function formatCityStateZip(
+  city?: string,
+  state?: string,
+  zipCode?: string,
+): string {
+  const cityState = [city, state].filter(Boolean).join(", ");
+  return [cityState, zipCode].filter(Boolean).join(" ").trim();
+}
+
+function buildLocationLines(location?: {
+  locationName?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+} | null): string[] {
+  if (!location) return [];
+
+  return [
+    location.addressLine1,
+    location.addressLine2,
+    formatCityStateZip(location.city, location.state, location.zipCode),
+  ].filter((line): line is string => Boolean(line && line.trim()));
+}
+
+function selectPrimaryOnboardingLocation(practice: any) {
+  const onboardings = Array.isArray(practice?.onboardings)
+    ? [...practice.onboardings]
+    : [];
+
+  const latestOnboarding = onboardings.sort((a, b) => {
+    const dateA = new Date(a?.createdAt || 0).getTime();
+    const dateB = new Date(b?.createdAt || 0).getTime();
+    return dateB - dateA;
+  })[0];
+
+  const onboardingPractice =
+    latestOnboarding?.practices?.find((practiceEntry: any) => {
+      const practiceName = String(practice?.name || "").trim().toLowerCase();
+      const onboardingPracticeName = String(
+        practiceEntry?.practiceName || "",
+      )
+        .trim()
+        .toLowerCase();
+      return (
+        practiceName &&
+        onboardingPracticeName &&
+        practiceName === onboardingPracticeName
+      );
+    }) || latestOnboarding?.practices?.[0];
+
+  if (!onboardingPractice?.locations?.length) return null;
+
+  return (
+    onboardingPractice.locations.find(
+      (location: any) => location?.isPrimaryLocation,
+    ) || onboardingPractice.locations[0] || null
+  );
 }
 
 interface PdfRow {
@@ -99,19 +160,35 @@ function cleanComponentType(compType: string, serviceName: string): string {
   cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/, "").trim();
 
   const upper = cleaned.toUpperCase();
-  if (upper.includes("PERCENT_COLLECTIONS") || upper.includes("PERCENT COLLECTIONS") || upper === "COLLECTIONS") {
+  if (
+    upper.includes("PERCENT_COLLECTIONS") ||
+    upper.includes("PERCENT COLLECTIONS") ||
+    upper === "COLLECTIONS"
+  ) {
     return "% Collections";
   }
-  if (upper.includes("PERCENT_REVENUE") || upper.includes("PERCENT REVENUE") || upper === "REVENUE") {
+  if (
+    upper.includes("PERCENT_REVENUE") ||
+    upper.includes("PERCENT REVENUE") ||
+    upper === "REVENUE"
+  ) {
     return "% Revenue";
   }
-  if (upper.includes("PERCENT_PROFIT") || upper.includes("PERCENT PROFIT") || upper === "PROFIT") {
+  if (
+    upper.includes("PERCENT_PROFIT") ||
+    upper.includes("PERCENT PROFIT") ||
+    upper === "PROFIT"
+  ) {
     return "% Profit";
   }
   return formatPricingTerm(cleaned);
 }
 
-function formatRate(rate: number, pricingModel?: string, currencySymbol: string = "USD"): string {
+function formatRate(
+  rate: number,
+  pricingModel?: string,
+  currencySymbol: string = "USD",
+): string {
   if (rate == null) return "";
   const modelUpper = (pricingModel || "").toUpperCase();
   if (
@@ -122,14 +199,18 @@ function formatRate(rate: number, pricingModel?: string, currencySymbol: string 
     modelUpper.includes("SUCCESS") ||
     modelUpper === "SUCCESS_FEE"
   ) {
-    const val = rate <= 1 && rate > 0 ? Math.round(rate * 100) : rate;
+    const val =
+      rate <= 1 && rate > 0 ? parseFloat((rate * 100).toFixed(4)) : rate;
     return `${val}%`;
   }
   // Remove suffixes like /unit, /encounter, etc. Show only currency or percentage.
   return formatCurrency(rate, currencySymbol);
 }
 
-function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD"): PdfRow[] {
+function calculateRowsForLineItem(
+  lineItem: any,
+  currencySymbol: string = "USD",
+): PdfRow[] {
   const rows: PdfRow[] = [];
   const serviceName = lineItem.description || "Service";
 
@@ -155,14 +236,17 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
     pricingModel === "SUCCESS_FEE"
   ) {
     const comp = components[0];
-    const rateVal = comp?.rate != null ? comp.rate : (lineItem.unitPrice || 0);
+    const rateVal = comp?.rate != null ? comp.rate : lineItem.unitPrice || 0;
 
-    const metricKeyToCheck = pricingModel === "PERCENT_COLLECTIONS" || pricingModel === "SUCCESS_FEE"
-      ? "collections"
-      : (pricingModel === "PERCENT_REVENUE" ? "revenue" : "profit");
+    const metricKeyToCheck =
+      pricingModel === "PERCENT_COLLECTIONS" || pricingModel === "SUCCESS_FEE"
+        ? "collections"
+        : pricingModel === "PERCENT_REVENUE"
+          ? "revenue"
+          : "profit";
 
     const matchedInputs = (lineItem.capturedInputs || []).filter(
-      (input: any) => input.key === metricKeyToCheck
+      (input: any) => input.key === metricKeyToCheck,
     );
 
     if (matchedInputs.length > 0) {
@@ -173,7 +257,11 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
         const amountVal = qtyVal * rateVal;
         baseAmount += amountVal;
 
-        const friendlyLabel = input.label || (isFirst ? formatPricingTerm(pricingModel) : `${formatPricingTerm(pricingModel)} Line`);
+        const friendlyLabel =
+          input.label ||
+          (isFirst
+            ? formatPricingTerm(pricingModel)
+            : `${formatPricingTerm(pricingModel)} Line`);
 
         rows.push({
           service: isFirst ? serviceName : "",
@@ -187,7 +275,8 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
 
       const adjustment = (lineItem.totalPrice || 0) - baseAmount;
       if (Math.abs(adjustment) >= 0.01) {
-        const adjustmentLabel = adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
+        const adjustmentLabel =
+          adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
         rows.push({
           service: "",
           pricingTerm: adjustmentLabel,
@@ -216,8 +305,12 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
     let isFirstComp = true;
     for (const comp of components) {
       baseAmount += comp.clientValue || 0;
-      const compLabel = cleanComponentType(comp.type || "", serviceName);
-      
+      let compLabel = cleanComponentType(comp.type || "", serviceName);
+
+      if (pricingModel === "PER_CPT_CODE" && comp.cptCode) {
+        compLabel = comp.cptCode;
+      }
+
       rows.push({
         service: isFirstComp ? serviceName : "",
         pricingTerm: compLabel,
@@ -230,7 +323,8 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
 
     const adjustment = (lineItem.totalPrice || 0) - baseAmount;
     if (Math.abs(adjustment) >= 0.01) {
-      const adjustmentLabel = adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
+      const adjustmentLabel =
+        adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
       rows.push({
         service: "",
         pricingTerm: adjustmentLabel,
@@ -249,12 +343,13 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
       isBold: true,
       isDivider: true,
     });
-
   } else {
     const comp = components[0];
-    const rateVal = comp?.rate != null ? comp.rate : (lineItem.unitPrice || 0);
-    const qtyVal = comp?.quantity != null ? comp.quantity : (lineItem.quantity || 0);
-    const baseAmount = comp?.clientValue != null ? comp.clientValue : (qtyVal * rateVal);
+    const rateVal = comp?.rate != null ? comp.rate : lineItem.unitPrice || 0;
+    const qtyVal =
+      comp?.quantity != null ? comp.quantity : lineItem.quantity || 0;
+    const baseAmount =
+      comp?.clientValue != null ? comp.clientValue : qtyVal * rateVal;
 
     rows.push({
       service: serviceName,
@@ -266,7 +361,8 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
 
     const adjustment = (lineItem.totalPrice || 0) - baseAmount;
     if (Math.abs(adjustment) >= 0.01) {
-      const adjustmentLabel = adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
+      const adjustmentLabel =
+        adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
       rows.push({
         service: "",
         pricingTerm: adjustmentLabel,
@@ -292,10 +388,11 @@ function calculateRowsForLineItem(lineItem: any, currencySymbol: string = "USD")
 
 function calculateRowHeight(row: PdfRow, doc: any): number {
   const serviceHeight = doc.heightOfString(row.service || "", { width: 170 });
-  const pricingTermHeight = doc.heightOfString(row.pricingTerm || "", { width: 130 });
+  const pricingTermHeight = doc.heightOfString(row.pricingTerm || "", {
+    width: 130,
+  });
   return Math.max(serviceHeight, pricingTermHeight, 12) + 8;
 }
-
 
 export interface ReceiptLineItem {
   description: string;
@@ -348,12 +445,22 @@ export interface ReceiptData {
     zipCode?: string;
     email?: string;
     phone?: string;
+    location?: {
+      locationName?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+    };
   };
   lineItems: ReceiptLineItem[];
   logoBuffer?: Buffer | null;
 }
 
-export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buffer> {
+export function generateReceiptPdfBuffer(
+  receiptData: ReceiptData,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ margin: 40, size: "A4" });
@@ -366,9 +473,18 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
       });
 
       // Register Google Sans Fonts
-      const regularFont = path.join(__dirname, "../assets/fonts/GoogleSans-Regular.ttf");
-      const boldFont = path.join(__dirname, "../assets/fonts/GoogleSans-Bold.ttf");
-      const mediumFont = path.join(__dirname, "../assets/fonts/GoogleSans-Medium.ttf");
+      const regularFont = path.join(
+        __dirname,
+        "../assets/fonts/GoogleSans-Regular.ttf",
+      );
+      const boldFont = path.join(
+        __dirname,
+        "../assets/fonts/GoogleSans-Bold.ttf",
+      );
+      const mediumFont = path.join(
+        __dirname,
+        "../assets/fonts/GoogleSans-Medium.ttf",
+      );
 
       let hasFonts = false;
       if (fs.existsSync(regularFont)) {
@@ -392,13 +508,22 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
       // 1. Page Header (Page 1 of 1 at top right)
       doc.fontSize(8).fillColor("#9CA3AF");
       const pageNumFont = hasFonts ? "GoogleSans" : "Helvetica";
-      doc.font(pageNumFont).text("Page 1 of 1", 0, 20, { width: 555, align: "right" });
+      doc
+        .font(pageNumFont)
+        .text("Page 1 of 1", 0, 20, { width: 555, align: "right" });
 
       // 2. Company Info (Left Side) & Company Logo (Right Side)
       const companyName = receiptData.practiceInfo.name || "Tristate MSO";
-      const addressLine1 = receiptData.practiceInfo.address || "N/A";
-      const addressLine2 = `${receiptData.practiceInfo.city || ""}, ${receiptData.practiceInfo.state || ""} ${receiptData.practiceInfo.zipCode || ""}`.trim();
-      const companyEmail = receiptData.practiceInfo.email || "billing@tristatehealth.com";
+      const locationLines = buildLocationLines(receiptData.practiceInfo.location);
+      const fallbackAddressLines = [
+        receiptData.practiceInfo.address,
+        formatCityStateZip(
+          receiptData.practiceInfo.city,
+          receiptData.practiceInfo.state,
+          receiptData.practiceInfo.zipCode,
+        ),
+      ].filter((line): line is string => Boolean(line && line.trim()));
+      const companyEmail = receiptData.practiceInfo.email || "";
       const companyPhone = receiptData.practiceInfo.phone || "";
 
       doc.fontSize(9.5).fillColor("#1F2937");
@@ -408,18 +533,19 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
 
       // Draw Company Info on the Left
       doc.font(mediumTextFont).text(companyName, 40, 35);
-      doc.font(bodyFont).text(addressLine1, 40, 48);
-      if (addressLine2) {
-        doc.text(addressLine2, 40, 61);
-        doc.text(companyEmail, 40, 74);
-        if (companyPhone) {
-          doc.text(companyPhone, 40, 87);
-        }
-      } else {
-        doc.text(companyEmail, 40, 61);
-        if (companyPhone) {
-          doc.text(companyPhone, 40, 74);
-        }
+      let headerY = 48;
+      const headerLines = locationLines.length > 0 ? locationLines : fallbackAddressLines;
+      for (const line of headerLines) {
+        doc.font(bodyFont).text(line, 40, headerY);
+        headerY += 13;
+      }
+      if (companyEmail) {
+        doc.font(bodyFont).text(companyEmail, 40, headerY);
+        headerY += 13;
+      }
+      if (companyPhone) {
+        doc.font(bodyFont).text(companyPhone, 40, headerY);
+        headerY += 13;
       }
 
       // Draw Logo on the Right (if exists)
@@ -427,21 +553,32 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
         try {
           doc.image(receiptData.logoBuffer, 425, 35, { width: 130 });
         } catch (logoErr) {
-          console.warn("Failed to render logo in receipt PDF, drawing without logo:", logoErr);
+          console.warn(
+            "Failed to render logo in receipt PDF, drawing without logo:",
+            logoErr,
+          );
         }
       }
 
-      // Set fixed offsetY for subsequent sections since logo is side-by-side
-      const offsetY = 95;
+      // Keep the document title below the header block, including location lines.
+      const offsetY = Math.max(95, headerY + 8);
 
       // 3. Document Title ("PAYMENT RECEIPT") with status badge
-      doc.font(boldTextFont).fontSize(22).fillColor("#111827").text("PAYMENT RECEIPT", 40, 32 + offsetY);
+      doc
+        .font(boldTextFont)
+        .fontSize(22)
+        .fillColor("#111827")
+        .text("PAYMENT RECEIPT", 40, 32 + offsetY);
 
       // Add green PAID badge
       doc.save();
       doc.fillColor("#D1F2DF"); // Light green background
       doc.roundedRect(240, 33 + offsetY, 52, 17, 4).fill();
-      doc.font(boldTextFont).fontSize(9).fillColor("#10B981").text("PAID", 250, 37 + offsetY); // Green text
+      doc
+        .font(boldTextFont)
+        .fontSize(9)
+        .fillColor("#10B981")
+        .text("PAID", 240, 37.5 + offsetY, { width: 52, align: "center" }); // Green text
       doc.restore();
 
       // 4. Metadata section (Receipt Number, Invoice Number, Dates)
@@ -449,82 +586,161 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
 
       // Column 1: Receipt Number
       const receiptNumber = receiptData.receiptNumber || "N/A";
-      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Receipt Number", 40, metaY);
-      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(receiptNumber, 40, metaY + 14);
+      doc
+        .font(boldTextFont)
+        .fontSize(8.5)
+        .fillColor("#4B5563")
+        .text("Receipt Number", 40, metaY);
+      doc
+        .font(bodyFont)
+        .fontSize(11)
+        .fillColor("#1F2937")
+        .text(receiptNumber, 40, metaY + 14);
 
       // Column 2: Invoice Number
       const invoiceNumber = receiptData.invoiceNumber || "N/A";
-      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Invoice Number", 210, metaY);
-      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(invoiceNumber, 210, metaY + 14);
+      doc
+        .font(boldTextFont)
+        .fontSize(8.5)
+        .fillColor("#4B5563")
+        .text("Invoice Number", 210, metaY);
+      doc
+        .font(bodyFont)
+        .fontSize(11)
+        .fillColor("#1F2937")
+        .text(invoiceNumber, 210, metaY + 14);
 
       // Column 3: Receipt Date
       const receiptDate = formatDate(receiptData.receiptDate);
-      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("Receipt Date", 360, metaY);
-      doc.font(bodyFont).fontSize(11).fillColor("#1F2937").text(receiptDate, 360, metaY + 14);
+      doc
+        .font(boldTextFont)
+        .fontSize(8.5)
+        .fillColor("#4B5563")
+        .text("Receipt Date", 360, metaY);
+      doc
+        .font(bodyFont)
+        .fontSize(11)
+        .fillColor("#1F2937")
+        .text(receiptDate, 360, metaY + 14);
 
       // Column 4: Payment Date
       const paidDate = formatDate(receiptData.paidDate);
-      doc.font(boldTextFont).fontSize(8.5).fillColor("#10B981").text("Payment Date", 475, metaY);
-      doc.font(bodyFont).fontSize(11).fillColor("#10B981").text(paidDate, 475, metaY + 14);
+      doc
+        .font(boldTextFont)
+        .fontSize(8.5)
+        .fillColor("#10B981")
+        .text("Payment Date", 475, metaY);
+      doc
+        .font(bodyFont)
+        .fontSize(11)
+        .fillColor("#10B981")
+        .text(paidDate, 475, metaY + 14);
 
       // 5. Payment Method Section
       let paymentMethodExtraHeight = 0;
-      const paymentMethodY = metaY + 40;
+      const paymentMethodY = metaY + 50;
 
       // Build payment method display
       let paymentMethodText = "Stripe";
       let paymentDetails = "";
 
-      if (receiptData.paymentMethod.toLowerCase() === "stripe" || receiptData.paymentMethod.toLowerCase() === "credit_card") {
-        if (receiptData.paymentDetails?.cardBrand && receiptData.paymentDetails?.last4Digits) {
+      const normalizedMethod = (receiptData.paymentMethod || "").toLowerCase();
+      if (
+        receiptData.paymentMethod &&
+        !["stripe", "card", "credit_card", "ach", "us_bank_account", "customer_balance", "bank_transfer", "check"].includes(normalizedMethod)
+      ) {
+        paymentMethodText = receiptData.paymentMethod;
+      } else if (
+        normalizedMethod === "stripe" ||
+        normalizedMethod === "credit_card" ||
+        normalizedMethod === "card"
+      ) {
+        if (
+          receiptData.paymentDetails?.cardBrand &&
+          receiptData.paymentDetails?.last4Digits
+        ) {
           paymentMethodText = `${receiptData.paymentDetails.cardBrand} ••••`;
           paymentDetails = receiptData.paymentDetails.last4Digits;
         } else {
-          paymentMethodText = "Credit Card";
+          paymentMethodText = "Stripe";
         }
-      } else if (receiptData.paymentMethod.toLowerCase() === "ach") {
+      } else if (
+        normalizedMethod === "ach" ||
+        normalizedMethod === "us_bank_account" ||
+        normalizedMethod === "customer_balance" ||
+        normalizedMethod === "bank_transfer"
+      ) {
         paymentMethodText = "Bank Transfer (ACH)";
         if (receiptData.paymentDetails?.bankName) {
           paymentDetails = receiptData.paymentDetails.bankName;
+          if (receiptData.paymentDetails?.last4Digits) {
+            paymentDetails += ` (••••${receiptData.paymentDetails.last4Digits})`;
+          }
+        } else if (receiptData.paymentDetails?.last4Digits) {
+          paymentDetails = `••••${receiptData.paymentDetails.last4Digits}`;
         }
-      } else if (receiptData.paymentMethod.toLowerCase() === "check") {
+      } else if (normalizedMethod === "check") {
         paymentMethodText = "Check";
         if (receiptData.paymentDetails?.last4Digits) {
           paymentDetails = `Check #${receiptData.paymentDetails.last4Digits}`;
         }
+      } else if (receiptData.paymentMethod) {
+        paymentMethodText = receiptData.paymentMethod.charAt(0).toUpperCase() + receiptData.paymentMethod.slice(1);
+        if (receiptData.paymentDetails?.last4Digits) {
+          paymentDetails = `••••${receiptData.paymentDetails.last4Digits}`;
+        }
       }
 
       // Draw Payment Method box
-      doc.rect(40, paymentMethodY - 5, 200, 50).fill("#F0F9FF"); // Light blue background
-      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("PAYMENT METHOD", 50, paymentMethodY);
-      doc.font(boldTextFont).fontSize(12).fillColor("#0369A1").text(paymentMethodText, 50, paymentMethodY + 14);
+      doc
+        .font(boldTextFont)
+        .fontSize(8.5)
+        .fillColor("#4B5563")
+        .text("PAYMENT METHOD", 44, paymentMethodY);
+      doc
+        .font(boldTextFont)
+        .fontSize(12)
+        .fillColor("#0369A1")
+        .text(paymentMethodText, 44, paymentMethodY + 14);
       if (paymentDetails) {
-        doc.font(bodyFont).fontSize(9).fillColor("#4B5563").text(paymentDetails, 50, paymentMethodY + 28);
+        doc
+          .font(bodyFont)
+          .fontSize(9)
+          .fillColor("#4B5563")
+          .text(paymentDetails, 44, paymentMethodY + 28);
       }
       paymentMethodExtraHeight = 60;
 
       // 6. Amount Information
       const amountY = paymentMethodY + paymentMethodExtraHeight;
-      doc.font(boldTextFont).fontSize(8.5).fillColor("#4B5563").text("AMOUNT PAID", 40, amountY);
+      doc
+        .font(boldTextFont)
+        .fontSize(8.5)
+        .fillColor("#4B5563")
+        .text("AMOUNT PAID", 40, amountY);
       const currencyCode = receiptData.currency?.toUpperCase() || "USD";
-      doc.font(boldTextFont).fontSize(14).fillColor("#10B981").text(
-        formatCurrency(receiptData.paidAmount, currencyCode),
-        40,
-        amountY + 14
-      );
+      doc
+        .font(boldTextFont)
+        .fontSize(14)
+        .fillColor("#10B981")
+        .text(
+          formatCurrency(receiptData.paidAmount, currencyCode),
+          40,
+          amountY + 14,
+        );
 
       // 7. Line Items Table
       let y = amountY + 50;
 
       const drawTableHeader = (posY: number) => {
-        doc.rect(40, posY - 5, 515, 20).fill("#F3F4F6"); // Header background
+        doc.rect(40, posY - 5, 515, 20).fill("#F3F4F6");
         doc.fillColor("#4B5563");
         doc.font(boldTextFont).fontSize(8);
-        doc.text("SERVICES", 44, posY);
-        doc.text("CHARGE TYPE", 224, posY);
-        doc.text("RATE", 364, posY, { width: 65, align: "right" });
-        doc.text("QTY/COLLECTION", 439, posY, { width: 70, align: "right" });
-        doc.text("AMOUNT", 484, posY, { width: 66, align: "right" });
+        doc.text("SERVICES", 44, posY, { width: 170 });
+        doc.text("CHARGE TYPE", 220, posY, { width: 90 });
+        doc.text("RATE", 340, posY, { width: 60, align: "right" });
+        doc.text("QTY", 420, posY, { width: 40, align: "right" });
+        doc.text("AMOUNT", 490, posY, { width: 60, align: "right" });
       };
 
       drawTableHeader(y);
@@ -560,23 +776,37 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
 
           doc.font(fontToUse).fontSize(fontSizeToUse).fillColor(textColor);
 
-          // Col 1: SERVICES (x=44, width=170)
-          doc.text(row.service || "", 44, y + 4, { width: 170 });
+          // Col 1: SERVICES
+          doc.text(row.service || "", 44, y + 4, {
+            width: 170,
+          });
 
-          // Col 2: PRICING TERMS (x=224, width=100)
-          doc.text(row.pricingTerm || "", 224, y + 4, { width: 100 });
+          // Col 2: CHARGE TYPE
+          doc.text(row.pricingTerm || "", 220, y + 4, {
+            width: 90,
+          });
 
-          // Col 3: RATE (x=364, width=65, align right)
-          doc.text(row.rate || "", 364, y + 4, { width: 65, align: "right" });
+          // Col 3: RATE
+          doc.text(row.rate || "", 340, y + 4, {
+            width: 60,
+            align: "right",
+          });
 
-          // Col 4: QTY (x=439, width=70, align right)
-          doc.text(row.qty || "", 439, y + 4, { width: 70, align: "right" });
+          // Col 4: QTY
+          doc.text(String(row.qty || ""), 420, y + 4, {
+            width: 40,
+            align: "right",
+          });
 
-          // Col 5: AMOUNT (x=484, width=66, align right)
-          doc.text(row.amount || "", 484, y + 4, { width: 66, align: "right" });
+          // Col 5: AMOUNT
+          doc.text(row.amount || "", 490, y + 4, {
+            width: 60,
+            align: "right",
+          });
 
           if (row.isDivider) {
-            doc.moveTo(40, y + rowHeight - 2)
+            doc
+              .moveTo(40, y + rowHeight - 2)
               .lineTo(555, y + rowHeight - 2)
               .strokeColor("#E5E7EB")
               .lineWidth(0.5)
@@ -595,11 +825,21 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
 
       doc.font(boldTextFont).fontSize(12).fillColor("#10B981");
       doc.text("GRAND TOTAL", summaryX, y);
-      doc.text(formatCurrency(receiptData.paidAmount, currencyCode), valueX, y, { width: valueWidth, align: "right" });
+      doc.text(
+        formatCurrency(receiptData.paidAmount, currencyCode),
+        valueX,
+        y,
+        { width: valueWidth, align: "right" },
+      );
 
       // Footer section
       y += 40;
-      doc.moveTo(40, y).lineTo(555, y).strokeColor("#E5E7EB").lineWidth(1).stroke();
+      doc
+        .moveTo(40, y)
+        .lineTo(555, y)
+        .strokeColor("#E5E7EB")
+        .lineWidth(1)
+        .stroke();
 
       // Company footer details
       y += 15;
@@ -616,7 +856,7 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
         `This is a payment receipt for Invoice ${invoiceNumber}. Payment was processed via ${paymentMethodText} on ${paidDate}.`,
         40,
         y,
-        { width: 515 }
+        { width: 515 },
       );
 
       y += 20;
@@ -624,7 +864,7 @@ export function generateReceiptPdfBuffer(receiptData: ReceiptData): Promise<Buff
         `© ${new Date().getFullYear()} ${companyName}. All rights reserved. This receipt was generated on ${formatDate(new Date())}.`,
         40,
         y,
-        { width: 515, align: "center" }
+        { width: 515, align: "center" },
       );
 
       doc.end();
@@ -638,7 +878,7 @@ export async function generateReceiptPdfBufferFromDb(
   invoiceId: string,
   paymentMethod: string,
   paymentDetails?: any,
-  prismaClient?: any
+  prismaClient?: any,
 ): Promise<Buffer> {
   if (!prismaClient) {
     throw new Error("Prisma client is required to generate receipt PDF");
@@ -648,7 +888,18 @@ export async function generateReceiptPdfBufferFromDb(
     where: { id: invoiceId },
     include: {
       practice: {
-        include: { company: true },
+        include: {
+          company: true,
+          onboardings: {
+            include: {
+              practices: {
+                include: {
+                  locations: true,
+                },
+              },
+            },
+          },
+        },
       },
       lineItems: {
         include: {
@@ -680,13 +931,19 @@ export async function generateReceiptPdfBufferFromDb(
   }
 
   // Helper to format dates
-  const formatDateRange = (start?: Date | string | null, end?: Date | string | null): string => {
+  const formatDateRange = (
+    start?: Date | string | null,
+    end?: Date | string | null,
+  ): string => {
     if (!start && !end) return "—";
     return `${formatDate(start)} - ${formatDate(end)}`;
   };
 
   // Group line items by billingRunItemId to handle hybrid / service details
-  const groupedItems = new Map<string, { billingRunItem: any; service: any; lineItems: any[] }>();
+  const groupedItems = new Map<
+    string,
+    { billingRunItem: any; service: any; lineItems: any[] }
+  >();
   const manualItems: any[] = [];
 
   for (const item of invoice.lineItems || []) {
@@ -706,10 +963,29 @@ export async function generateReceiptPdfBufferFromDb(
 
   const lineItems: ReceiptLineItem[] = [];
 
+  // Sort the grouped billing run items by priority and creation date of the pricing terms
+  const sortedGroups = Array.from(groupedItems.values()).sort((a, b) => {
+    const priorityA = a.billingRunItem?.agreementServiceTerm?.priority ?? 1;
+    const priorityB = b.billingRunItem?.agreementServiceTerm?.priority ?? 1;
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+    const dateA = new Date(
+      a.billingRunItem?.agreementServiceTerm?.createdAt || 0,
+    ).getTime();
+    const dateB = new Date(
+      b.billingRunItem?.agreementServiceTerm?.createdAt || 0,
+    ).getTime();
+    return dateA - dateB;
+  });
+
   // Map grouped billing run items
-  for (const group of groupedItems.values()) {
+  for (const group of sortedGroups) {
     const { billingRunItem, service, lineItems: grpLineItems } = group;
-    const totalPrice = grpLineItems.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+    const totalPrice = grpLineItems.reduce(
+      (sum, item) => sum + Number(item.totalPrice || 0),
+      0,
+    );
 
     // Get captured inputs for this service
     const capturedInputs = (billingRunItem.billingRun?.inputSnapshots || [])
@@ -731,13 +1007,13 @@ export async function generateReceiptPdfBufferFromDb(
         billingRunItem.agreementServiceTerm?.agreement?.effectiveDate,
       billingRunItem.agreementServiceTerm?.agreementVersion?.endDate ??
         billingRunItem.agreementServiceTerm?.agreement?.terminationDate ??
-        billingRunItem.agreementServiceTerm?.agreement?.renewalDate
+        billingRunItem.agreementServiceTerm?.agreement?.renewalDate,
     );
 
     // Service Term Period
     const serviceTermPeriod = formatDateRange(
       billingRunItem.agreementServiceTerm?.effectiveDate,
-      billingRunItem.agreementServiceTerm?.endDate
+      billingRunItem.agreementServiceTerm?.endDate,
     );
 
     // Formula snap
@@ -750,32 +1026,61 @@ export async function generateReceiptPdfBufferFromDb(
         (c: any) =>
           c.description === line.description ||
           c.componentType === line.description ||
-          (line.description && c.componentType && line.description.includes(c.componentType)) ||
-          (line.description && c.componentType && c.componentType.includes(line.description))
+          (line.description &&
+            c.componentType &&
+            line.description.includes(c.componentType)) ||
+          (line.description &&
+            c.componentType &&
+            c.componentType.includes(line.description)),
       );
 
-      const rateVal = dbComp?.rate != null ? Number(dbComp.rate) : Number(line.unitPrice);
-      const qtyVal = dbComp?.quantity != null ? Number(dbComp.quantity) : Number(line.quantity);
+      const rateVal =
+        dbComp?.rate != null ? Number(dbComp.rate) : Number(line.unitPrice);
+      const qtyVal =
+        dbComp?.quantity != null
+          ? Number(dbComp.quantity)
+          : Number(line.quantity);
 
       // Find matching vendor component from vendorPricing snapshot
       let vendorValue: number | undefined;
       try {
-        if (formulaSnap.vendorPricing?.components && Array.isArray(formulaSnap.vendorPricing.components)) {
-          const clientComps = Array.isArray(formulaSnap.components) ? formulaSnap.components : [];
-          const cIdx = clientComps.findIndex((c: any) => c.type === line.description);
+        if (
+          formulaSnap.vendorPricing?.components &&
+          Array.isArray(formulaSnap.vendorPricing.components)
+        ) {
+          const clientComps = Array.isArray(formulaSnap.components)
+            ? formulaSnap.components
+            : [];
+          const cIdx = clientComps.findIndex(
+            (c: any) => c.type === line.description,
+          );
           if (cIdx !== -1 && formulaSnap.vendorPricing.components[cIdx]) {
-            vendorValue = parseFloat(formulaSnap.vendorPricing.components[cIdx].value) || 0;
+            vendorValue =
+              parseFloat(formulaSnap.vendorPricing.components[cIdx].value) || 0;
           }
         }
       } catch (e) {
         // Fallback
       }
+
+      let cptCode = "";
+      try {
+        if (dbComp?.metadata) {
+          const metaObj =
+            typeof dbComp.metadata === "string"
+              ? JSON.parse(dbComp.metadata)
+              : dbComp.metadata;
+          cptCode = metaObj?.cptCode || "";
+        }
+      } catch (e) {}
+
       return {
         type: line.description || service.name,
         clientValue: Number(line.totalPrice || 0),
         vendorValue,
         rate: rateVal,
         quantity: qtyVal,
+        cptCode,
       };
     });
 
@@ -789,10 +1094,22 @@ export async function generateReceiptPdfBufferFromDb(
       agreementPeriod,
       serviceTermPeriod,
       pricingModel: formulaSnap.pricingModel,
-      minimumFee: formulaSnap.minimumFee != null ? Number(formulaSnap.minimumFee) : undefined,
-      maximumFee: formulaSnap.maximumFee != null ? Number(formulaSnap.maximumFee) : undefined,
-      vendorCost: billingRunItem.vendorAmount != null ? Number(billingRunItem.vendorAmount) : undefined,
-      margin: billingRunItem.marginAmount != null ? Number(billingRunItem.marginAmount) : undefined,
+      minimumFee:
+        formulaSnap.minimumFee != null
+          ? Number(formulaSnap.minimumFee)
+          : undefined,
+      maximumFee:
+        formulaSnap.maximumFee != null
+          ? Number(formulaSnap.maximumFee)
+          : undefined,
+      vendorCost:
+        billingRunItem.vendorAmount != null
+          ? Number(billingRunItem.vendorAmount)
+          : undefined,
+      margin:
+        billingRunItem.marginAmount != null
+          ? Number(billingRunItem.marginAmount)
+          : undefined,
       components,
       capturedInputs,
       exceptionFlags: billingRunItem.exceptionFlags || [],
@@ -817,9 +1134,59 @@ export async function generateReceiptPdfBufferFromDb(
     zipCode: invoice.practice?.company?.zipCode || "",
     email: invoice.practice?.company?.email || "",
     phone: invoice.practice?.company?.phone || "",
+    location: (() => {
+      const primaryLocation = selectPrimaryOnboardingLocation(invoice.practice);
+      if (!primaryLocation) return undefined;
+
+      return {
+        locationName: primaryLocation.locationName || "",
+        addressLine1: primaryLocation.addressLine1 || "",
+        addressLine2: primaryLocation.addressLine2 || "",
+        city: primaryLocation.city || "",
+        state: primaryLocation.state || "",
+        zipCode: primaryLocation.zipCode || "",
+      };
+    })(),
   };
 
   const logoBuffer = await getLogoBuffer();
+
+  let finalPaymentMethod = paymentMethod;
+  let finalPaymentDetails = paymentDetails;
+
+  try {
+    const payment = await prismaClient.payment.findFirst({
+      where: {
+        allocations: {
+          some: {
+            invoiceId: invoice.id,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (payment) {
+      if (payment.paymentMethod && payment.paymentMethod !== "stripe") {
+        finalPaymentMethod = payment.paymentMethod;
+      }
+      if (payment.externalReference) {
+        try {
+          const extRef = JSON.parse(payment.externalReference);
+          if (extRef && extRef.type) {
+            finalPaymentDetails = {
+              cardBrand: extRef.brand,
+              last4Digits: extRef.last4,
+              bankName: extRef.bankName,
+            };
+          }
+        } catch (e) {
+          console.warn("[receiptPdf] Failed to parse payment externalReference:", e);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[receiptPdf] Failed to fetch payment from database:", err);
+  }
 
   const receiptData: ReceiptData = {
     receiptNumber: `RCP-${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
@@ -829,8 +1196,8 @@ export async function generateReceiptPdfBufferFromDb(
     totalAmount: Number(invoice.totalAmount || 0),
     paidAmount: Number(invoice.totalAmount || 0),
     currency: invoice.currency || "USD",
-    paymentMethod,
-    paymentDetails,
+    paymentMethod: finalPaymentMethod,
+    paymentDetails: finalPaymentDetails,
     practiceInfo,
     lineItems,
     logoBuffer,

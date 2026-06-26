@@ -3,6 +3,8 @@ import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.m
 import {
   createInvoice,
   getInvoice,
+  getInvoicePdf,
+  getInvoiceReceiptPdf,
   getAllInvoices,
   updateInvoice,
   deleteInvoice,
@@ -50,6 +52,8 @@ invoiceRouter.delete(
 
 // Invoice detail routes
 invoiceRouter.get("/:id", getInvoice);
+invoiceRouter.get("/:id/pdf", getInvoicePdf);
+invoiceRouter.get("/:id/receipt-pdf", getInvoiceReceiptPdf);
 invoiceRouter.patch(
   "/:id",
   requireRoles(ROLE_GROUPS.OPERATIONS_AND_FINANCE_WRITE),

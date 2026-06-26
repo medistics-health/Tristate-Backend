@@ -1993,32 +1993,80 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
     };
   });
 
+  const MAX_DECIMAL_LIMIT = 9999999999.99;
+  for (let i = 0; i < calculatedItems.length; i++) {
+    const item = calculatedItems[i];
+    const term = runTerms[i];
+    const serviceName = term?.service?.name || "Unknown Service";
+
+    if (Math.abs(item.clientAmount) > MAX_DECIMAL_LIMIT) {
+      throw new BillingServiceError(
+        400,
+        `Calculated client amount for service "${serviceName}" ($${item.clientAmount.toLocaleString()}) exceeds the allowed limit of $9,999,999,999.99. Please check the input metrics or quantities.`
+      );
+    }
+    if (item.vendorAmount !== null && Math.abs(item.vendorAmount) > MAX_DECIMAL_LIMIT) {
+      throw new BillingServiceError(
+        400,
+        `Calculated vendor amount for service "${serviceName}" ($${item.vendorAmount.toLocaleString()}) exceeds the allowed limit of $9,999,999,999.99. Please check the input metrics or quantities.`
+      );
+    }
+    if (item.marginAmount !== null && Math.abs(item.marginAmount) > MAX_DECIMAL_LIMIT) {
+      throw new BillingServiceError(
+        400,
+        `Calculated margin amount for service "${serviceName}" ($${item.marginAmount.toLocaleString()}) exceeds the allowed limit of $9,999,999,999.99. Please check the input metrics or quantities.`
+      );
+    }
+
+    for (const comp of item.components) {
+      if (Math.abs(comp.amount) > MAX_DECIMAL_LIMIT) {
+        throw new BillingServiceError(
+          400,
+          `Calculated component "${comp.description || comp.componentType}" amount for service "${serviceName}" ($${comp.amount.toLocaleString()}) exceeds the allowed limit of $9,999,999,999.99. Please check the input metrics or quantities.`
+        );
+      }
+    }
+  }
+
   const createdItems = [];
   for (const item of calculatedItems) {
-    const createdItem = await db.billingRunItem.create({
-      data: {
-        billingRunId,
-        practiceId: run.practiceId,
-        serviceId: item.serviceId,
-        vendorId: item.vendorId || undefined,
-        agreementServiceTermId: item.agreementServiceTermId,
-        clientAmount: decimal(item.clientAmount),
-        vendorAmount:
-          item.vendorAmount !== null ? decimal(item.vendorAmount) : undefined,
-        marginAmount:
-          item.marginAmount !== null ? decimal(item.marginAmount) : undefined,
-        currency: item.currency,
-        formulaSnapshot: item.formulaSnapshot as Prisma.InputJsonValue,
-        sourceSnapshot: item.sourceSnapshot as Prisma.InputJsonValue,
-        exceptionFlags: item.exceptionFlags,
-        components: {
-          create: item.components.map(toComponent),
+    let createdItem;
+    try {
+      createdItem = await db.billingRunItem.create({
+        data: {
+          billingRunId,
+          practiceId: run.practiceId,
+          serviceId: item.serviceId,
+          vendorId: item.vendorId || undefined,
+          agreementServiceTermId: item.agreementServiceTermId,
+          clientAmount: decimal(item.clientAmount),
+          vendorAmount:
+            item.vendorAmount !== null ? decimal(item.vendorAmount) : undefined,
+          marginAmount:
+            item.marginAmount !== null ? decimal(item.marginAmount) : undefined,
+          currency: item.currency,
+          formulaSnapshot: item.formulaSnapshot as Prisma.InputJsonValue,
+          sourceSnapshot: item.sourceSnapshot as Prisma.InputJsonValue,
+          exceptionFlags: item.exceptionFlags,
+          components: {
+            create: item.components.map(toComponent),
+          },
         },
-      },
-      include: {
-        components: true,
-      },
-    });
+        include: {
+          components: true,
+        },
+      });
+    } catch (createErr) {
+      console.error("[billing-calculation] Numeric overflow error when creating billing run item:", createErr);
+      console.error("[billing-calculation] Failed item details:", JSON.stringify({
+        serviceId: item.serviceId,
+        clientAmount: item.clientAmount,
+        vendorAmount: item.vendorAmount,
+        marginAmount: item.marginAmount,
+        components: item.components,
+      }, null, 2));
+      throw createErr;
+    }
 
     createdItems.push(createdItem);
 

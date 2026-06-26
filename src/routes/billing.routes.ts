@@ -7,6 +7,7 @@ import {
   createBillingRunHandler,
   getBillingReadinessHandler,
   getBillingRunHandler,
+  getBillingRunInvoicePreviewHandler,
   importSnapshotsFromReportsHandler,
   listBillingRunsHandler,
   postBillingRunHandler,
@@ -26,6 +27,7 @@ billingRouter.post(
   createBillingRunHandler,
 );
 billingRouter.get("/runs/:id", getBillingRunHandler);
+billingRouter.get("/runs/:id/invoice-preview", getBillingRunInvoicePreviewHandler);
 billingRouter.post(
   "/runs/:id/snapshots",
   requireRoles(ROLE_GROUPS.OPERATIONS_AND_FINANCE_WRITE),
