@@ -3,6 +3,8 @@ import { verifyAuthToken } from "../middleware/auth.middleware";
 import {
   createInvoice,
   getInvoice,
+  getInvoicePdf,
+  getInvoiceReceiptPdf,
   getAllInvoices,
   updateInvoice,
   deleteInvoice,
@@ -34,6 +36,8 @@ invoiceRouter.delete("/line-items/:id", deleteInvoiceLineItem);
 
 // Invoice detail routes
 invoiceRouter.get("/:id", getInvoice);
+invoiceRouter.get("/:id/pdf", getInvoicePdf);
+invoiceRouter.get("/:id/receipt-pdf", getInvoiceReceiptPdf);
 invoiceRouter.patch("/:id", updateInvoice);
 invoiceRouter.delete("/:id", deleteInvoice);
 

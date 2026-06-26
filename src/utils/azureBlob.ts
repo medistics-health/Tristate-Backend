@@ -42,7 +42,7 @@ function getConnectionStringPart(connectionString: string, key: string) {
     .join("=");
 }
 
-function createBlobReadSasUrl(params: {
+export function createBlobReadSasUrl(params: {
   connectionString: string;
   containerName: string;
   blobName: string;

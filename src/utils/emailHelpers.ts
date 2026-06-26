@@ -149,9 +149,6 @@ export function generateInvoiceEmailTemplate(
   `.trim();
 }
 
-/**
- * Generates HTML email template for payment receipt with payment method info
- */
 export function generateReceiptEmailTemplate(
   invoiceNumber: string | null,
   receiptNumber: string,
@@ -170,72 +167,59 @@ export function generateReceiptEmailTemplate(
 
   // Format payment method display
   let paymentMethodDisplay = "Stripe";
-  if (paymentMethod.toLowerCase() === "stripe" || paymentMethod.toLowerCase() === "credit_card") {
+  const normalizedMethod = (paymentMethod || "").toLowerCase();
+  if (normalizedMethod === "stripe" || normalizedMethod === "credit_card" || normalizedMethod === "card") {
     if (paymentDetails?.cardBrand) {
       paymentMethodDisplay = `${paymentDetails.cardBrand} ••••${paymentDetails.last4Digits || ""}`;
     } else {
-      paymentMethodDisplay = "Credit Card";
+      paymentMethodDisplay = "Stripe";
     }
-  } else if (paymentMethod.toLowerCase() === "ach") {
+  } else if (
+    normalizedMethod === "ach" ||
+    normalizedMethod === "us_bank_account" ||
+    normalizedMethod === "customer_balance" ||
+    normalizedMethod === "bank_transfer"
+  ) {
     paymentMethodDisplay = "Bank Transfer (ACH)";
     if (paymentDetails?.bankName) {
       paymentMethodDisplay += ` - ${paymentDetails.bankName}`;
     }
-  } else if (paymentMethod.toLowerCase() === "check") {
+    if (paymentDetails?.last4Digits) {
+      paymentMethodDisplay += ` (••••${paymentDetails.last4Digits})`;
+    }
+  } else if (normalizedMethod === "check") {
     paymentMethodDisplay = "Check";
     if (paymentDetails?.last4Digits) {
       paymentMethodDisplay += ` #${paymentDetails.last4Digits}`;
     }
+  } else if (paymentMethod) {
+    paymentMethodDisplay = paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1);
+    if (paymentDetails?.last4Digits) {
+      paymentMethodDisplay += ` (••••${paymentDetails.last4Digits})`;
+    }
   }
 
   return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; color: #1F2937; line-height: 1.6; }
-        .container { max-width: 600px; margin: 0 auto; background: #f9fafb; }
-        .header { background: linear-gradient(135deg, #c3a97c 0%, #d4b896 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0; }
-        .content { background: white; padding: 30px; }
-        .section { margin: 20px 0; padding: 15px; background: #f3f4f6; border-left: 4px solid #c3a97c; border-radius: 4px; }
-        .footer { background: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6B7280; border-radius: 0 0 8px 8px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1 style="margin: 0; font-size: 28px;">Payment Received</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">Receipt #${receiptNumber}</p>
-        </div>
-        
-        <div class="content">
-            <p>Dear Valued Client,</p>
-            
-            <p>Thank you! We have successfully received your payment. Please find the receipt details below:</p>
-            
-            <div class="section">
-                <strong>Receipt Details:</strong><br>
-                <strong>Invoice Number:</strong> ${invoiceNumber || 'N/A'}<br>
-                <strong>Receipt Number:</strong> ${receiptNumber}<br>
-                <strong>Payment Date:</strong> ${paidDate}<br>
-                <strong>Payment Method:</strong> ${paymentMethodDisplay}<br>
-                <strong style="font-size: 18px; color: #111827;">Amount Paid: ${currencySymbol}${paidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-            </div>
-            
-            <p>Your payment receipt PDF is attached to this email for your records.</p>
-            
-            <p style="margin-top: 30px; color: #6B7280; font-size: 14px;">
-                If you have any questions about this payment or need any assistance, please feel free to contact us.
-            </p>
-        </div>
-        
-        <div class="footer">
-            <p style="margin: 0;">© ${new Date().getFullYear()} Tristate MSO. All rights reserved.</p>
-            <p style="margin: 5px 0 0 0;">This receipt confirms your payment has been processed successfully.</p>
-        </div>
+    <h1 style="margin-top: 0; font-size: 24px; color: #0f2d46;">Payment Received</h1>
+    <p style="color: #627d98; font-size: 14px; margin-top: -10px; margin-bottom: 20px;">Receipt #${receiptNumber}</p>
+
+    <p>Dear Valued Client,</p>
+    
+    <p>Thank you! We have successfully received your payment. Please find the receipt details below:</p>
+    
+    <div style="margin: 20px 0; padding: 15px; background: #f3f4f6; border-left: 4px solid #c3a97c; border-radius: 4px; line-height: 1.6; color: #1F2937; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+        <strong style="font-size: 16px; color: #0f2d46; display: block; margin-bottom: 10px;">Receipt Details:</strong>
+        <strong>Invoice Number:</strong> ${invoiceNumber || 'N/A'}<br>
+        <strong>Receipt Number:</strong> ${receiptNumber}<br>
+        <strong>Payment Date:</strong> ${paidDate}<br>
+        <strong>Payment Method:</strong> ${paymentMethodDisplay}<br>
+        <strong style="font-size: 18px; color: #111827; display: block; margin-top: 10px;">Amount Paid: ${currencySymbol}${paidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
     </div>
-</body>
-</html>
+    
+    <p>Your payment receipt PDF is attached to this email for your records.</p>
+    
+    <p style="margin-top: 30px; color: #627d98; font-size: 14px;">
+        If you have any questions about this payment or need any assistance, please feel free to contact us.
+    </p>
   `.trim();
 }

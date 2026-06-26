@@ -7,6 +7,7 @@ import {
   createBillingRunHandler,
   getBillingReadinessHandler,
   getBillingRunHandler,
+  getBillingRunInvoicePreviewHandler,
   importSnapshotsFromReportsHandler,
   listBillingRunsHandler,
   postBillingRunHandler,
@@ -22,6 +23,7 @@ billingRouter.get("/practices/:practiceId/readiness", getBillingReadinessHandler
 billingRouter.get("/runs", listBillingRunsHandler);
 billingRouter.post("/runs", createBillingRunHandler);
 billingRouter.get("/runs/:id", getBillingRunHandler);
+billingRouter.get("/runs/:id/invoice-preview", getBillingRunInvoicePreviewHandler);
 billingRouter.post("/runs/:id/snapshots", addBillingRunSnapshotsHandler);
 billingRouter.post("/runs/:id/snapshots-from-reports", importSnapshotsFromReportsHandler);
 billingRouter.post("/runs/:id/calculate", calculateBillingRunHandler);

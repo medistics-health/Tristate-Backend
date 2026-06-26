@@ -25,6 +25,9 @@ import {
 } from "../../services/billing/billing.service";
 import { stripe } from "../../lib/stripe";
 import { prisma } from "../../lib/prisma";
+import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
+import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceiptBlob";
+import { generateInvoicePdfBuffer } from "../../utils/invoicePdf";
 
 function toStripeMinorUnit(amount: number | string) {
   return Math.round(Number(amount) * 100);
@@ -32,6 +35,47 @@ function toStripeMinorUnit(amount: number | string) {
 
 function normalizeStripeCurrency(currency?: string | null) {
   return (currency || "USD").toLowerCase();
+}
+
+function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | null) {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const safeInvoice = (invoiceNumber || "invoice").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `${prefix}/${year}/${month}/${day}/${safeInvoice}`;
+}
+
+function buildBillingRunInvoicePreview(run: any) {
+  const currency = (run.practice?.defaultCurrency || "USD").toUpperCase();
+  const lineItems = (run.items || []).map((item: any) => ({
+    description: item.service?.name || "Service",
+    quantity: 1,
+    unitPrice: Number(item.clientAmount || 0),
+    totalPrice: Number(item.clientAmount || 0),
+  }));
+
+  return {
+    invoiceNumber: `Preview-${run.id.slice(0, 8).toUpperCase()}`,
+    invoiceDate: new Date(),
+    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    totalAmount: Number(
+      (run.items || []).reduce((sum: number, item: any) => sum + Number(item.clientAmount || 0), 0),
+    ),
+    subtotalAmount: null,
+    taxAmount: 0,
+    discountAmount: 0,
+    currency,
+    lineItems,
+    practiceInfo: {
+      name: run.practice?.name || "Tristate MSO",
+      address: run.practice?.company?.address || "",
+      city: run.practice?.company?.city || "",
+      state: run.practice?.company?.state || "",
+      zipCode: run.practice?.company?.zipCode || "",
+      email: run.practice?.company?.email || "",
+      phone: run.practice?.company?.phone || "",
+    },
+  };
 }
 
 async function syncFinalizeAndSendInvoice(invoiceId: string) {
@@ -74,6 +118,15 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
     };
   }
 
+  const hasCreditCardChargesService = invoice.lineItems.some((item) => {
+    const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
+    return name === "creditcardcharges";
+  });
+
+  const paymentMethodTypes = (hasCreditCardChargesService
+    ? ["card"]
+    : ["us_bank_account", "customer_balance"]) as any;
+
   const stripeInvoice = await stripe.invoices.create({
     customer: stripeCustomerId,
     currency,
@@ -88,6 +141,9 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
       localInvoiceId: invoice.id,
       practiceId: invoice.practiceId,
       agreementId: invoice.agreementId || "",
+    },
+    payment_settings: {
+      payment_method_types: paymentMethodTypes,
     },
   });
 
@@ -288,6 +344,48 @@ export async function getBillingRunHandler(
   }
 }
 
+export async function getBillingRunInvoicePreviewHandler(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const billingRunId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!billingRunId) {
+      return res.status(400).json({ message: "Billing run id is required." });
+    }
+
+    const billingRun = await getBillingRun(billingRunId);
+    if (
+      billingRun.status === BillingRunStatus.POSTED ||
+      billingRun.status === BillingRunStatus.CLOSED
+    ) {
+      return res.status(400).json({
+        message: "Invoice preview is only available before posting.",
+      });
+    }
+
+    const pdfBuffer = await generateInvoicePdfBuffer(
+      buildBillingRunInvoicePreview(billingRun),
+    );
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="BillingRun-${billingRun.id.slice(0, 8)}-Preview.pdf"`,
+    );
+    return res.send(pdfBuffer);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to generate billing run invoice preview.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function addBillingRunSnapshotsHandler(
   req: AuthenticatedRequest,
   res: Response,
@@ -440,6 +538,33 @@ export async function recordManualPaymentHandler(
     }
 
     const result = await recordManualPayment(req.body as RecordPaymentBody);
+
+    for (const allocation of result.allocations || []) {
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: allocation.invoiceId },
+      });
+      if (!invoice) continue;
+      try {
+        const receiptBuffer = await generateReceiptPdfBufferFromDb(
+          invoice.id,
+          "manual",
+          undefined,
+          prisma,
+        );
+        const upload = await uploadInvoiceReceiptBufferToAzureBlob({
+          folder: buildPdfFolder("receipts", new Date(), invoice.invoiceNumber),
+          fileName: `Receipt-${invoice.invoiceNumber || invoice.id}.pdf`,
+          buffer: receiptBuffer,
+          contentType: "application/pdf",
+        });
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { receiptPdfBlobUrl: upload.url } as any,
+        });
+      } catch (err) {
+        console.error("[recordManualPayment] Failed to upload receipt PDF:", err);
+      }
+    }
 
     return res.status(201).json({
       message: "Payment recorded successfully.",

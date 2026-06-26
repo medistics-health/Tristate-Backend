@@ -49,10 +49,33 @@ export async function extractPaymentMethodInfo(
           bankName = pmDetails.ach_credit.bank_name || "Bank";
           last4 = pmDetails.ach_credit.last4 || "";
         }
+      } else if (pmDetails.type === "customer_balance" || pmDetails.type === "bank_transfer") {
+        paymentType = "ach";
+        bankName = "Bank Transfer";
+        isAch = true;
       }
     }
 
-    // Fallback: get payment method from payment intent
+    // Fallback 1: check paymentIntent's payment_method_details
+    if (!brand && !bankName && paymentIntent?.payment_method_details) {
+      const pmDetails = paymentIntent.payment_method_details;
+      if (pmDetails.type === "card" && pmDetails.card) {
+        paymentType = "credit_card";
+        brand = pmDetails.card.brand?.toUpperCase() || "Card";
+        last4 = pmDetails.card.last4 || "";
+      } else if (pmDetails.type === "us_bank_account" && pmDetails.us_bank_account) {
+        paymentType = "ach";
+        bankName = pmDetails.us_bank_account.bank_name || "Bank";
+        last4 = pmDetails.us_bank_account.last4 || "";
+        isAch = true;
+      } else if (pmDetails.type === "customer_balance" || pmDetails.type === "bank_transfer") {
+        paymentType = "ach";
+        bankName = "Bank Transfer";
+        isAch = true;
+      }
+    }
+
+    // Fallback 2: get payment method from payment intent using retrieve
     if (!brand && !bankName && paymentIntent?.payment_method && stripeClient) {
       const pmId = paymentIntent.payment_method;
       if (typeof pmId === "string") {
@@ -62,9 +85,34 @@ export async function extractPaymentMethodInfo(
             paymentType = "credit_card";
             brand = pm.card.brand?.toUpperCase() || "Card";
             last4 = pm.card.last4 || "";
+          } else if (pm.type === "us_bank_account" && pm.us_bank_account) {
+            paymentType = "ach";
+            bankName = pm.us_bank_account.bank_name || "Bank";
+            last4 = pm.us_bank_account.last4 || "";
+            isAch = true;
+          } else if (pm.type === "customer_balance" || pm.type === "bank_transfer") {
+            paymentType = "ach";
+            bankName = "Bank Transfer";
+            isAch = true;
           }
         } catch (pmErr) {
           console.warn("[paymentMethodHelper] Failed to retrieve payment method:", pmErr);
+        }
+      } else if (typeof pmId === "object" && pmId !== null) {
+        const pm = pmId as any;
+        if (pm.type === "card" && pm.card) {
+          paymentType = "credit_card";
+          brand = pm.card.brand?.toUpperCase() || "Card";
+          last4 = pm.card.last4 || "";
+        } else if (pm.type === "us_bank_account" && pm.us_bank_account) {
+          paymentType = "ach";
+          bankName = pm.us_bank_account.bank_name || "Bank";
+          last4 = pm.us_bank_account.last4 || "";
+          isAch = true;
+        } else if (pm.type === "customer_balance" || pm.type === "bank_transfer") {
+          paymentType = "ach";
+          bankName = "Bank Transfer";
+          isAch = true;
         }
       }
     }
@@ -130,62 +178,33 @@ export async function sendInvoiceFirstEmail(
     }).format(new Date(fullInvoice.dueDate));
 
     const invoiceHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: 'Google Sans', 'Inter', 'Segoe UI', Roboto, Arial, sans-serif; color: #1F2937; line-height: 1.6; }
-        .container { max-width: 600px; margin: 0 auto; background: #f9fafb; }
-        .header { background: linear-gradient(135deg, #c3a97c 0%, #d4b896 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0; }
-        .content { background: white; padding: 30px; }
-        .section { margin: 20px 0; padding: 15px; background: #f3f4f6; border-left: 4px solid #c3a97c; border-radius: 4px; }
-        .amount { font-size: 28px; font-weight: bold; color: #111827; margin: 10px 0; }
-        .footer { background: #f3f4f6; padding: 20px; text-align: center; font-size: 12px; color: #6B7280; border-radius: 0 0 8px 8px; }
-        .item-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1 style="margin: 0; font-size: 28px;">Invoice Notification</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">Invoice #${invoiceNumber || "N/A"}</p>
-        </div>
-        
-        <div class="content">
-            <p>Dear Valued Client,</p>
-            
-            <p>We have prepared an invoice for your account. Please find the details below:</p>
-            
-            <div class="section">
-                <strong>Invoice Details:</strong><br>
-                <strong>Invoice Number:</strong> ${invoiceNumber || "N/A"}<br>
-                <strong>Invoice Date:</strong> ${new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    }).format(new Date(fullInvoice.createdAt))}<br>
-                <strong>Due Date:</strong> ${formattedDate}<br>
-                <strong style="font-size: 18px; color: #111827;">Total Amount: $${(fullInvoice.totalAmount || 0).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}</strong>
-            </div>
-            
-            <p>Your invoice PDF is attached to this email for your records. Please review it carefully and ensure all details are correct.</p>
-            
-            <p style="margin-top: 30px; color: #6B7280; font-size: 14px;">
-                If you have any questions or concerns about this invoice, please don't hesitate to contact us.
-            </p>
-        </div>
-        
-        <div class="footer">
-            <p style="margin: 0;">© ${new Date().getFullYear()} Tristate MSO. All rights reserved.</p>
-            <p style="margin: 5px 0 0 0;">This email contains your invoice details.</p>
-        </div>
-    </div>
-</body>
-</html>
+      <h1 style="margin-top: 0; font-size: 24px; color: #0f2d46;">Invoice Notification</h1>
+      <p style="color: #627d98; font-size: 14px; margin-top: -10px; margin-bottom: 20px;">Invoice #${invoiceNumber || "N/A"}</p>
+
+      <p>Dear Valued Client,</p>
+      
+      <p>We have prepared an invoice for your account. Please find the details below:</p>
+      
+      <div style="margin: 20px 0; padding: 15px; background: #f3f4f6; border-left: 4px solid #c3a97c; border-radius: 4px; line-height: 1.6; color: #1F2937; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          <strong style="font-size: 16px; color: #0f2d46; display: block; margin-bottom: 10px;">Invoice Details:</strong>
+          <strong>Invoice Number:</strong> ${invoiceNumber || "N/A"}<br>
+          <strong>Invoice Date:</strong> ${new Intl.DateTimeFormat("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          }).format(new Date(fullInvoice.createdAt))}<br>
+          <strong>Due Date:</strong> ${formattedDate}<br>
+          <strong style="font-size: 18px; color: #111827; display: block; margin-top: 10px;">Total Amount: $${(fullInvoice.totalAmount || 0).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}</strong>
+      </div>
+      
+      <p>Your invoice PDF is attached to this email for your records. Please review it carefully and ensure all details are correct.</p>
+      
+      <p style="margin-top: 30px; color: #627d98; font-size: 14px;">
+          If you have any questions or concerns about this invoice, please don't hesitate to contact us.
+      </p>
     `.trim();
 
     const pdfFileName = `Invoice-${invoiceNumber || "Document"}.pdf`;

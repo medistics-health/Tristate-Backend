@@ -66,13 +66,7 @@ export async function processInvoiceReminders() {
           }
         }
       }
-      if (invoice.practice.company?.persons) {
-        for (const cp of invoice.practice.company.persons) {
-          if (cp.person?.email && cp.person.email.includes("@")) {
-            emails.push(cp.person.email.trim());
-          }
-        }
-      }
+
       if (invoice.practice.company?.email && invoice.practice.company.email.includes("@")) {
         emails.push(invoice.practice.company.email.trim());
       }
