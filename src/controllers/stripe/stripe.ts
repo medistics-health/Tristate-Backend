@@ -5,6 +5,8 @@ import { prisma } from "../../lib/prisma";
 import { stripe, getStripeWebhookSecret } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
+import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
+import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceiptBlob";
 import {
   extractPaymentMethodInfo,
   sendInvoiceFirstEmail,
@@ -17,6 +19,14 @@ function normalizeCurrency(currency?: string | null) {
 
 function toMinorUnit(amount: number | string) {
   return Math.round(Number(amount) * 100);
+}
+
+function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | null) {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const safeInvoice = (invoiceNumber || "invoice").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `${prefix}/${year}/${month}/${day}/${safeInvoice}`;
 }
 
 async function createSyncJob(params: {
@@ -226,6 +236,15 @@ export async function syncStripeInvoice(
       const currency = normalizeCurrency(invoice.currency || invoice.practice.defaultCurrency);
 
       if (!invoice.stripeInvoiceId) {
+        const hasCreditCardChargesService = invoice.lineItems.some((item) => {
+          const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
+          return name === "creditcardcharges";
+        });
+
+        const paymentMethodTypes = (hasCreditCardChargesService
+          ? ["card"]
+          : ["us_bank_account", "customer_balance"]) as any;
+
         const stripeInvoice = await stripe.invoices.create({
           customer: customer.id,
           currency,
@@ -240,6 +259,9 @@ export async function syncStripeInvoice(
             localInvoiceId: invoice.id,
             practiceId: invoice.practiceId,
             agreementId: invoice.agreementId || "",
+          },
+          payment_settings: {
+            payment_method_types: paymentMethodTypes,
           },
         });
 
@@ -432,7 +454,6 @@ export async function handleStripeWebhook(req: Request, res: Response) {
   try {
     const signature = req.headers["stripe-signature"];
     const webhookSecret = getStripeWebhookSecret();
-
     if (!signature || typeof signature !== "string") {
       return res.status(400).json({ message: "Missing Stripe signature." });
     }
@@ -460,11 +481,162 @@ export async function handleStripeWebhook(req: Request, res: Response) {
   }
 }
 
+async function logStripeWebhookEvent(event: any, invoiceId: string) {
+  try {
+    const existing = await prisma.stripeEventLog.findFirst({
+      where: { stripeEventId: event.id },
+    });
+    if (existing) return;
+
+    let actionDescription = "Received Stripe Event";
+    if (event.type === "invoice.finalized") {
+      actionDescription = "Invoice finalized on Stripe";
+    } else if (event.type === "invoice.sent") {
+      actionDescription = "Invoice sent to client";
+    } else if (event.type === "invoice.payment_failed") {
+      actionDescription = "Payment failed on Stripe";
+    } else if (event.type === "invoice.voided") {
+      actionDescription = "Invoice voided on Stripe";
+    } else if (event.type === "invoice.paid") {
+      const amountPaid = Number(event.data.object.amount_paid || 0) / 100;
+      actionDescription = `Invoice paid successfully via Stripe ($${amountPaid.toFixed(2)})`;
+    } else if (event.type === "charge.succeeded") {
+      const amountPaid = Number(event.data.object.amount || 0) / 100;
+      actionDescription = `Payment charge of $${amountPaid.toFixed(2)} succeeded via Stripe`;
+    }
+
+    await prisma.stripeEventLog.create({
+      data: {
+        invoiceId,
+        eventType: event.type,
+        stripeEventId: event.id,
+        stripeObjectType: event.data.object?.object || null,
+        stripeObjectId: event.data.object?.id || null,
+        payload: {
+          action: actionDescription,
+          stripePayload: event.data.object,
+        },
+        processedAt: new Date(),
+        status: "PROCESSED",
+      },
+    });
+  } catch (err) {
+    console.error("Failed to log StripeEventLog:", err);
+  }
+}
+
 async function processStripeWebhookEvent(event: any) {
   switch (event.type) {
+    case "charge.succeeded": {
+      const charge = event.data.object as any;
+      let invoiceId = charge.invoice;
+
+      if (!invoiceId && charge.payment_intent) {
+        try {
+          const pi: any = await stripe.paymentIntents.retrieve(
+            charge.payment_intent as string,
+            { expand: ["invoice"] }
+          );
+          invoiceId = typeof pi.invoice === "object" ? pi.invoice?.id : pi.invoice;
+          if (!invoiceId && pi.payment_details?.order_reference) {
+            invoiceId = pi.payment_details.order_reference;
+          }
+        } catch (piErr) {
+          console.warn("Failed to retrieve payment intent for charge invoice lookup:", piErr);
+        }
+      }
+
+      if (!invoiceId) {
+        return;
+      }
+
+      const invoice = await prisma.invoice.findFirst({
+        where: { stripeInvoiceId: invoiceId },
+      });
+
+      if (!invoice) {
+        console.warn("Invoice not found for charge.succeeded:", invoiceId);
+        return;
+      }
+
+      await logStripeWebhookEvent(event, invoice.id);
+
+      const paymentMethodInfo = await extractPaymentMethodInfo(charge, undefined, stripe);
+      const amountPaid = Number(charge.amount || 0) / 100;
+
+      // Format a nice human readable payment method name for the DB
+      let dbPaymentMethod = "stripe";
+      if (paymentMethodInfo.type === "credit_card") {
+        dbPaymentMethod = `${paymentMethodInfo.brand || "Card"} ••••${paymentMethodInfo.last4 || ""}`;
+      } else if (paymentMethodInfo.type === "ach") {
+        dbPaymentMethod = `Bank Transfer (ACH) - ${paymentMethodInfo.bankName || "Bank"} (••••${paymentMethodInfo.last4 || ""})`;
+      }
+
+      const existingPayment = await prisma.payment.findFirst({
+        where: {
+          practiceId: invoice.practiceId,
+          stripePaymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : null,
+        },
+      });
+
+      if (existingPayment) {
+        await prisma.payment.update({
+          where: { id: existingPayment.id },
+          data: {
+            paymentMethod: dbPaymentMethod,
+            stripeChargeId: charge.id,
+            externalReference: JSON.stringify({
+              type: paymentMethodInfo.type,
+              brand: paymentMethodInfo.brand,
+              last4: paymentMethodInfo.last4,
+              bankName: paymentMethodInfo.bankName,
+              isAch: paymentMethodInfo.isAch,
+            }),
+          },
+        });
+      } else {
+        const payment = await prisma.payment.create({
+          data: {
+            practiceId: invoice.practiceId,
+            amount: amountPaid,
+            currency: (charge.currency || invoice.currency || "usd").toUpperCase(),
+            status: PaymentStatus.ALLOCATED,
+            paymentDate: new Date(charge.created * 1000),
+            paymentMethod: dbPaymentMethod,
+            stripePaymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+            stripeChargeId: charge.id,
+            externalReference: JSON.stringify({
+              type: paymentMethodInfo.type,
+              brand: paymentMethodInfo.brand,
+              last4: paymentMethodInfo.last4,
+              bankName: paymentMethodInfo.bankName,
+              isAch: paymentMethodInfo.isAch,
+            }),
+          },
+        });
+
+        await prisma.paymentAllocation.create({
+          data: {
+            paymentId: payment.id,
+            invoiceId: invoice.id,
+            allocatedAmount: amountPaid,
+          },
+        });
+      }
+      return;
+    }
+
     case "invoice.finalized": {
       const stripeInvoice = event.data.object as any;
       if (!stripeInvoice.id) return;
+
+      const invoice = await prisma.invoice.findFirst({
+        where: { stripeInvoiceId: stripeInvoice.id },
+      });
+      if (invoice) {
+        await logStripeWebhookEvent(event, invoice.id);
+      }
+
       await prisma.invoice.updateMany({
         where: { stripeInvoiceId: stripeInvoice.id },
         data: {
@@ -478,6 +650,14 @@ async function processStripeWebhookEvent(event: any) {
     case "invoice.sent": {
       const stripeInvoice = event.data.object as any;
       if (!stripeInvoice.id) return;
+
+      const invoice = await prisma.invoice.findFirst({
+        where: { stripeInvoiceId: stripeInvoice.id },
+      });
+      if (invoice) {
+        await logStripeWebhookEvent(event, invoice.id);
+      }
+
       await prisma.invoice.updateMany({
         where: { stripeInvoiceId: stripeInvoice.id },
         data: {
@@ -492,6 +672,14 @@ async function processStripeWebhookEvent(event: any) {
     case "invoice.payment_failed": {
       const stripeInvoice = event.data.object as any;
       if (!stripeInvoice.id) return;
+
+      const invoice = await prisma.invoice.findFirst({
+        where: { stripeInvoiceId: stripeInvoice.id },
+      });
+      if (invoice) {
+        await logStripeWebhookEvent(event, invoice.id);
+      }
+
       await prisma.invoice.updateMany({
         where: { stripeInvoiceId: stripeInvoice.id },
         data: { status: InvoiceStatus.OVERDUE },
@@ -502,6 +690,14 @@ async function processStripeWebhookEvent(event: any) {
     case "invoice.voided": {
       const stripeInvoice = event.data.object as any;
       if (!stripeInvoice.id) return;
+
+      const invoice = await prisma.invoice.findFirst({
+        where: { stripeInvoiceId: stripeInvoice.id },
+      });
+      if (invoice) {
+        await logStripeWebhookEvent(event, invoice.id);
+      }
+
       await prisma.invoice.updateMany({
         where: { stripeInvoiceId: stripeInvoice.id },
         data: { status: InvoiceStatus.CANCELLED },
@@ -519,6 +715,8 @@ async function processStripeWebhookEvent(event: any) {
 
       if (!invoice) return;
 
+      await logStripeWebhookEvent(event, invoice.id);
+
       await prisma.invoice.update({
         where: { id: invoice.id },
         data: {
@@ -530,6 +728,27 @@ async function processStripeWebhookEvent(event: any) {
           stripeInvoicePdfUrl: stripeInvoice.invoice_pdf,
         },
       });
+
+      try {
+        const receiptBuffer = await generateReceiptPdfBufferFromDb(
+          invoice.id,
+          "stripe",
+          undefined,
+          prisma,
+        );
+        const upload = await uploadInvoiceReceiptBufferToAzureBlob({
+          folder: buildPdfFolder("receipts", new Date(), invoice.invoiceNumber),
+          fileName: `Receipt-${invoice.invoiceNumber || invoice.id}.pdf`,
+          buffer: receiptBuffer,
+          contentType: "application/pdf",
+        });
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { receiptPdfBlobUrl: upload.url } as any,
+        });
+      } catch (receiptErr) {
+        console.error("Failed to upload receipt PDF:", receiptErr);
+      }
 
       // PRINCE TASK: Automate Vendor Payable Release
       // If the invoice is fully paid, release related vendor payables that are on hold
@@ -547,19 +766,73 @@ async function processStripeWebhookEvent(event: any) {
         });
       }
 
+      // Extract payment method details first
+      let paymentMethodInfo = {
+        type: "stripe",
+      } as any;
+
+      let stripeInvoiceObj = stripeInvoice;
+      try {
+        stripeInvoiceObj = await stripe.invoices.retrieve(stripeInvoice.id, {
+          expand: ["charge", "payment_intent"],
+        });
+      } catch (retrieveErr) {
+        console.warn("Failed to retrieve expanded invoice from Stripe:", retrieveErr);
+      }
+
+      let charge: any = (stripeInvoiceObj.charge && typeof stripeInvoiceObj.charge === "object") ? stripeInvoiceObj.charge : undefined;
+      let pi: any = (stripeInvoiceObj.payment_intent && typeof stripeInvoiceObj.payment_intent === "object") ? stripeInvoiceObj.payment_intent : undefined;
+
+      let chargeId = typeof stripeInvoiceObj.charge === "string" ? stripeInvoiceObj.charge : (stripeInvoiceObj.charge?.id || undefined);
+      let piId = typeof stripeInvoiceObj.payment_intent === "string" ? stripeInvoiceObj.payment_intent : (stripeInvoiceObj.payment_intent?.id || undefined);
+
+      if (piId && !pi) {
+        try {
+          pi = await stripe.paymentIntents.retrieve(piId);
+        } catch (piErr) {
+          console.warn("Failed to retrieve payment intent:", piErr);
+        }
+      }
+
+      if (!charge && (chargeId || pi?.latest_charge)) {
+        const idToRetrieve = chargeId || pi?.latest_charge;
+        try {
+          charge = await stripe.charges.retrieve(idToRetrieve as string);
+        } catch (chargeErr) {
+          console.warn("Failed to retrieve charge:", chargeErr);
+        }
+      }
+
+      try {
+        paymentMethodInfo = await extractPaymentMethodInfo(charge, pi, stripe);
+      } catch (err) {
+        console.warn("Failed to extract payment method info:", err);
+      }
+
       const amountPaid = Number(stripeInvoice.amount_paid || 0) / 100;
       if (amountPaid > 0) {
         const existingPayment = await prisma.payment.findFirst({
           where: {
-            practiceId: invoice.practiceId,
-            stripePaymentIntentId:
-              typeof stripeInvoice.payment_intent === "string"
-                ? stripeInvoice.payment_intent
-                : null,
+            allocations: {
+              some: {
+                invoiceId: invoice.id,
+              },
+            },
           },
         });
 
+        // Format a nice human readable payment method name for the DB
+        let dbPaymentMethod = "stripe";
+        if (paymentMethodInfo.type === "credit_card") {
+          dbPaymentMethod = `${paymentMethodInfo.brand || "Card"} ••••${paymentMethodInfo.last4 || ""}`;
+        } else if (paymentMethodInfo.type === "ach") {
+          dbPaymentMethod = `Bank Transfer (ACH) - ${paymentMethodInfo.bankName || "Bank"} (••••${paymentMethodInfo.last4 || ""})`;
+        } else if (paymentMethodInfo.type) {
+          dbPaymentMethod = paymentMethodInfo.type;
+        }
+
         if (!existingPayment) {
+
           const payment = await prisma.payment.create({
             data: {
               practiceId: invoice.practiceId,
@@ -572,11 +845,19 @@ async function processStripeWebhookEvent(event: any) {
               paymentDate: stripeInvoice.status_transitions.paid_at
                 ? new Date(stripeInvoice.status_transitions.paid_at * 1000)
                 : new Date(),
-              paymentMethod: "stripe",
+              paymentMethod: dbPaymentMethod,
               stripePaymentIntentId:
                 typeof stripeInvoice.payment_intent === "string"
                   ? stripeInvoice.payment_intent
                   : undefined,
+              stripeChargeId: typeof chargeId === "string" ? chargeId : undefined,
+              externalReference: JSON.stringify({
+                type: paymentMethodInfo.type,
+                brand: paymentMethodInfo.brand,
+                last4: paymentMethodInfo.last4,
+                bankName: paymentMethodInfo.bankName,
+                isAch: paymentMethodInfo.isAch,
+              }),
             },
           });
 
@@ -587,10 +868,27 @@ async function processStripeWebhookEvent(event: any) {
               allocatedAmount: amountPaid,
             },
           });
+        } else {
+          if (existingPayment.paymentMethod === "stripe" && dbPaymentMethod !== "stripe") {
+            await prisma.payment.update({
+              where: { id: existingPayment.id },
+              data: {
+                paymentMethod: dbPaymentMethod,
+                stripeChargeId: typeof chargeId === "string" ? chargeId : undefined,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+          }
         }
       }
 
-      // Send two-step email flow: Invoice first, then Payment Receipt with payment method info
+      // Send email flow
       try {
         const practice = await prisma.practice.findUnique({
           where: { id: invoice.practiceId },
@@ -628,56 +926,38 @@ async function processStripeWebhookEvent(event: any) {
         }
         const uniqueEmails = [...new Set(emails)];
 
+        // If paymentMethodInfo is generic "stripe", try to load rich details from the database payment record
+        if (paymentMethodInfo.type === "stripe") {
+          const dbPayment = await prisma.payment.findFirst({
+            where: {
+              allocations: {
+                some: {
+                  invoiceId: invoice.id,
+                },
+              },
+            },
+            orderBy: { createdAt: "desc" },
+          });
+
+          if (dbPayment && dbPayment.externalReference) {
+            try {
+              const parsedInfo = JSON.parse(dbPayment.externalReference);
+              if (parsedInfo && parsedInfo.type) {
+                paymentMethodInfo = parsedInfo;
+              }
+            } catch (e) {
+              console.warn("Failed to parse dbPayment externalReference:", e);
+            }
+          }
+        }
+
         if (uniqueEmails.length > 0) {
-          console.log("[stripe-webhook] Starting two-step email flow (Invoice → Receipt)");
-
-          // STEP 1: Send Invoice PDF email
-          console.log("[stripe-webhook] Sending invoice email...");
-          await sendInvoiceFirstEmail(uniqueEmails, invoice, invoice.invoiceNumber, prisma);
-
-          // Wait 2 seconds before sending receipt
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          // STEP 2: Extract payment method information and send Receipt PDF email
-          console.log("[stripe-webhook] Extracting payment method information...");
-          let paymentMethodInfo = {
-            type: "stripe",
-          } as any;
-
-          // Get charge and payment intent for payment method details
-          let chargeId = stripeInvoice.charge;
-          if (!chargeId && stripeInvoice.payment_intent) {
-            try {
-              const pi = await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent as string);
-              chargeId = pi.latest_charge;
-            } catch (piErr) {
-              console.warn("[stripe-webhook] Failed to retrieve payment intent:", piErr);
-            }
-          }
-
-          if (chargeId) {
-            try {
-              const charge = await stripe.charges.retrieve(chargeId as string);
-              const pi = stripeInvoice.payment_intent
-                ? await stripe.paymentIntents.retrieve(stripeInvoice.payment_intent as string)
-                : undefined;
-
-              paymentMethodInfo = await extractPaymentMethodInfo(charge, pi, stripe);
-              console.log("[stripe-webhook] Extracted payment method:", paymentMethodInfo);
-            } catch (chargeErr) {
-              console.warn("[stripe-webhook] Failed to extract payment method info:", chargeErr);
-            }
-          }
-
-          console.log("[stripe-webhook] Sending payment receipt email with payment method info...");
           await sendPaymentReceiptEmail(uniqueEmails, invoice, invoice.invoiceNumber, stripeInvoice, paymentMethodInfo, prisma);
-
-          console.log("[stripe-webhook] Two-step email flow completed successfully");
         } else {
-          console.warn(`[stripe-webhook] No recipients found for practice ${invoice.practiceId}`);
+          console.warn(`No recipients found for practice ${invoice.practiceId}`);
         }
       } catch (err) {
-        console.error("[stripe-webhook] Error in two-step email flow:", err);
+        console.error("Error in receipt email flow:", err);
       }
 
       return;

@@ -5,6 +5,10 @@ import { stripe } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { generateInvoicePdfBufferFromDb } from "../../utils/invoicePdf";
+import {
+  createInvoiceReceiptSasUrlFromBlobUrl,
+  uploadInvoiceReceiptBufferToAzureBlob,
+} from "../../utils/invoiceReceiptBlob";
 
 type InvoiceBody = {
   practiceId?: string;
@@ -24,6 +28,14 @@ type InvoiceBody = {
   stripeInvoicePdfUrl?: string | null;
   quickbooksInvoiceId?: string | null;
 };
+
+function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | null) {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const safeInvoice = (invoiceNumber || "invoice").replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `${prefix}/${year}/${month}/${day}/${safeInvoice}`;
+}
 
 function isInvoiceStatus(status: string): status is InvoiceStatus {
   return Object.values(InvoiceStatus).includes(status as InvoiceStatus);
@@ -140,9 +152,25 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
       },
     });
 
+    try {
+      const pdfBuffer = await generateInvoicePdfBufferFromDb(invoice.id, prisma);
+      const upload = await uploadInvoiceReceiptBufferToAzureBlob({
+        folder: buildPdfFolder("invoices", invoice.createdAt, invoice.invoiceNumber),
+        fileName: `${invoice.invoiceNumber || invoice.id}.pdf`,
+        buffer: pdfBuffer,
+        contentType: "application/pdf",
+      });
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { invoicePdfBlobUrl: upload.url } as any,
+      });
+    } catch (pdfErr) {
+      console.error("[createInvoice] Failed to upload invoice PDF:", pdfErr);
+    }
+
     return res.status(201).json({
       message: "Invoice created successfully.",
-      invoice,
+      invoice: await prisma.invoice.findUnique({ where: { id: invoice.id } }),
     });
   } catch (error) {
     return res.status(500).json({
@@ -191,6 +219,71 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
   } catch (error) {
     return res.status(500).json({
       message: "Unable to fetch invoice.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getInvoicePdf(req: AuthenticatedRequest, res: Response) {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!req.user?.sub) return res.status(401).json({ message: "Unauthorized." });
+    if (!id) return res.status(400).json({ message: "Invoice id is required." });
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      select: {
+        invoicePdfBlobUrl: true,
+        invoiceNumber: true,
+        createdAt: true,
+      },
+    });
+    if (!invoice) return res.status(404).json({ message: "Invoice not found." });
+
+    if (invoice.invoicePdfBlobUrl) {
+      const sasUrl = createInvoiceReceiptSasUrlFromBlobUrl(invoice.invoicePdfBlobUrl);
+      return res.redirect(302, sasUrl);
+    }
+
+    const pdfBuffer = await generateInvoicePdfBufferFromDb(id, prisma);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `inline; filename="${invoice.invoiceNumber || id}.pdf"`,
+    );
+    return res.send(pdfBuffer);
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch invoice PDF.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getInvoiceReceiptPdf(req: AuthenticatedRequest, res: Response) {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    if (!req.user?.sub) return res.status(401).json({ message: "Unauthorized." });
+    if (!id) return res.status(400).json({ message: "Invoice id is required." });
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      select: {
+        receiptPdfBlobUrl: true,
+        invoiceNumber: true,
+      },
+    });
+    if (!invoice) return res.status(404).json({ message: "Invoice not found." });
+
+    if (invoice.receiptPdfBlobUrl) {
+      const sasUrl = createInvoiceReceiptSasUrlFromBlobUrl(invoice.receiptPdfBlobUrl);
+      return res.redirect(302, sasUrl);
+    }
+
+    return res.status(404).json({ message: "Receipt PDF not found." });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch receipt PDF.",
       error: error instanceof Error ? error.message : error,
     });
   }
@@ -521,6 +614,15 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       });
     }
 
+    const hasCreditCardChargesService = billingRunItems.some((item) => {
+      const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
+      return name === "creditcardcharges";
+    });
+
+    const paymentMethodTypes = (hasCreditCardChargesService
+      ? ["card"]
+      : ["us_bank_account","customer_balance"]) as any;
+
     // 3. Create Invoice
     const stripeInvoice = await stripe.invoices.create({
       customer: customerId,
@@ -532,6 +634,9 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       days_until_due: invoice.dueDate ? undefined : 30,
       pending_invoice_items_behavior: "exclude",
       metadata: { invoiceId: invoice.id },
+      payment_settings: {
+        payment_method_types: paymentMethodTypes,
+      },
     });
 
     stripeInvoiceId = stripeInvoice.id;
@@ -1629,6 +1734,16 @@ export async function resendStripeInvoice(
 
     if (!id) {
       return res.status(400).json({ message: "Invoice id is required." });
+    }
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (invoice?.status === InvoiceStatus.PAID) {
+      return res.status(400).json({
+        message: "Paid invoices cannot be resent.",
+      });
     }
 
     await processAndEmailInvoice(id);

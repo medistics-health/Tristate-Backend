@@ -23,6 +23,67 @@ function formatCurrency(amount: number, currency: string = "USD"): string {
   return formatter.format(amount);
 }
 
+function formatCityStateZip(
+  city?: string,
+  state?: string,
+  zipCode?: string,
+): string {
+  const cityState = [city, state].filter(Boolean).join(", ");
+  return [cityState, zipCode].filter(Boolean).join(" ").trim();
+}
+
+function buildLocationLines(location?: {
+  locationName?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+} | null): string[] {
+  if (!location) return [];
+
+  return [
+    location.addressLine1,
+    location.addressLine2,
+    formatCityStateZip(location.city, location.state, location.zipCode),
+  ].filter((line): line is string => Boolean(line && line.trim()));
+}
+
+function selectPrimaryOnboardingLocation(practice: any) {
+  const onboardings = Array.isArray(practice?.onboardings)
+    ? [...practice.onboardings]
+    : [];
+
+  const latestOnboarding = onboardings.sort((a, b) => {
+    const dateA = new Date(a?.createdAt || 0).getTime();
+    const dateB = new Date(b?.createdAt || 0).getTime();
+    return dateB - dateA;
+  })[0];
+
+  const onboardingPractice =
+    latestOnboarding?.practices?.find((practiceEntry: any) => {
+      const practiceName = String(practice?.name || "").trim().toLowerCase();
+      const onboardingPracticeName = String(
+        practiceEntry?.practiceName || "",
+      )
+        .trim()
+        .toLowerCase();
+      return (
+        practiceName &&
+        onboardingPracticeName &&
+        practiceName === onboardingPracticeName
+      );
+    }) || latestOnboarding?.practices?.[0];
+
+  if (!onboardingPractice?.locations?.length) return null;
+
+  return (
+    onboardingPractice.locations.find(
+      (location: any) => location?.isPrimaryLocation,
+    ) || onboardingPractice.locations[0] || null
+  );
+}
+
 interface PdfRow {
   service: string;
   pricingTerm: string;
@@ -384,6 +445,14 @@ export interface ReceiptData {
     zipCode?: string;
     email?: string;
     phone?: string;
+    location?: {
+      locationName?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+    };
   };
   lineItems: ReceiptLineItem[];
   logoBuffer?: Buffer | null;
@@ -445,9 +514,15 @@ export function generateReceiptPdfBuffer(
 
       // 2. Company Info (Left Side) & Company Logo (Right Side)
       const companyName = receiptData.practiceInfo.name || "Tristate MSO";
-      const addressLine1 = receiptData.practiceInfo.address || "";
-      const addressLine2 =
-        `${receiptData.practiceInfo.city || ""} ${receiptData.practiceInfo.state || ""} ${receiptData.practiceInfo.zipCode || ""}`.trim();
+      const locationLines = buildLocationLines(receiptData.practiceInfo.location);
+      const fallbackAddressLines = [
+        receiptData.practiceInfo.address,
+        formatCityStateZip(
+          receiptData.practiceInfo.city,
+          receiptData.practiceInfo.state,
+          receiptData.practiceInfo.zipCode,
+        ),
+      ].filter((line): line is string => Boolean(line && line.trim()));
       const companyEmail = receiptData.practiceInfo.email || "";
       const companyPhone = receiptData.practiceInfo.phone || "";
 
@@ -458,18 +533,19 @@ export function generateReceiptPdfBuffer(
 
       // Draw Company Info on the Left
       doc.font(mediumTextFont).text(companyName, 40, 35);
-      doc.font(bodyFont).text(addressLine1, 40, 48);
-      if (addressLine2) {
-        doc.text(addressLine2, 40, 61);
-        doc.text(companyEmail, 40, 74);
-        if (companyPhone) {
-          doc.text(companyPhone, 40, 87);
-        }
-      } else {
-        doc.text(companyEmail, 40, 61);
-        if (companyPhone) {
-          doc.text(companyPhone, 40, 74);
-        }
+      let headerY = 48;
+      const headerLines = locationLines.length > 0 ? locationLines : fallbackAddressLines;
+      for (const line of headerLines) {
+        doc.font(bodyFont).text(line, 40, headerY);
+        headerY += 13;
+      }
+      if (companyEmail) {
+        doc.font(bodyFont).text(companyEmail, 40, headerY);
+        headerY += 13;
+      }
+      if (companyPhone) {
+        doc.font(bodyFont).text(companyPhone, 40, headerY);
+        headerY += 13;
       }
 
       // Draw Logo on the Right (if exists)
@@ -484,8 +560,8 @@ export function generateReceiptPdfBuffer(
         }
       }
 
-      // Set fixed offsetY for subsequent sections since logo is side-by-side
-      const offsetY = 95;
+      // Keep the document title below the header block, including location lines.
+      const offsetY = Math.max(95, headerY + 8);
 
       // 3. Document Title ("PAYMENT RECEIPT") with status badge
       doc
@@ -502,7 +578,7 @@ export function generateReceiptPdfBuffer(
         .font(boldTextFont)
         .fontSize(9)
         .fillColor("#10B981")
-        .text("PAID", 250, 37 + offsetY); // Green text
+        .text("PAID", 240, 37.5 + offsetY, { width: 52, align: "center" }); // Green text
       doc.restore();
 
       // 4. Metadata section (Receipt Number, Invoice Number, Dates)
@@ -562,15 +638,22 @@ export function generateReceiptPdfBuffer(
 
       // 5. Payment Method Section
       let paymentMethodExtraHeight = 0;
-      const paymentMethodY = metaY + 40;
+      const paymentMethodY = metaY + 50;
 
       // Build payment method display
       let paymentMethodText = "Stripe";
       let paymentDetails = "";
 
+      const normalizedMethod = (receiptData.paymentMethod || "").toLowerCase();
       if (
-        receiptData.paymentMethod.toLowerCase() === "stripe" ||
-        receiptData.paymentMethod.toLowerCase() === "credit_card"
+        receiptData.paymentMethod &&
+        !["stripe", "card", "credit_card", "ach", "us_bank_account", "customer_balance", "bank_transfer", "check"].includes(normalizedMethod)
+      ) {
+        paymentMethodText = receiptData.paymentMethod;
+      } else if (
+        normalizedMethod === "stripe" ||
+        normalizedMethod === "credit_card" ||
+        normalizedMethod === "card"
       ) {
         if (
           receiptData.paymentDetails?.cardBrand &&
@@ -579,38 +662,52 @@ export function generateReceiptPdfBuffer(
           paymentMethodText = `${receiptData.paymentDetails.cardBrand} ••••`;
           paymentDetails = receiptData.paymentDetails.last4Digits;
         } else {
-          paymentMethodText = "Credit Card";
+          paymentMethodText = "Stripe";
         }
-      } else if (receiptData.paymentMethod.toLowerCase() === "ach") {
+      } else if (
+        normalizedMethod === "ach" ||
+        normalizedMethod === "us_bank_account" ||
+        normalizedMethod === "customer_balance" ||
+        normalizedMethod === "bank_transfer"
+      ) {
         paymentMethodText = "Bank Transfer (ACH)";
         if (receiptData.paymentDetails?.bankName) {
           paymentDetails = receiptData.paymentDetails.bankName;
+          if (receiptData.paymentDetails?.last4Digits) {
+            paymentDetails += ` (••••${receiptData.paymentDetails.last4Digits})`;
+          }
+        } else if (receiptData.paymentDetails?.last4Digits) {
+          paymentDetails = `••••${receiptData.paymentDetails.last4Digits}`;
         }
-      } else if (receiptData.paymentMethod.toLowerCase() === "check") {
+      } else if (normalizedMethod === "check") {
         paymentMethodText = "Check";
         if (receiptData.paymentDetails?.last4Digits) {
           paymentDetails = `Check #${receiptData.paymentDetails.last4Digits}`;
         }
+      } else if (receiptData.paymentMethod) {
+        paymentMethodText = receiptData.paymentMethod.charAt(0).toUpperCase() + receiptData.paymentMethod.slice(1);
+        if (receiptData.paymentDetails?.last4Digits) {
+          paymentDetails = `••••${receiptData.paymentDetails.last4Digits}`;
+        }
       }
 
       // Draw Payment Method box
-      doc.rect(40, paymentMethodY - 5, 200, 50).fill("#F0F9FF"); // Light blue background
       doc
         .font(boldTextFont)
         .fontSize(8.5)
         .fillColor("#4B5563")
-        .text("PAYMENT METHOD", 50, paymentMethodY);
+        .text("PAYMENT METHOD", 44, paymentMethodY);
       doc
         .font(boldTextFont)
         .fontSize(12)
         .fillColor("#0369A1")
-        .text(paymentMethodText, 50, paymentMethodY + 14);
+        .text(paymentMethodText, 44, paymentMethodY + 14);
       if (paymentDetails) {
         doc
           .font(bodyFont)
           .fontSize(9)
           .fillColor("#4B5563")
-          .text(paymentDetails, 50, paymentMethodY + 28);
+          .text(paymentDetails, 44, paymentMethodY + 28);
       }
       paymentMethodExtraHeight = 60;
 
@@ -791,7 +888,18 @@ export async function generateReceiptPdfBufferFromDb(
     where: { id: invoiceId },
     include: {
       practice: {
-        include: { company: true },
+        include: {
+          company: true,
+          onboardings: {
+            include: {
+              practices: {
+                include: {
+                  locations: true,
+                },
+              },
+            },
+          },
+        },
       },
       lineItems: {
         include: {
@@ -1026,9 +1134,59 @@ export async function generateReceiptPdfBufferFromDb(
     zipCode: invoice.practice?.company?.zipCode || "",
     email: invoice.practice?.company?.email || "",
     phone: invoice.practice?.company?.phone || "",
+    location: (() => {
+      const primaryLocation = selectPrimaryOnboardingLocation(invoice.practice);
+      if (!primaryLocation) return undefined;
+
+      return {
+        locationName: primaryLocation.locationName || "",
+        addressLine1: primaryLocation.addressLine1 || "",
+        addressLine2: primaryLocation.addressLine2 || "",
+        city: primaryLocation.city || "",
+        state: primaryLocation.state || "",
+        zipCode: primaryLocation.zipCode || "",
+      };
+    })(),
   };
 
   const logoBuffer = await getLogoBuffer();
+
+  let finalPaymentMethod = paymentMethod;
+  let finalPaymentDetails = paymentDetails;
+
+  try {
+    const payment = await prismaClient.payment.findFirst({
+      where: {
+        allocations: {
+          some: {
+            invoiceId: invoice.id,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (payment) {
+      if (payment.paymentMethod && payment.paymentMethod !== "stripe") {
+        finalPaymentMethod = payment.paymentMethod;
+      }
+      if (payment.externalReference) {
+        try {
+          const extRef = JSON.parse(payment.externalReference);
+          if (extRef && extRef.type) {
+            finalPaymentDetails = {
+              cardBrand: extRef.brand,
+              last4Digits: extRef.last4,
+              bankName: extRef.bankName,
+            };
+          }
+        } catch (e) {
+          console.warn("[receiptPdf] Failed to parse payment externalReference:", e);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[receiptPdf] Failed to fetch payment from database:", err);
+  }
 
   const receiptData: ReceiptData = {
     receiptNumber: `RCP-${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
@@ -1038,8 +1196,8 @@ export async function generateReceiptPdfBufferFromDb(
     totalAmount: Number(invoice.totalAmount || 0),
     paidAmount: Number(invoice.totalAmount || 0),
     currency: invoice.currency || "USD",
-    paymentMethod,
-    paymentDetails,
+    paymentMethod: finalPaymentMethod,
+    paymentDetails: finalPaymentDetails,
     practiceInfo,
     lineItems,
     logoBuffer,

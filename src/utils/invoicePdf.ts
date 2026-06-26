@@ -23,6 +23,67 @@ function formatCurrency(amount: number, currency: string = "USD"): string {
   return formatter.format(amount);
 }
 
+function formatCityStateZip(
+  city?: string,
+  state?: string,
+  zipCode?: string,
+): string {
+  const cityState = [city, state].filter(Boolean).join(", ");
+  return [cityState, zipCode].filter(Boolean).join(" ").trim();
+}
+
+function buildLocationLines(location?: {
+  locationName?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+} | null): string[] {
+  if (!location) return [];
+
+  return [
+    location.addressLine1,
+    location.addressLine2,
+    formatCityStateZip(location.city, location.state, location.zipCode),
+  ].filter((line): line is string => Boolean(line && line.trim()));
+}
+
+function selectPrimaryOnboardingLocation(practice: any) {
+  const onboardings = Array.isArray(practice?.onboardings)
+    ? [...practice.onboardings]
+    : [];
+
+  const latestOnboarding = onboardings.sort((a, b) => {
+    const dateA = new Date(a?.createdAt || 0).getTime();
+    const dateB = new Date(b?.createdAt || 0).getTime();
+    return dateB - dateA;
+  })[0];
+
+  const onboardingPractice =
+    latestOnboarding?.practices?.find((practiceEntry: any) => {
+      const practiceName = String(practice?.name || "").trim().toLowerCase();
+      const onboardingPracticeName = String(
+        practiceEntry?.practiceName || "",
+      )
+        .trim()
+        .toLowerCase();
+      return (
+        practiceName &&
+        onboardingPracticeName &&
+        practiceName === onboardingPracticeName
+      );
+    }) || latestOnboarding?.practices?.[0];
+
+  if (!onboardingPractice?.locations?.length) return null;
+
+  return (
+    onboardingPractice.locations.find(
+      (location: any) => location?.isPrimaryLocation,
+    ) || onboardingPractice.locations[0] || null
+  );
+}
+
 interface PdfRow {
   service: string;
   pricingTerm: string;
@@ -381,6 +442,14 @@ export interface InvoiceData {
     zipCode?: string;
     email?: string;
     phone?: string;
+    location?: {
+      locationName?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+    };
   };
   clientInfo?: {
     name: string;
@@ -450,9 +519,15 @@ export function generateInvoicePdfBuffer(
 
       // 2. Company Info (Left Side) & Company Logo (Right Side)
       const companyName = invoiceData.practiceInfo.name || "Tristate MSO";
-      const addressLine1 = invoiceData.practiceInfo.address || "";
-      const addressLine2 =
-        `${invoiceData.practiceInfo.city || ""} ${invoiceData.practiceInfo.state || ""} ${invoiceData.practiceInfo.zipCode || ""}`.trim();
+      const locationLines = buildLocationLines(invoiceData.practiceInfo.location);
+      const fallbackAddressLines = [
+        invoiceData.practiceInfo.address,
+        formatCityStateZip(
+          invoiceData.practiceInfo.city,
+          invoiceData.practiceInfo.state,
+          invoiceData.practiceInfo.zipCode,
+        ),
+      ].filter((line): line is string => Boolean(line && line.trim()));
       const companyEmail = invoiceData.practiceInfo.email || "";
       const companyPhone = invoiceData.practiceInfo.phone || "";
 
@@ -463,18 +538,19 @@ export function generateInvoicePdfBuffer(
 
       // Draw Company Info on the Left
       doc.font(mediumTextFont).text(companyName, 40, 35);
-      doc.font(bodyFont).text(addressLine1, 40, 48);
-      if (addressLine2) {
-        doc.text(addressLine2, 40, 61);
-        doc.text(companyEmail, 40, 74);
-        if (companyPhone) {
-          doc.text(companyPhone, 40, 87);
-        }
-      } else {
-        doc.text(companyEmail, 40, 61);
-        if (companyPhone) {
-          doc.text(companyPhone, 40, 74);
-        }
+      let headerY = 48;
+      const headerLines = locationLines.length > 0 ? locationLines : fallbackAddressLines;
+      for (const line of headerLines) {
+        doc.font(bodyFont).text(line, 40, headerY);
+        headerY += 13;
+      }
+      if (companyEmail) {
+        doc.font(bodyFont).text(companyEmail, 40, headerY);
+        headerY += 13;
+      }
+      if (companyPhone) {
+        doc.font(bodyFont).text(companyPhone, 40, headerY);
+        headerY += 13;
       }
 
       // Draw Logo on the Right (if exists)
@@ -489,8 +565,8 @@ export function generateInvoicePdfBuffer(
         }
       }
 
-      // Set fixed offsetY for subsequent sections since logo is side-by-side
-      const offsetY = 95;
+      // Keep the document title below the header block, including location lines.
+      const offsetY = Math.max(95, headerY + 8);
 
       // 3. Document Title ("INVOICE")
       doc
@@ -521,12 +597,12 @@ export function generateInvoicePdfBuffer(
         .font(boldTextFont)
         .fontSize(8.5)
         .fillColor("#4B5563")
-        .text("Invoice Date", 160, metaY);
+        .text("Invoice Date", 190, metaY);
       doc
         .font(bodyFont)
         .fontSize(11)
         .fillColor("#1F2937")
-        .text(invoiceDate, 160, metaY + 14);
+        .text(invoiceDate, 190, metaY + 14);
 
       // Column 3: Due Date
       const dueDate = formatDate(invoiceData.dueDate);
@@ -534,12 +610,12 @@ export function generateInvoicePdfBuffer(
         .font(boldTextFont)
         .fontSize(8.5)
         .fillColor("#4B5563")
-        .text("Due Date", 280, metaY);
+        .text("Due Date", 310, metaY);
       doc
         .font(bodyFont)
         .fontSize(11)
         .fillColor("#1F2937")
-        .text(dueDate, 280, metaY + 14);
+        .text(dueDate, 310, metaY + 14);
 
       // Column 4: Currency
       const currencyCode = invoiceData.currency?.toUpperCase() || "USD";
@@ -547,12 +623,12 @@ export function generateInvoicePdfBuffer(
         .font(boldTextFont)
         .fontSize(8.5)
         .fillColor("#4B5563")
-        .text("Currency", 410, metaY);
+        .text("Currency", 430, metaY);
       doc
         .font(bodyFont)
         .fontSize(11)
         .fillColor("#1F2937")
-        .text(currencyCode, 410, metaY + 14);
+        .text(currencyCode, 430, metaY + 14);
 
       // 5. Billing Period (if available)
       let extraHeight = 0;
@@ -802,7 +878,18 @@ export async function generateInvoicePdfBufferFromDb(
     where: { id: invoiceId },
     include: {
       practice: {
-        include: { company: true },
+        include: {
+          company: true,
+          onboardings: {
+            include: {
+              practices: {
+                include: {
+                  locations: true,
+                },
+              },
+            },
+          },
+        },
       },
       lineItems: {
         include: {
@@ -1038,6 +1125,19 @@ export async function generateInvoicePdfBufferFromDb(
     zipCode: invoice.practice?.company?.zipCode || "",
     email: invoice.practice?.company?.email || "",
     phone: invoice.practice?.company?.phone || "",
+    location: (() => {
+      const primaryLocation = selectPrimaryOnboardingLocation(invoice.practice);
+      if (!primaryLocation) return undefined;
+
+      return {
+        locationName: primaryLocation.locationName || "",
+        addressLine1: primaryLocation.addressLine1 || "",
+        addressLine2: primaryLocation.addressLine2 || "",
+        city: primaryLocation.city || "",
+        state: primaryLocation.state || "",
+        zipCode: primaryLocation.zipCode || "",
+      };
+    })(),
   };
 
   const logoBuffer = await getLogoBuffer();
