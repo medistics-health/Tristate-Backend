@@ -30,7 +30,7 @@ import {
   getAgreementServiceTermClientApprovalPage,
   handleAgreementServiceTermClientApproval,
 } from "../controllers/agreement/agreementServiceTerm";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 
 const agreementRouter = Router();
 
@@ -43,32 +43,65 @@ agreementRouter.post("/service-terms/:id/client-approval", handleAgreementServic
 
 agreementRouter.use(verifyAuthToken);
 
-agreementRouter.post("/", createAgreement);
-agreementRouter.post("/send-email", sendAgreementEmail);
-agreementRouter.post("/docuseal/submission", createDocusealSubmission);
+agreementRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createAgreement);
+agreementRouter.post(
+  "/send-email",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  sendAgreementEmail,
+);
+agreementRouter.post(
+  "/docuseal/submission",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  createDocusealSubmission,
+);
 agreementRouter.post(
   "/docuseal/submission/resubmit",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
   resubmitDocusealSubmission,
 );
 agreementRouter.get("/docuseal/templates", getDocusealTemplates);
 
 // Agreement Version routes
 agreementRouter.get("/versions", getAgreementVersions);
-agreementRouter.post("/versions", createAgreementVersion);
+agreementRouter.post(
+  "/versions",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  createAgreementVersion,
+);
 agreementRouter.get("/versions/:id", getAgreementVersion);
-agreementRouter.patch("/versions/:id", updateAgreementVersion);
-agreementRouter.delete("/versions/:id", deleteAgreementVersion);
+agreementRouter.patch(
+  "/versions/:id",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  updateAgreementVersion,
+);
+agreementRouter.delete(
+  "/versions/:id",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  deleteAgreementVersion,
+);
 
 // Agreement Service Term routes
 agreementRouter.get("/service-terms", getAgreementServiceTerms);
-agreementRouter.post("/service-terms", createAgreementServiceTerm);
+agreementRouter.post(
+  "/service-terms",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  createAgreementServiceTerm,
+);
 agreementRouter.get("/service-terms/:id", getAgreementServiceTerm);
-agreementRouter.patch("/service-terms/:id", updateAgreementServiceTerm);
-agreementRouter.delete("/service-terms/:id", deleteAgreementServiceTerm);
+agreementRouter.patch(
+  "/service-terms/:id",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  updateAgreementServiceTerm,
+);
+agreementRouter.delete(
+  "/service-terms/:id",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  deleteAgreementServiceTerm,
+);
 
 agreementRouter.get("/", getAgreements);
 agreementRouter.get("/:id", getAgreement);
-agreementRouter.patch("/:id", updateAgreement);
-agreementRouter.delete("/:id", deleteAgreement);
+agreementRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateAgreement);
+agreementRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteAgreement);
 
 export default agreementRouter;

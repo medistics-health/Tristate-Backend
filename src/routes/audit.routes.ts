@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createAudit,
   getAudit,
@@ -13,9 +13,9 @@ const auditRouter = Router();
 auditRouter.use(verifyAuthToken);
 
 auditRouter.get("/", getAllAudits);
-auditRouter.post("/", createAudit);
+auditRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createAudit);
 auditRouter.get("/:id", getAudit);
-auditRouter.patch("/:id", updateAudit);
-auditRouter.delete("/:id", deleteAudit);
+auditRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateAudit);
+auditRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteAudit);
 
 export default auditRouter;

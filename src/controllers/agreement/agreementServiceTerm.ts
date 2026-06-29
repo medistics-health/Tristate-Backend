@@ -604,7 +604,7 @@ async function getApprovalRecipientEmails() {
 
   const users = await prisma.user.findMany({
     where: {
-      role: { in: [UserRoles.INTERNAL, UserRoles.ADMIN] },
+      role: { in: [UserRoles.ADMIN] },
     },
     select: { email: true },
   });

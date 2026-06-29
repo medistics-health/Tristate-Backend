@@ -1317,7 +1317,6 @@ enum UserRoles {
   OPERATIONS
   FINANCE
   VIEWER
-  INTERNAL
 }
 
 enum PracticeStatus {

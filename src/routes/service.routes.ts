@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createService,
   getService,
@@ -13,9 +13,9 @@ const serviceRouter = Router();
 serviceRouter.use(verifyAuthToken);
 
 serviceRouter.get("/", getAllServices);
-serviceRouter.post("/", createService);
+serviceRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createService);
 serviceRouter.get("/:id", getService);
-serviceRouter.patch("/:id", updateService);
-serviceRouter.delete("/:id", deleteService);
+serviceRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateService);
+serviceRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteService);
 
 export default serviceRouter;

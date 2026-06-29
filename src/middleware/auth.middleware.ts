@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
+import { UserRoles } from "../../generated/prisma/client";
 import type { AuthTokenPayload } from "../types/types";
 
 type AuthenticatedRequest = Request & {
@@ -41,6 +42,82 @@ export function verifyAuthToken(
       error: error instanceof Error ? error.message : error,
     });
   }
+}
+
+// Keep this in sync with docs/ROLE_ACCESS.md whenever role access changes.
+export const ROLE_GROUPS = {
+  ALL: Object.values(UserRoles),
+  BUSINESS_WRITE: [
+    UserRoles.ADMIN,
+    UserRoles.SALES,
+    UserRoles.ACCOUNTMANAGER,
+    UserRoles.OPERATIONS,
+  ],
+  FINANCE_WRITE: [UserRoles.ADMIN, UserRoles.FINANCE],
+  OPERATIONS_AND_FINANCE_WRITE: [
+    UserRoles.ADMIN,
+    UserRoles.FINANCE,
+    UserRoles.OPERATIONS,
+  ],
+  INTEGRATIONS: [UserRoles.ADMIN, UserRoles.FINANCE],
+  SETTINGS: [UserRoles.ADMIN],
+  USER_ADMIN: [UserRoles.ADMIN],
+};
+
+export function requireRoles(allowedRoles: UserRoles[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const normalizedRole =
+      typeof req.user?.role === "string" ? req.user.role.trim().toUpperCase() : "";
+    const normalizedAllowedRoles = allowedRoles.map((role) => role.trim().toUpperCase());
+    const method = req.method.toUpperCase();
+
+    if (!normalizedRole) {
+      return res.status(401).json({
+        message: "Unauthorized. User role is missing.",
+      });
+    }
+
+    // VIEWER has read-only access to all protected resources.
+    if (normalizedRole === UserRoles.VIEWER) {
+      if (method === "GET") {
+        return next();
+      }
+
+      return res.status(403).json({
+        message:
+          process.env.NODE_ENV === "production"
+            ? "Forbidden. VIEWER role has read-only access."
+            : `Forbidden for role "${normalizedRole}" on ${method}. VIEWER can only access GET endpoints.`,
+        ...(process.env.NODE_ENV !== "production"
+          ? {
+              path: req.originalUrl,
+              method,
+              currentRole: normalizedRole,
+            }
+          : {}),
+      });
+    }
+
+    if (!normalizedAllowedRoles.includes(normalizedRole)) {
+      const debugMessage = `Forbidden for role "${normalizedRole}". Required roles: ${normalizedAllowedRoles.join(", ")}.`;
+      return res.status(403).json({
+        message:
+          process.env.NODE_ENV === "production"
+            ? "Forbidden. You do not have permission for this action."
+            : debugMessage,
+        ...(process.env.NODE_ENV !== "production"
+          ? {
+              path: req.originalUrl,
+              method: req.method,
+              currentRole: normalizedRole,
+              allowedRoles: normalizedAllowedRoles,
+            }
+          : {}),
+      });
+    }
+
+    return next();
+  };
 }
 
 export type { AuthenticatedRequest };

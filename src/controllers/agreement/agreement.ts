@@ -1164,9 +1164,9 @@ export async function createAgreement(
             docSlug: s.slug,
             fieldValues: s.fieldValues,
             approval_status:
-              ["ADMIN", "INTERNAL"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
+              ["ADMIN"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
             // submissionApprovalStatus:
-            //   ["ADMIN", "INTERNAL"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
+            //   ["ADMIN"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
             submissionApprovalStatus: "APPROVED",
             signers: {
               create: s?.submitters?.map((init: any, index: number) => ({
@@ -1193,6 +1193,7 @@ export async function createAgreement(
         versionNumber: 1,
         isCurrent: true,
         effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
+        endDate: renewalDate ? new Date(renewalDate) : undefined,
         notes: "Initial version auto-created with agreement creation.",
       },
     });

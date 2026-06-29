@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   addBillingRunSnapshotsHandler,
   approveBillingRunHandler,
@@ -21,16 +21,48 @@ billingRouter.use(verifyAuthToken);
 
 billingRouter.get("/practices/:practiceId/readiness", getBillingReadinessHandler);
 billingRouter.get("/runs", listBillingRunsHandler);
-billingRouter.post("/runs", createBillingRunHandler);
+billingRouter.post(
+  "/runs",
+  requireRoles(ROLE_GROUPS.OPERATIONS_AND_FINANCE_WRITE),
+  createBillingRunHandler,
+);
 billingRouter.get("/runs/:id", getBillingRunHandler);
 billingRouter.get("/runs/:id/invoice-preview", getBillingRunInvoicePreviewHandler);
-billingRouter.post("/runs/:id/snapshots", addBillingRunSnapshotsHandler);
-billingRouter.post("/runs/:id/snapshots-from-reports", importSnapshotsFromReportsHandler);
-billingRouter.post("/runs/:id/calculate", calculateBillingRunHandler);
-billingRouter.post("/runs/:id/approve", approveBillingRunHandler);
-billingRouter.post("/runs/:id/post", postBillingRunHandler);
-billingRouter.delete("/runs/:id", deleteBillingRunHandler);
-billingRouter.post("/payments/record", recordManualPaymentHandler);
+billingRouter.post(
+  "/runs/:id/snapshots",
+  requireRoles(ROLE_GROUPS.OPERATIONS_AND_FINANCE_WRITE),
+  addBillingRunSnapshotsHandler,
+);
+billingRouter.post(
+  "/runs/:id/snapshots-from-reports",
+  requireRoles(ROLE_GROUPS.OPERATIONS_AND_FINANCE_WRITE),
+  importSnapshotsFromReportsHandler,
+);
+billingRouter.post(
+  "/runs/:id/calculate",
+  requireRoles(ROLE_GROUPS.OPERATIONS_AND_FINANCE_WRITE),
+  calculateBillingRunHandler,
+);
+billingRouter.post(
+  "/runs/:id/approve",
+  requireRoles(ROLE_GROUPS.FINANCE_WRITE),
+  approveBillingRunHandler,
+);
+billingRouter.post(
+  "/runs/:id/post",
+  requireRoles(ROLE_GROUPS.FINANCE_WRITE),
+  postBillingRunHandler,
+);
+billingRouter.delete(
+  "/runs/:id",
+  requireRoles(ROLE_GROUPS.FINANCE_WRITE),
+  deleteBillingRunHandler,
+);
+billingRouter.post(
+  "/payments/record",
+  requireRoles(ROLE_GROUPS.FINANCE_WRITE),
+  recordManualPaymentHandler,
+);
 
 export default billingRouter;
 

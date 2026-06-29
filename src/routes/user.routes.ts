@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { listUsers, updateUser, createUser, deleteUser } from "../controllers/users/users";
-import { verifyAuthToken } from "../middleware/auth.middleware";
+import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 
 const userRouter = Router();
 
 userRouter.use(verifyAuthToken);
+userRouter.use(requireRoles(ROLE_GROUPS.USER_ADMIN));
 
 userRouter.get("/", listUsers);
 userRouter.post("/", createUser);
