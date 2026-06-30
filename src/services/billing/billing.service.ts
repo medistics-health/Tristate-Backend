@@ -1810,6 +1810,16 @@ export async function getBillingRun(billingRunId: string) {
       practice: {
         include: {
           billToTaxId: true,
+          company: true,
+          onboardings: {
+            include: {
+              practices: {
+                include: {
+                  locations: true,
+                },
+              },
+            },
+          },
         },
       },
       approvedByUser: true,

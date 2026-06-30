@@ -27,7 +27,8 @@ import { stripe } from "../../lib/stripe";
 import { prisma } from "../../lib/prisma";
 import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
 import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceiptBlob";
-import { generateInvoicePdfBuffer } from "../../utils/invoicePdf";
+import { generateInvoicePdfBuffer, formatDate, selectPrimaryOnboardingLocation } from "../../utils/invoicePdf";
+import { getLogoBuffer } from "../../utils/logoHelper";
 
 function toStripeMinorUnit(amount: number | string) {
   return Math.round(Number(amount) * 100);
@@ -45,14 +46,121 @@ function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | nul
   return `${prefix}/${year}/${month}/${day}/${safeInvoice}`;
 }
 
-function buildBillingRunInvoicePreview(run: any) {
+async function buildBillingRunInvoicePreview(run: any) {
   const currency = (run.practice?.defaultCurrency || "USD").toUpperCase();
-  const lineItems = (run.items || []).map((item: any) => ({
-    description: item.service?.name || "Service",
-    quantity: 1,
-    unitPrice: Number(item.clientAmount || 0),
-    totalPrice: Number(item.clientAmount || 0),
-  }));
+
+  const formatDateRange = (
+    start?: Date | string | null,
+    end?: Date | string | null,
+  ): string => {
+    if (!start && !end) return "—";
+    return `${formatDate(start)} - ${formatDate(end)}`;
+  };
+
+  const lineItems: any[] = [];
+  const sortedItems = [...(run.items || [])].sort((a, b) => {
+    const priorityA = a.agreementServiceTerm?.priority ?? 1;
+    const priorityB = b.agreementServiceTerm?.priority ?? 1;
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+    const dateA = new Date(a.agreementServiceTerm?.createdAt || 0).getTime();
+    const dateB = new Date(b.agreementServiceTerm?.createdAt || 0).getTime();
+    return dateA - dateB;
+  });
+
+  for (const item of sortedItems) {
+    const formulaSnap = (item.formulaSnapshot || {}) as any;
+
+    const agreementPeriod = formatDateRange(
+      item.agreementServiceTerm?.agreementVersion?.effectiveDate ??
+        item.agreementServiceTerm?.agreement?.effectiveDate,
+      item.agreementServiceTerm?.agreementVersion?.endDate ??
+        item.agreementServiceTerm?.agreement?.terminationDate ??
+        item.agreementServiceTerm?.agreement?.renewalDate,
+    );
+
+    const serviceTermPeriod = formatDateRange(
+      item.agreementServiceTerm?.effectiveDate,
+      item.agreementServiceTerm?.endDate,
+    );
+
+    const components = (item.components || []).map((comp: any) => {
+      let cptCode = "";
+      try {
+        if (comp.metadata) {
+          const metaObj = typeof comp.metadata === "string" ? JSON.parse(comp.metadata) : comp.metadata;
+          cptCode = metaObj?.cptCode || "";
+        }
+      } catch (e) {}
+
+      return {
+        type: comp.description || comp.componentType || item.service?.name || "Component",
+        clientValue: Number(comp.amount || 0),
+        rate: comp.rate != null ? Number(comp.rate) : undefined,
+        quantity: comp.quantity != null ? Number(comp.quantity) : undefined,
+        cptCode,
+      };
+    });
+
+    const capturedInputs = (run.inputSnapshots || [])
+      .filter(
+        (snap: any) =>
+          snap.serviceId === item.serviceId &&
+          (!snap.sourceReference ||
+            snap.sourceReference === item.agreementServiceTermId),
+      )
+      .map((snap: any) => ({
+        key: snap.metricKey,
+        value: snap.metricValue,
+        label: snap.metricTextValue,
+      }));
+
+    const totalPrice = Number(item.clientAmount || 0);
+
+    lineItems.push({
+      description: item.service?.name || "Service",
+      quantity: 1,
+      unitPrice: totalPrice,
+      totalPrice,
+      hasDetails: true,
+      vendorName: item.vendor?.name,
+      agreementPeriod,
+      serviceTermPeriod,
+      pricingModel: formulaSnap.pricingModel || item.agreementServiceTerm?.pricingModel,
+      minimumFee: formulaSnap.minimumFee != null ? Number(formulaSnap.minimumFee) : undefined,
+      maximumFee: formulaSnap.maximumFee != null ? Number(formulaSnap.maximumFee) : undefined,
+      vendorCost: item.vendorAmount != null ? Number(item.vendorAmount) : undefined,
+      margin: item.marginAmount != null ? Number(item.marginAmount) : undefined,
+      components,
+      capturedInputs,
+      exceptionFlags: item.exceptionFlags || [],
+    });
+  }
+
+  const logoBuffer = await getLogoBuffer();
+
+  const practiceInfo = {
+    name: run.practice?.name || "Tristate MSO",
+    address: run.practice?.company?.address || "",
+    city: run.practice?.company?.city || "",
+    state: run.practice?.company?.state || "",
+    zipCode: run.practice?.company?.zipCode || "",
+    email: run.practice?.company?.email || "",
+    phone: run.practice?.company?.phone || "",
+    location: (() => {
+      const primaryLocation = selectPrimaryOnboardingLocation(run.practice);
+      if (!primaryLocation) return undefined;
+      return {
+        locationName: primaryLocation.locationName || "",
+        addressLine1: primaryLocation.addressLine1 || "",
+        addressLine2: primaryLocation.addressLine2 || "",
+        city: primaryLocation.city || "",
+        state: primaryLocation.state || "",
+        zipCode: primaryLocation.zipCode || "",
+      };
+    })(),
+  };
 
   return {
     invoiceNumber: `Preview-${run.id.slice(0, 8).toUpperCase()}`,
@@ -65,16 +173,11 @@ function buildBillingRunInvoicePreview(run: any) {
     taxAmount: 0,
     discountAmount: 0,
     currency,
+    billingPeriodStart: run.periodStart,
+    billingPeriodEnd: run.periodEnd,
     lineItems,
-    practiceInfo: {
-      name: run.practice?.name || "Tristate MSO",
-      address: run.practice?.company?.address || "",
-      city: run.practice?.company?.city || "",
-      state: run.practice?.company?.state || "",
-      zipCode: run.practice?.company?.zipCode || "",
-      email: run.practice?.company?.email || "",
-      phone: run.practice?.company?.phone || "",
-    },
+    practiceInfo,
+    logoBuffer,
   };
 }
 
@@ -369,7 +472,7 @@ export async function getBillingRunInvoicePreviewHandler(
     }
 
     const pdfBuffer = await generateInvoicePdfBuffer(
-      buildBillingRunInvoicePreview(billingRun),
+      await buildBillingRunInvoicePreview(billingRun),
     );
 
     res.setHeader("Content-Type", "application/pdf");

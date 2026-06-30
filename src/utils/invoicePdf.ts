@@ -3,7 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { getLogoBuffer } from "./logoHelper";
 
-function formatDate(dateStr?: string | Date | null): string {
+export function formatDate(dateStr?: string | Date | null): string {
   if (!dateStr) return "N/A";
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return String(dateStr);
@@ -49,7 +49,7 @@ function buildLocationLines(location?: {
   ].filter((line): line is string => Boolean(line && line.trim()));
 }
 
-function selectPrimaryOnboardingLocation(practice: any) {
+export function selectPrimaryOnboardingLocation(practice: any) {
   const onboardings = Array.isArray(practice?.onboardings)
     ? [...practice.onboardings]
     : [];
