@@ -6,6 +6,7 @@ type ServiceBody = {
   name?: string;
   code?: string | null;
   category?: string | null;
+  vendorId?: string | null;
   isActive?: boolean;
   clientRate?: number;
   vendorRate?: number;
@@ -35,6 +36,7 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
       name,
       code,
       category,
+      vendorId,
       isActive,
       // clientRate,
       // vendorRate,
@@ -51,11 +53,19 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    if (vendorId) {
+      const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+      if (!vendor) {
+        return res.status(404).json({ message: "Vendor not found." });
+      }
+    }
+
     const service = await prisma.service.create({
       data: {
         name,
         ...(code !== undefined ? { code: code || null } : {}),
         ...(category !== undefined ? { category: category || null } : {}),
+        ...(vendorId !== undefined ? { vendorId: vendorId || null } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
       },
     });
@@ -92,7 +102,7 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
 
     const service = await prisma.service.findUnique({
       where: { id },
-      include: { lineItems: true },
+      include: { lineItems: true, vendor: true },
     });
 
     if (!service) {
@@ -114,7 +124,7 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
 export async function updateService(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { name, code, category, isActive, clientRate, vendorRate, margin } =
+    const { name, code, category, vendorId, isActive, clientRate, vendorRate, margin } =
       req.body as ServiceBody;
 
     if (!req.user?.sub) {
@@ -131,12 +141,20 @@ export async function updateService(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ message: "Service not found." });
     }
 
+    if (vendorId) {
+      const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+      if (!vendor) {
+        return res.status(404).json({ message: "Vendor not found." });
+      }
+    }
+
     const service = await prisma.service.update({
       where: { id },
       data: {
         ...(name !== undefined ? { name } : {}),
         ...(code !== undefined ? { code: code || null } : {}),
         ...(category !== undefined ? { category: category || null } : {}),
+        ...(vendorId !== undefined ? { vendorId: vendorId || null } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
       },
     });
@@ -209,6 +227,7 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
     const [services, total] = await Promise.all([
       prisma.service.findMany({
         where,
+        include: { vendor: true },
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
