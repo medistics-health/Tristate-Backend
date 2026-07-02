@@ -2,6 +2,7 @@ import {
     DealStage,
     AgreementStatus,
     AgreementType,
+    OnboardingStatus,
   } from "../../../generated/prisma/client";
   import { Request, Response } from "express";
   import { prisma } from "../../lib/prisma";
@@ -60,6 +61,14 @@ import {
     personId: string;
     subject?: string;
     message?: string;
+  };
+
+  type SendOnboardingFormBody = {
+    agreementId: string;
+    personId: string;
+    subject?: string;
+    message?: string;
+    formLink?: string;
   };
   
   type AgreementMailSettings = {
@@ -377,39 +386,6 @@ import {
   
             await updateDealAfterAgreementSigned(dbSubmission.agreementId);
   
-            const person = await prisma.person.findFirst({
-              where: { id: dbSubmission.personId },
-              select: { email: true, firstName: true },
-            });
-  
-            const agreementRecord = await prisma.agreement.findFirst({
-              where: { id: dbSubmission.agreementId },
-              select: { practiceId: true },
-            });
-  
-            const existingOnboarding = agreementRecord?.practiceId
-              ? await prisma.onboarding.findFirst({
-                  where: { practiceId: agreementRecord.practiceId },
-                  select: { id: true },
-                })
-              : null;
-  
-            if (
-              person?.email &&
-              agreementRecord?.practiceId &&
-              !existingOnboarding
-            ) {
-              const onboardingUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${agreementRecord.practiceId}`;
-              const subject = "Complete Your Onboarding";
-              const body = `
-                  <p>Hi ${person.firstName || "there"},</p>
-                  <p>Your document has been signed successfully. Please complete your onboarding by clicking the link below:</p>
-                  <p><a href="${onboardingUrl}">Complete Onboarding</a></p>
-                  <p>If the link doesn't work, copy and paste this URL into your browser:</p>
-                  <p>${onboardingUrl}</p>
-                `;
-              await sendOutlookEmail(person.email, subject, body);
-            }
           }
         }
       }
@@ -1224,6 +1200,107 @@ import {
       console.log(error);
       return res.status(500).json({
         message: "Unable to send agreement email.",
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  }
+
+  export async function sendOnboardingForm(
+    req: AuthenticatedRequest,
+    res: Response,
+  ) {
+    try {
+      const { agreementId, personId, subject, message, formLink } =
+        req.body as SendOnboardingFormBody;
+
+      if (!req.user?.sub) {
+        return res.status(401).json({ message: "Unauthorized." });
+      }
+
+      if (!agreementId || !personId) {
+        return res.status(400).json({
+          message: "agreementId and personId are required.",
+        });
+      }
+
+      const agreement = await prisma.agreement.findFirst({
+        where: { id: agreementId },
+        include: {
+          practice: true,
+        },
+      });
+
+      if (!agreement) {
+        return res.status(404).json({ message: "Agreement not found." });
+      }
+
+      const person = await prisma.person.findFirst({
+        where: {
+          id: personId,
+          practices: {
+            some: {
+              practiceId: agreement.practiceId,
+            },
+          },
+        },
+        select: {
+          email: true,
+          firstName: true,
+        },
+      });
+
+      if (!person?.email) {
+        return res.status(404).json({
+          message: "Person not found for this practice or has no email address.",
+        });
+      }
+
+      const existingOnboarding = await prisma.onboarding.findFirst({
+        where: { practiceId: agreement.practiceId },
+        select: { id: true, status: true },
+      });
+
+      if (
+        existingOnboarding &&
+        (existingOnboarding.status === OnboardingStatus.IN_PROGRESS ||
+          existingOnboarding.status === OnboardingStatus.COMPLETED)
+      ) {
+        return res.status(409).json({
+          message:
+            "Onboarding is already in progress or completed for this practice.",
+        });
+      }
+
+      if (existingOnboarding) {
+        await prisma.onboarding.update({
+          where: { id: existingOnboarding.id },
+          data: { personId },
+        });
+      }
+
+      const onboardingUrl =
+        formLink ||
+        `${process.env.FRONTEND_URL || "http://localhost:5173"}/onboarding/${agreement.practiceId}`;
+      const emailSubject =
+        subject ||
+        `Complete Your Onboarding - ${agreement.practice?.name || "Practice"}`;
+      const emailBody = `
+        <p>Hi ${person.firstName || "there"},</p>
+        <p>Your agreement has been completed successfully. Please complete your onboarding by clicking the link below:</p>
+        <p><a href="${onboardingUrl}">Complete Onboarding</a></p>
+        <p>If the link doesn't work, copy and paste this URL into your browser:</p>
+        <p>${onboardingUrl}</p>
+        ${message ? `<p>${escapeHtml(message)}</p>` : ""}
+      `;
+
+      await sendOutlookEmail(person.email, emailSubject, emailBody);
+
+      return res.status(200).json({
+        message: "Onboarding form sent successfully.",
+      });
+    } catch (error) {
+      return res.status(500).json({
+        message: "Unable to send onboarding form.",
         error: error instanceof Error ? error.message : error,
       });
     }

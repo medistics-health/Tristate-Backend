@@ -1009,6 +1009,12 @@ export async function createExternalOnboarding(req: Request, res: Response) {
 
       const updateReq = {
         ...req,
+        user: {
+          sub: "external-onboarding",
+          userName: "external-onboarding",
+          email: "external-onboarding@system.local",
+          role: "SYSTEM",
+        },
         params: { ...req.params, id: existingOnboarding.id },
         body: {
           ...body,
