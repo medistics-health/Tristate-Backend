@@ -525,7 +525,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
       requestedGoLiveDate: toDate(body.requestedGoLiveDate),
       priorityLevel: body.priorityLevel,
       servicesForAllPractices: body.servicesForAllPractices,
-      selectedPractices: body.selectedPractices,
+      selectedPractices: body.selectedPractices ?? [],
       replacingExistingVendor: body.replacingExistingVendor,
       currentVendorName: body.currentVendorName,
       currentVendorEndDate: toDate(body.currentVendorEndDate),

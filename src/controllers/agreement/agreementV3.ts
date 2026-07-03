@@ -1233,6 +1233,11 @@ import {
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
+      if (agreement.status !== AgreementStatus.SIGNED) {
+        return res.status(400).json({
+          message: "Only signed agreements are eligible to send onboarding.",
+        });
+      }
 
       const person = await prisma.person.findFirst({
         where: {

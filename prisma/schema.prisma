@@ -834,7 +834,7 @@ model Onboarding {
   requestedGoLiveDate           DateTime?                @map("requested_go_live_date")
   priorityLevel                 String?                  @map("priority_level")
   servicesForAllPractices       String?                  @map("services_for_all_practices")
-  selectedPractices             String[]                 @map("selected_practices")
+  selectedPractices             String[]                 @default([]) @map("selected_practices")
   replacingExistingVendor       Boolean?                 @map("replacing_existing_vendor")
   currentVendorName             String?                  @map("current_vendor_name")
   currentVendorEndDate          DateTime?                @map("current_vendor_end_date")
