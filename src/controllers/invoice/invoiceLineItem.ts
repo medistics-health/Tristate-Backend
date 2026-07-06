@@ -51,8 +51,22 @@ export async function createInvoiceLineItem(
       return res.status(404).json({ message: "Service not found." });
     }
 
+    const stripeConnectedAccountId = service.stripeConnectedAccountId?.trim();
+    if (!stripeConnectedAccountId) {
+      return res.status(400).json({
+        message: "Service is missing a Stripe connected account mapping.",
+      });
+    }
+
     const invoiceLineItem = await prisma.invoiceLineItem.create({
-      data: { invoiceId, serviceId, quantity, unitPrice, totalPrice },
+      data: {
+        invoiceId,
+        serviceId,
+        stripeConnectedAccountId,
+        quantity,
+        unitPrice,
+        totalPrice,
+      },
     });
 
     return res.status(201).json({
@@ -132,12 +146,19 @@ export async function updateInvoiceLineItem(
       return res.status(404).json({ message: "Invoice line item not found." });
     }
 
-    if (serviceId) {
+    let stripeConnectedAccountId: string | null | undefined;
+    if (serviceId !== undefined) {
       const service = await prisma.service.findUnique({
         where: { id: serviceId },
       });
       if (!service) {
         return res.status(404).json({ message: "Service not found." });
+      }
+      stripeConnectedAccountId = service.stripeConnectedAccountId?.trim() || null;
+      if (!stripeConnectedAccountId) {
+        return res.status(400).json({
+          message: "Service is missing a Stripe connected account mapping.",
+        });
       }
     }
 
@@ -145,6 +166,7 @@ export async function updateInvoiceLineItem(
       where: { id },
       data: {
         ...(serviceId !== undefined ? { serviceId } : {}),
+        ...(serviceId !== undefined ? { stripeConnectedAccountId } : {}),
         ...(quantity !== undefined ? { quantity } : {}),
         ...(unitPrice !== undefined ? { unitPrice } : {}),
         ...(totalPrice !== undefined ? { totalPrice } : {}),

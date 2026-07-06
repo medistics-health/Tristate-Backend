@@ -2228,184 +2228,176 @@ export async function postBillingRun(billingRunId: string, userId: string) {
       throw new BillingServiceError(400, "Billing run has already been posted.");
     }
 
-    const invoiceGroups = new Map<
-      string,
-      {
-        agreementId: string | null;
-        items: typeof run.items;
-      }
-    >();
-
-    for (const item of run.items) {
-      const agreementId = item.agreementServiceTerm?.agreementId || null;
-      const groupKey = agreementId || "NO_AGREEMENT";
-      const existingGroup = invoiceGroups.get(groupKey);
-      if (existingGroup) {
-        existingGroup.items.push(item);
-      } else {
-        invoiceGroups.set(groupKey, {
-          agreementId,
-          items: [item],
-        });
-      }
-    }
-
     const createdInvoices = [];
     const createdVendorPayables = [];
 
     const settings = await tx.systemSettings.findFirst();
     const dueDays = settings?.invoiceDueDays ?? 15;
+    const uniqueAgreementIds = [
+      ...new Set(
+        run.items
+          .map((item) => item.agreementServiceTerm?.agreementId || null)
+          .filter((agreementId): agreementId is string => Boolean(agreementId)),
+      ),
+    ];
+    const invoiceAgreementId = uniqueAgreementIds.length === 1 ? uniqueAgreementIds[0] : null;
 
-    for (const group of invoiceGroups.values()) {
-      const subtotalAmount = roundMoney(
-        group.items.reduce((sum, item) => sum + Number(item.clientAmount), 0),
+    const subtotalAmount = roundMoney(
+      run.items.reduce((sum, item) => sum + Number(item.clientAmount), 0),
+    );
+    const invoice = await tx.invoice.create({
+      data: {
+        practiceId: run.practiceId,
+        agreementId: invoiceAgreementId || undefined,
+        totalAmount: decimal(subtotalAmount),
+        subtotalAmount: decimal(subtotalAmount),
+        taxAmount: decimal(0),
+        discountAmount: decimal(0),
+        status: InvoiceStatus.DRAFT,
+        invoiceNumber: generateDocumentNumber("INV"),
+        currency: normalizeCurrency(run.practice.defaultCurrency),
+        billingPeriodStart: run.periodStart,
+        billingPeriodEnd: run.periodEnd,
+        dueDate: new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000),
+      },
+    });
+
+    for (const item of run.items) {
+      const defaultComponent =
+        item.components.length > 0
+          ? item.components
+          : [
+              {
+                id: "",
+                componentType: "DEFAULT",
+                description: item.service.name,
+                quantity: new Prisma.Decimal(1),
+                rate: new Prisma.Decimal(Number(item.clientAmount)),
+                amount: item.clientAmount,
+                metadata: null,
+                billingRunItemId: item.id,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+              },
+            ];
+
+      for (const component of defaultComponent) {
+        const quantity = component.quantity ? Number(component.quantity) : 1;
+        const amount = Number(component.amount);
+        const unitPrice =
+          quantity !== 0 ? roundMoney(amount / quantity) : amount;
+        const stripeConnectedAccountId = item.service?.stripeConnectedAccountId?.trim();
+
+        if (!stripeConnectedAccountId) {
+          throw new Error(
+            `Service ${item.serviceId} is missing a Stripe connected account mapping.`,
+          );
+        }
+
+        await tx.invoiceLineItem.create({
+          data: {
+            invoiceId: invoice.id,
+            serviceId: item.serviceId,
+            stripeConnectedAccountId,
+            quantity: Math.max(1, Math.round(quantity)),
+            unitPrice: decimal(unitPrice),
+            totalPrice: decimal(amount),
+            description: component.description || item.service.name,
+            billingRunItemId: item.id,
+            billingRunItemComponentId: component.id || undefined,
+            agreementServiceTermId: item.agreementServiceTermId || undefined,
+            billingPeriodStart: run.periodStart,
+            billingPeriodEnd: run.periodEnd,
+          },
+        });
+      }
+    }
+
+    createdInvoices.push(invoice);
+
+    const vendorGroups = new Map<
+      string,
+      {
+        vendorId: string;
+        releasePolicy: ReleasePolicy;
+        items: typeof run.items;
+      }
+    >();
+
+    for (const item of run.items) {
+      if (!item.vendorId || item.vendorAmount === null) {
+        continue;
+      }
+
+      const releasePolicyRaw =
+        item.formulaSnapshot &&
+        typeof item.formulaSnapshot === "object" &&
+        "releasePolicy" in item.formulaSnapshot
+          ? (item.formulaSnapshot.releasePolicy as ReleasePolicy)
+          : ReleasePolicy.ON_CLIENT_PAYMENT;
+
+      const existingVendorGroup = vendorGroups.get(item.vendorId);
+      if (existingVendorGroup) {
+        existingVendorGroup.items.push(item);
+      } else {
+        vendorGroups.set(item.vendorId, {
+          vendorId: item.vendorId,
+          releasePolicy:
+            Object.values(ReleasePolicy).includes(releasePolicyRaw)
+              ? releasePolicyRaw
+              : ReleasePolicy.ON_CLIENT_PAYMENT,
+          items: [item],
+        });
+      }
+    }
+
+    for (const vendorGroup of vendorGroups.values()) {
+      const totalAmount = roundMoney(
+        vendorGroup.items.reduce(
+          (sum, item) => sum + Number(item.vendorAmount || 0),
+          0,
+        ),
       );
-      const invoice = await tx.invoice.create({
+
+      let status: VendorPayableStatus = VendorPayableStatus.APPROVED;
+      let releasedAt: Date | null = null;
+
+      if (vendorGroup.releasePolicy === ReleasePolicy.ON_INVOICE_APPROVAL) {
+        status = VendorPayableStatus.RELEASED;
+        releasedAt = new Date();
+      }
+
+      const payable = await tx.vendorPayable.create({
         data: {
           practiceId: run.practiceId,
-          agreementId: group.agreementId || undefined,
-          totalAmount: decimal(subtotalAmount),
-          subtotalAmount: decimal(subtotalAmount),
-          taxAmount: decimal(0),
-          discountAmount: decimal(0),
-          status: InvoiceStatus.DRAFT,
-          invoiceNumber: generateDocumentNumber("INV"),
-          currency: normalizeCurrency(run.practice.defaultCurrency),
-          billingPeriodStart: run.periodStart,
-          billingPeriodEnd: run.periodEnd,
-          dueDate: new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000),
+          vendorId: vendorGroup.vendorId,
+          invoiceId: invoice.id,
+          billingRunId: run.id,
+          payableNumber: generateDocumentNumber("PAY"),
+          totalAmount: decimal(totalAmount),
+          currency: invoice.currency,
+          status,
+          releasePolicy: vendorGroup.releasePolicy,
+          releasedAt: releasedAt || undefined,
         },
       });
 
-      for (const item of group.items) {
-        const defaultComponent =
-          item.components.length > 0
-            ? item.components
-            : [
-                {
-                  id: "",
-                  componentType: "DEFAULT",
-                  description: item.service.name,
-                  quantity: new Prisma.Decimal(1),
-                  rate: new Prisma.Decimal(Number(item.clientAmount)),
-                  amount: item.clientAmount,
-                  metadata: null,
-                  billingRunItemId: item.id,
-                  createdAt: new Date(),
-                  updatedAt: new Date(),
-                },
-              ];
-
-        for (const component of defaultComponent) {
-          const quantity = component.quantity ? Number(component.quantity) : 1;
-          const amount = Number(component.amount);
-          const unitPrice =
-            quantity !== 0 ? roundMoney(amount / quantity) : amount;
-
-          await tx.invoiceLineItem.create({
-            data: {
-              invoiceId: invoice.id,
-              serviceId: item.serviceId,
-              quantity: Math.max(1, Math.round(quantity)),
-              unitPrice: decimal(unitPrice),
-              totalPrice: decimal(amount),
-              description: component.description || item.service.name,
-              billingRunItemId: item.id,
-              billingRunItemComponentId: component.id || undefined,
-              agreementServiceTermId: item.agreementServiceTermId || undefined,
-              billingPeriodStart: run.periodStart,
-              billingPeriodEnd: run.periodEnd,
-            },
-          });
-        }
-      }
-
-      createdInvoices.push(invoice);
-
-      const vendorGroups = new Map<
-        string,
-        {
-          vendorId: string;
-          releasePolicy: ReleasePolicy;
-          items: typeof group.items;
-        }
-      >();
-
-      for (const item of group.items) {
-        if (!item.vendorId || item.vendorAmount === null) {
-          continue;
-        }
-
-        const releasePolicyRaw =
-          item.formulaSnapshot &&
-          typeof item.formulaSnapshot === "object" &&
-          "releasePolicy" in item.formulaSnapshot
-            ? (item.formulaSnapshot.releasePolicy as ReleasePolicy)
-            : ReleasePolicy.ON_CLIENT_PAYMENT;
-
-        const existingVendorGroup = vendorGroups.get(item.vendorId);
-        if (existingVendorGroup) {
-          existingVendorGroup.items.push(item);
-        } else {
-          vendorGroups.set(item.vendorId, {
-            vendorId: item.vendorId,
-            releasePolicy:
-              Object.values(ReleasePolicy).includes(releasePolicyRaw)
-                ? releasePolicyRaw
-                : ReleasePolicy.ON_CLIENT_PAYMENT,
-            items: [item],
-          });
-        }
-      }
-
-      for (const vendorGroup of vendorGroups.values()) {
-        const totalAmount = roundMoney(
-          vendorGroup.items.reduce(
-            (sum, item) => sum + Number(item.vendorAmount || 0),
-            0,
-          ),
-        );
-
-        let status: VendorPayableStatus = VendorPayableStatus.APPROVED;
-        let releasedAt: Date | null = null;
-
-        if (vendorGroup.releasePolicy === ReleasePolicy.ON_INVOICE_APPROVAL) {
-          status = VendorPayableStatus.RELEASED;
-          releasedAt = new Date();
-        }
-
-        const payable = await tx.vendorPayable.create({
+      for (const item of vendorGroup.items) {
+        const totalCost = roundMoney(Number(item.vendorAmount || 0));
+        await tx.vendorPayableLineItem.create({
           data: {
-            practiceId: run.practiceId,
-            vendorId: vendorGroup.vendorId,
-            invoiceId: invoice.id,
-            billingRunId: run.id,
-            payableNumber: generateDocumentNumber("PAY"),
-            totalAmount: decimal(totalAmount),
-            currency: invoice.currency,
-            status,
-            releasePolicy: vendorGroup.releasePolicy,
-            releasedAt: releasedAt || undefined,
+            vendorPayableId: payable.id,
+            serviceId: item.serviceId,
+            description: item.service.name,
+            quantity: decimalQty(1),
+            unitCost: new Prisma.Decimal(totalCost.toFixed(4)),
+            totalCost: decimal(totalCost),
+            billingRunItemId: item.id,
           },
         });
-
-        for (const item of vendorGroup.items) {
-          const totalCost = roundMoney(Number(item.vendorAmount || 0));
-          await tx.vendorPayableLineItem.create({
-            data: {
-              vendorPayableId: payable.id,
-              serviceId: item.serviceId,
-              description: item.service.name,
-              quantity: decimalQty(1),
-              unitCost: new Prisma.Decimal(totalCost.toFixed(4)),
-              totalCost: decimal(totalCost),
-              billingRunItemId: item.id,
-            },
-          });
-        }
-
-        createdVendorPayables.push(payable);
       }
+
+      createdVendorPayables.push(payable);
     }
 
     const updatedRun = await tx.billingRun.update({

@@ -1,8 +1,11 @@
 import { ExternalEntityType, ExternalSyncStatus, ExternalSystem, InvoiceStatus, PaymentStatus } from "../../../generated/prisma/client";
 import type { Response, Request } from "express";
-import axios from "axios";
 import { prisma } from "../../lib/prisma";
-import { stripe, getStripeWebhookSecret } from "../../lib/stripe";
+import {
+  stripe,
+  getStripeWebhookSecret,
+} from "../../lib/stripe";
+import { stripeRequest } from "../../lib/stripeApi";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
@@ -19,6 +22,208 @@ function normalizeCurrency(currency?: string | null) {
 
 function toMinorUnit(amount: number | string) {
   return Math.round(Number(amount) * 100);
+}
+
+async function transferInvoiceLineItemsToConnectedAccounts(params: {
+  invoice: {
+    id: string;
+    currency?: string | null;
+    stripeInvoiceId?: string | null;
+    lineItems: Array<{
+      id: string;
+      totalPrice: any;
+      serviceId: string;
+      stripeConnectedAccountId?: string | null;
+      service?: {
+        id: string;
+        name: string;
+        stripeConnectedAccountId?: string | null;
+      } | null;
+    }>;
+  };
+}) {
+  const transferTotals = new Map<
+    string,
+    { amount: number; serviceIds: string[]; lineItemIds: string[] }
+  >();
+
+  for (const lineItem of params.invoice.lineItems) {
+    const destination =
+      lineItem.stripeConnectedAccountId?.trim() ||
+      lineItem.service?.stripeConnectedAccountId?.trim();
+
+    if (!destination) {
+      console.warn(
+        `Skipping Stripe transfer for invoice ${params.invoice.id} line item ${lineItem.id} because the service is missing a Stripe connected account id.`,
+      );
+      continue;
+    }
+
+    const amount = toMinorUnit(lineItem.totalPrice);
+    if (amount <= 0) continue;
+
+    const current = transferTotals.get(destination);
+    if (current) {
+      current.amount += amount;
+      current.lineItemIds.push(lineItem.id);
+      current.serviceIds.push(lineItem.serviceId);
+    } else {
+      transferTotals.set(destination, {
+        amount,
+        serviceIds: [lineItem.serviceId],
+        lineItemIds: [lineItem.id],
+      });
+    }
+  }
+
+  const createdTransfers: Array<{ id: string }> = [];
+  const currency = normalizeCurrency(params.invoice.currency);
+  const transferGroup = params.invoice.stripeInvoiceId || params.invoice.id;
+
+  for (const [destination, transfer] of transferTotals.entries()) {
+    try {
+      const created = await stripe.transfers.create(
+        {
+          amount: transfer.amount,
+          currency,
+          destination,
+          transfer_group: transferGroup,
+          metadata: {
+            invoiceId: params.invoice.id,
+            stripeInvoiceId: params.invoice.stripeInvoiceId || "",
+            stripeAccountId: destination,
+            serviceIds: transfer.serviceIds.join(","),
+            lineItemIds: transfer.lineItemIds.join(","),
+          },
+        },
+        {
+          idempotencyKey: `invoice-transfer:${params.invoice.id}:${destination}:${transfer.amount}`,
+        },
+      );
+
+      createdTransfers.push({ id: created.id });
+    } catch (error) {
+      console.error(
+        `Skipping Stripe transfer for invoice ${params.invoice.id} destination ${destination} because Stripe rejected the transfer:`,
+        error,
+      );
+    }
+  }
+
+  return createdTransfers;
+}
+
+type StripeConnectedAccountSummary = {
+  id: string;
+  displayName: string;
+  email: string | null;
+  country: string | null;
+  defaultCurrency: string | null;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  requirementsDisabledReason: string | null;
+  businessProfile: {
+    name: string | null;
+    url: string | null;
+  };
+};
+
+function serializeStripeAccount(account: any): StripeConnectedAccountSummary {
+  const rawDisplayName =
+    account.business_profile?.name ||
+    account.company?.name ||
+    [account.individual?.first_name, account.individual?.last_name]
+      .filter(Boolean)
+      .join(" ") ||
+    account.display_name ||
+    account.settings?.dashboard?.display_name ||
+    account.email ||
+    account.id;
+
+  const displayName = String(rawDisplayName)
+    .replace(/\s*[|│â”‚]+\s*$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  return {
+    id: account.id,
+    displayName,
+    email: account.email ?? null,
+    country: account.country ?? null,
+    defaultCurrency: account.default_currency ?? null,
+    chargesEnabled: Boolean(account.charges_enabled),
+    payoutsEnabled: Boolean(account.payouts_enabled),
+    detailsSubmitted: Boolean(account.details_submitted),
+    requirementsDisabledReason: account.requirements?.disabled_reason ?? null,
+    businessProfile: {
+      name: account.business_profile?.name ?? null,
+      url: account.business_profile?.url ?? null,
+    },
+  };
+}
+
+export async function listStripeConnectedAccounts(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const accounts = await stripe.accounts.list({ limit: 100 });
+
+    return res.status(200).json({
+      message: "Stripe connected accounts fetched successfully.",
+      accounts: accounts.data
+        .filter((account) => !account.deleted)
+        .filter((account) => account.details_submitted || account.charges_enabled || account.payouts_enabled)
+        .map((account) => serializeStripeAccount(account))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch Stripe connected accounts.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getStripeConnectedAccount(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const accountId = Array.isArray(req.params.accountId)
+      ? req.params.accountId[0]
+      : req.params.accountId;
+
+    if (!accountId) {
+      return res.status(400).json({ message: "accountId is required." });
+    }
+
+    const account = await stripe.accounts.retrieve(accountId);
+    if ((account as any).deleted) {
+      return res.status(404).json({
+        message: "Stripe connected account not found.",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Stripe connected account fetched successfully.",
+      account: serializeStripeAccount(account),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch Stripe connected account.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
 }
 
 function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | null) {
@@ -526,6 +731,14 @@ async function logStripeWebhookEvent(event: any, invoiceId: string) {
 }
 
 async function processStripeWebhookEvent(event: any) {
+  const alreadyProcessed = await prisma.stripeEventLog.findFirst({
+    where: { stripeEventId: event.id },
+  });
+
+  if (alreadyProcessed) {
+    return;
+  }
+
   switch (event.type) {
     case "charge.succeeded": {
       const charge = event.data.object as any;
@@ -711,6 +924,13 @@ async function processStripeWebhookEvent(event: any) {
 
       const invoice = await prisma.invoice.findFirst({
         where: { stripeInvoiceId: stripeInvoice.id },
+        include: {
+          lineItems: {
+            include: {
+              service: true,
+            },
+          },
+        },
       });
 
       if (!invoice) return;
@@ -728,6 +948,14 @@ async function processStripeWebhookEvent(event: any) {
           stripeInvoicePdfUrl: stripeInvoice.invoice_pdf,
         },
       });
+
+      try {
+        await transferInvoiceLineItemsToConnectedAccounts({
+          invoice,
+        });
+      } catch (transferErr) {
+        console.error("Failed to transfer invoice funds to connected accounts:", transferErr);
+      }
 
       try {
         const receiptBuffer = await generateReceiptPdfBufferFromDb(
