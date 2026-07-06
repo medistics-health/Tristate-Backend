@@ -327,6 +327,7 @@ model Service {
   name                   String
   code                   String?
   category               String?
+  stripeConnectedAccountId String?                @map("stripe_connected_account_id")
   vendorId               String?                  @map("vendor_id") @db.Uuid
   isActive               Boolean                  @default(true) @map("is_active")
   createdAt              DateTime                 @default(now()) @map("created_at")
@@ -340,6 +341,7 @@ model Service {
   vendor                 Vendor?                  @relation(fields: [vendorId], references: [id])
   vendorPayableLineItems VendorPayableLineItem[]
 
+  @@index([stripeConnectedAccountId])
   @@index([vendorId])
   @@map("services")
 }
@@ -385,6 +387,7 @@ model InvoiceLineItem {
   id                        String                   @id @default(uuid()) @db.Uuid
   invoiceId                 String                   @map("invoice_id") @db.Uuid
   serviceId                 String                   @map("service_id") @db.Uuid
+  stripeConnectedAccountId   String?                  @map("stripe_connected_account_id")
   quantity                  Int
   unitPrice                 Decimal                  @map("unit_price") @db.Decimal(12, 2)
   totalPrice                Decimal                  @map("total_price") @db.Decimal(12, 2)
@@ -407,6 +410,7 @@ model InvoiceLineItem {
   @@index([billingRunItemId])
   @@index([billingRunItemComponentId])
   @@index([agreementServiceTermId])
+  @@index([stripeConnectedAccountId])
   @@map("invoice_line_items")
 }
 

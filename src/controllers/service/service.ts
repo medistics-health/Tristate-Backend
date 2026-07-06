@@ -1,11 +1,13 @@
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
+import { stripe } from "../../lib/stripe";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 
 type ServiceBody = {
   name?: string;
   code?: string | null;
   category?: string | null;
+  stripeConnectedAccountId?: string | null;
   vendorId?: string | null;
   isActive?: boolean;
   clientRate?: number;
@@ -30,12 +32,21 @@ function hasDeprecatedPricingFields(body: ServiceBody) {
   );
 }
 
+async function ensureValidStripeConnectedAccount(stripeConnectedAccountId: string) {
+  const account = await stripe.accounts.retrieve(stripeConnectedAccountId);
+  if ((account as any).deleted) {
+    throw new Error("Stripe connected account is deleted.");
+  }
+  return account;
+}
+
 export async function createService(req: AuthenticatedRequest, res: Response) {
   try {
     const {
       name,
       code,
       category,
+      stripeConnectedAccountId,
       vendorId,
       isActive,
       // clientRate,
@@ -53,10 +64,36 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    if (!stripeConnectedAccountId) {
+      return res.status(400).json({
+        message: "stripeConnectedAccountId is required.",
+      });
+    }
+
+    try {
+      await ensureValidStripeConnectedAccount(stripeConnectedAccountId);
+    } catch (error) {
+      return res.status(400).json({
+        message: "Invalid Stripe connected account.",
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+
     if (vendorId) {
       const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
       if (!vendor) {
         return res.status(404).json({ message: "Vendor not found." });
+      }
+    }
+
+    if (stripeConnectedAccountId !== undefined && stripeConnectedAccountId) {
+      try {
+        await ensureValidStripeConnectedAccount(stripeConnectedAccountId);
+      } catch (error) {
+        return res.status(400).json({
+          message: "Invalid Stripe connected account.",
+          error: error instanceof Error ? error.message : error,
+        });
       }
     }
 
@@ -65,9 +102,11 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
         name,
         ...(code !== undefined ? { code: code || null } : {}),
         ...(category !== undefined ? { category: category || null } : {}),
+        stripeConnectedAccountId,
         ...(vendorId !== undefined ? { vendorId: vendorId || null } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
       },
+      include: { vendor: true },
     });
 
     return res.status(201).json({
@@ -124,7 +163,7 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
 export async function updateService(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { name, code, category, vendorId, isActive, clientRate, vendorRate, margin } =
+    const { name, code, category, stripeConnectedAccountId, vendorId, isActive, clientRate, vendorRate, margin } =
       req.body as ServiceBody;
 
     if (!req.user?.sub) {
@@ -154,9 +193,13 @@ export async function updateService(req: AuthenticatedRequest, res: Response) {
         ...(name !== undefined ? { name } : {}),
         ...(code !== undefined ? { code: code || null } : {}),
         ...(category !== undefined ? { category: category || null } : {}),
+        ...(stripeConnectedAccountId !== undefined
+          ? { stripeConnectedAccountId: stripeConnectedAccountId || null }
+          : {}),
         ...(vendorId !== undefined ? { vendorId: vendorId || null } : {}),
         ...(isActive !== undefined ? { isActive } : {}),
       },
+      include: { vendor: true },
     });
 
     return res.status(200).json({
