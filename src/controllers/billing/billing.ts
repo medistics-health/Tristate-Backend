@@ -23,7 +23,7 @@ import {
   recordManualPayment,
   upsertBillingRunSnapshots,
 } from "../../services/billing/billing.service";
-import { stripe } from "../../lib/stripe";
+import { stripeRequest } from "../../lib/stripeApi";
 import { prisma } from "../../lib/prisma";
 import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
 import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceiptBlob";
@@ -36,6 +36,43 @@ function toStripeMinorUnit(amount: number | string) {
 
 function normalizeStripeCurrency(currency?: string | null) {
   return (currency || "USD").toLowerCase();
+}
+
+async function ensureStripeCustomerForPractice(practice: {
+  id: string;
+  name: string;
+  stripeCustomerId?: string | null;
+  company?: { email?: string | null } | null;
+}) {
+  const fallbackEmail =
+    practice.company?.email ||
+    `billing@${practice.name.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
+  const existingCustomerId = practice.stripeCustomerId?.trim();
+
+  if (existingCustomerId) {
+    try {
+      await stripeRequest("GET", `/v1/customers/${existingCustomerId}`);
+      return existingCustomerId;
+    } catch (error: any) {
+      const message = String(error?.message || "");
+      if (!message.includes("No such customer")) {
+        throw error;
+      }
+    }
+  }
+
+  const customer = await stripeRequest<{ id: string }>("POST", "/v1/customers", {
+    name: practice.name,
+    email: fallbackEmail,
+    metadata: { practiceId: practice.id },
+  });
+
+  await prisma.practice.update({
+    where: { id: practice.id },
+    data: { stripeCustomerId: customer.id },
+  });
+
+  return customer.id;
 }
 
 function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | null) {
@@ -198,20 +235,7 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
     invoice.currency || invoice.practice?.defaultCurrency,
   );
 
-  let stripeCustomerId = invoice.practice?.stripeCustomerId ?? null;
-
-  if (!stripeCustomerId) {
-    const customer = await stripe.customers.create({
-      name: invoice.practice.name,
-      email: invoice.practice.company?.email || undefined,
-      metadata: { practiceId: invoice.practice.id },
-    });
-    stripeCustomerId = customer.id;
-    await prisma.practice.update({
-      where: { id: invoice.practice.id },
-      data: { stripeCustomerId: customer.id },
-    });
-  }
+  const stripeCustomerId = await ensureStripeCustomerForPractice(invoice.practice);
 
   if (invoice.stripeInvoiceId) {
     return {
@@ -226,11 +250,15 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
     return name === "creditcardcharges";
   });
 
-  const paymentMethodTypes = (hasCreditCardChargesService
+  const paymentMethodTypes: string[] = hasCreditCardChargesService
     ? ["card"]
-    : ["us_bank_account", "customer_balance"]) as any;
+    : ["us_bank_account"];
 
-  const stripeInvoice = await stripe.invoices.create({
+  const stripeInvoice = await stripeRequest<{
+    id: string;
+    hosted_invoice_url?: string | null;
+    invoice_pdf?: string | null;
+  }>("POST", "/v1/invoices", {
     customer: stripeCustomerId,
     currency,
     auto_advance: false,
@@ -251,7 +279,7 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
   });
 
   for (const lineItem of invoice.lineItems) {
-    await stripe.invoiceItems.create({
+    await stripeRequest("POST", "/v1/invoiceitems", {
       customer: stripeCustomerId,
       invoice: stripeInvoice.id,
       currency,
@@ -278,8 +306,12 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
     },
   });
 
-  await stripe.invoices.finalizeInvoice(stripeInvoice.id);
-  const sent = await stripe.invoices.sendInvoice(stripeInvoice.id);
+  await stripeRequest("POST", `/v1/invoices/${stripeInvoice.id}/finalize`);
+  const sent = await stripeRequest<{
+    id: string;
+    hosted_invoice_url?: string | null;
+    invoice_pdf?: string | null;
+  }>("POST", `/v1/invoices/${stripeInvoice.id}/send`);
 
   await prisma.invoice.update({
     where: { id: invoice.id },

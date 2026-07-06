@@ -1,6 +1,8 @@
 import express, { Router } from "express";
 import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
+  getStripeConnectedAccount,
+  listStripeConnectedAccounts,
   finalizeStripeInvoice,
   handleStripeWebhook,
   sendStripeInvoice,
@@ -15,6 +17,8 @@ stripeWebhookRouter.post("/", express.raw({ type: "application/json" }), handleS
 
 stripeRouter.use(verifyAuthToken);
 stripeRouter.use(requireRoles(ROLE_GROUPS.INTEGRATIONS));
+stripeRouter.get("/accounts", listStripeConnectedAccounts);
+stripeRouter.get("/accounts/:accountId", getStripeConnectedAccount);
 stripeRouter.post("/customers/:practiceId/sync", syncStripeCustomer);
 stripeRouter.post("/invoices/:invoiceId/sync", syncStripeInvoice);
 stripeRouter.post("/invoices/:invoiceId/finalize", finalizeStripeInvoice);

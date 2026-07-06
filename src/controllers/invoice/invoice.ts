@@ -1,7 +1,7 @@
 import { InvoiceStatus } from "../../../generated/prisma/client";
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
-import { stripe } from "../../lib/stripe";
+import { stripeRequest } from "../../lib/stripeApi";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { generateInvoicePdfBufferFromDb } from "../../utils/invoicePdf";
@@ -39,6 +39,43 @@ function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | nul
 
 function isInvoiceStatus(status: string): status is InvoiceStatus {
   return Object.values(InvoiceStatus).includes(status as InvoiceStatus);
+}
+
+async function ensureStripeCustomerForPractice(practice: {
+  id: string;
+  name: string;
+  stripeCustomerId?: string | null;
+  company?: { email?: string | null } | null;
+}) {
+  const fallbackEmail =
+    practice.company?.email ||
+    `billing@${practice.name.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
+  const existingCustomerId = practice.stripeCustomerId?.trim();
+
+  if (existingCustomerId) {
+    try {
+      await stripeRequest("GET", `/v1/customers/${existingCustomerId}`);
+      return existingCustomerId;
+    } catch (error: any) {
+      const message = String(error?.message || "");
+      if (!message.includes("No such customer")) {
+        throw error;
+      }
+    }
+  }
+
+  const customer = await stripeRequest<{ id: string }>("POST", "/v1/customers", {
+    name: practice.name,
+    email: fallbackEmail,
+    metadata: { practiceId: practice.id },
+  });
+
+  await prisma.practice.update({
+    where: { id: practice.id },
+    data: { stripeCustomerId: customer.id },
+  });
+
+  return customer.id;
 }
 
 export async function createInvoice(req: AuthenticatedRequest, res: Response) {
@@ -571,6 +608,11 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
           company: true,
         },
       },
+      lineItems: {
+        include: {
+          service: true,
+        },
+      },
     },
   });
 
@@ -578,18 +620,8 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     throw new Error("Invoice or practice not found");
   }
 
-  const billingRunItems = await prisma.billingRunItem.findMany({
-    where: {
-      invoiceLineItems: {
-        some: {
-          invoiceId: invoiceId,
-        },
-      },
-    },
-    include: {
-      service: true,
-    },
-  });
+  const billingRunItems = invoice.lineItems || [];
+  const currency = (invoice.currency || invoice.practice.defaultCurrency || "USD").toLowerCase();
 
   let stripeInvoiceId: string | null = invoice.stripeInvoiceId || null;
   let hostedUrl: string | null = invoice.stripeHostedInvoiceUrl || null;
@@ -597,34 +629,19 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
 
   if (!stripeInvoiceId) {
     // 1. Get or create Stripe Customer
-    let customerId = invoice.practice.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        name: invoice.practice.name,
-        email:
-          "billing@" +
-          invoice.practice.name.toLowerCase().replace(/[^a-z0-9]/g, "") +
-          ".com",
-        metadata: { practiceId: invoice.practice.id },
-      });
-      customerId = customer.id;
-      await prisma.practice.update({
-        where: { id: invoice.practice.id },
-        data: { stripeCustomerId: customerId },
-      });
-    }
+    const customerId = await ensureStripeCustomerForPractice(invoice.practice);
 
     const hasCreditCardChargesService = billingRunItems.some((item) => {
       const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
       return name === "creditcardcharges";
     });
 
-    const paymentMethodTypes = (hasCreditCardChargesService
+    const paymentMethodTypes: string[] = hasCreditCardChargesService
       ? ["card"]
-      : ["us_bank_account","customer_balance"]) as any;
+      : ["us_bank_account"];
 
     // 3. Create Invoice
-    const stripeInvoice = await stripe.invoices.create({
+    const stripeInvoice = await stripeRequest<{ id: string; hosted_invoice_url?: string | null; invoice_pdf?: string | null }>("POST", "/v1/invoices", {
       customer: customerId,
       auto_advance: false,
       collection_method: "send_invoice",
@@ -644,20 +661,30 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     // 2. Create Invoice Items
     if (billingRunItems.length > 0) {
       for (const item of billingRunItems) {
-        await stripe.invoiceItems.create({
+        await stripeRequest("POST", "/v1/invoiceitems", {
           customer: customerId,
           invoice: stripeInvoiceId,
-          amount: Math.round(Number(item.clientAmount) * 100), // amount in cents
-          currency: "usd",
-          description: item.service?.name || "Service Item",
+          amount: Math.round(Number(item.totalPrice) * 100), // amount in cents
+          currency,
+          description:
+            item.description ||
+            item.service?.code ||
+            item.service?.name ||
+            "Service Item",
+          metadata: {
+            localInvoiceId: invoice.id,
+            localInvoiceLineItemId: item.id,
+            serviceId: item.serviceId,
+            stripeConnectedAccountId: item.stripeConnectedAccountId || "",
+          },
         });
       }
     } else {
-      await stripe.invoiceItems.create({
+      await stripeRequest("POST", "/v1/invoiceitems", {
         customer: customerId,
         invoice: stripeInvoiceId,
         amount: Math.round(Number(invoice.totalAmount) * 100), // amount in cents
-        currency: "usd",
+        currency,
         description: `Invoice ${invoice.invoiceNumber || invoice.id.slice(0, 8)}`,
       });
     }
@@ -667,14 +694,20 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
   if (stripeInvoiceId && !hostedUrl) {
     let finalizedInvoice;
     try {
-      finalizedInvoice = await stripe.invoices.finalizeInvoice(stripeInvoiceId);
+      finalizedInvoice = await stripeRequest<{ hosted_invoice_url?: string | null; invoice_pdf?: string | null }>(
+        "POST",
+        `/v1/invoices/${stripeInvoiceId}/finalize`,
+      );
     } catch (err: any) {
       // If it's already finalized, just retrieve it
       if (
         err.message &&
         err.message.includes("can only be finalized in draft")
       ) {
-        finalizedInvoice = await stripe.invoices.retrieve(stripeInvoiceId);
+        finalizedInvoice = await stripeRequest(
+          "GET",
+          `/v1/invoices/${stripeInvoiceId}`,
+        );
       } else {
         throw err;
       }
@@ -826,7 +859,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
                     border-bottom: 1px solid #e5edf4;
                   "
                 >
-                  ${item.service?.name || "Service Item"}
+                  ${item.description || item.service?.code || item.service?.name || "Service Item"}
                 </td>
                 <td
                   align="right"
@@ -842,7 +875,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
                     border-bottom: 1px solid #e5edf4;
                   "
                 >
-                  $${Number(item.clientAmount).toFixed(2)}
+                  $${Number(item.totalPrice).toFixed(2)}
                 </td>
               </tr>
             `
