@@ -45,6 +45,7 @@ type OnboardingLocationBody = {
   officeManagerName?: string;
   patientOutreachManaged?: string;
   billingManaged?: string;
+  cliaNumber?: string;
   notes?: string;
 };
 
@@ -58,7 +59,6 @@ type OnboardingProviderBody = {
   credentials?: string;
   providerType?: string;
   specialty?: string;
-  cliaNumber?: string;
   npi?: string;
   caqhId?: string;
   ssnFullDigits?: string;
@@ -606,6 +606,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
                       officeManagerName: l.officeManagerName,
                       patientOutreachManaged: l.patientOutreachManaged,
                       billingManaged: l.billingManaged,
+                      cliaNumber: l.cliaNumber,
                       notes: l.notes,
                     })),
                   }
@@ -621,7 +622,6 @@ async function createOnboardingRecord(body: OnboardingBody) {
                       credentials: pr.credentials,
                       providerType: pr.providerType,
                       specialty: pr.specialty,
-                      cliaNumber: pr.cliaNumber,
                       npi: pr.npi,
                       caqhId: pr.caqhId,
                       ssnFullDigits: pr.ssnFullDigits,
@@ -1466,6 +1466,7 @@ export async function updateOnboarding(
                         officeManagerName: l.officeManagerName,
                         patientOutreachManaged: l.patientOutreachManaged,
                         billingManaged: l.billingManaged,
+                        cliaNumber: l.cliaNumber,
                         notes: l.notes,
                       })),
                     }
@@ -1481,7 +1482,6 @@ export async function updateOnboarding(
                         credentials: pr.credentials,
                         providerType: pr.providerType,
                         specialty: pr.specialty,
-                        cliaNumber: pr.cliaNumber,
                         npi: pr.npi,
                         caqhId: pr.caqhId,
                         ssnFullDigits: pr.ssnFullDigits,

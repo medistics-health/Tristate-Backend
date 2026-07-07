@@ -950,6 +950,7 @@ model OnboardingLocation {
   officeManagerName      String?            @map("office_manager_name")
   patientOutreachManaged String?            @map("patient_outreach_managed")
   billingManaged         String?            @map("billing_managed")
+  cliaNumber             String?            @map("clia_number")
   notes                  String?
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at")
@@ -970,7 +971,6 @@ model OnboardingProvider {
   credentials            String?
   providerType           String?            @map("provider_type")
   specialty              String?
-  cliaNumber             String?            @map("clia_number")
   npi                    String?
   caqhId                 String?            @map("caqh_id")
   ssnFullDigits          String?            @map("ssn_full_digits")
