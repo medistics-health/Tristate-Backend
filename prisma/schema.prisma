@@ -371,6 +371,7 @@ model Invoice {
   createdAt              DateTime            @default(now()) @map("created_at")
   updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at")
   lineItems              InvoiceLineItem[]
+  stripeTransfers        InvoiceConnectedAccountTransfer[]
   agreement              Agreement?          @relation(fields: [agreementId], references: [id])
   practice               Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   paymentAllocations     PaymentAllocation[]
@@ -412,6 +413,29 @@ model InvoiceLineItem {
   @@index([agreementServiceTermId])
   @@index([stripeConnectedAccountId])
   @@map("invoice_line_items")
+}
+
+model InvoiceConnectedAccountTransfer {
+  id                      String              @id @default(uuid()) @db.Uuid
+  invoiceId               String              @map("invoice_id") @db.Uuid
+  stripeConnectedAccountId String             @map("stripe_connected_account_id")
+  stripeTransferId        String?             @map("stripe_transfer_id")
+  amount                  Decimal             @db.Decimal(12, 2)
+  currency                String              @default("USD")
+  status                  StripeTransferStatus @default(PENDING)
+  failureMessage          String?             @map("failure_message")
+  transferGroup           String?             @map("transfer_group")
+  serviceIds              String[]            @default([]) @map("service_ids")
+  invoiceLineItemIds      String[]            @default([]) @map("invoice_line_item_ids")
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @default(now()) @updatedAt @map("updated_at")
+  invoice                 Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, stripeConnectedAccountId])
+  @@index([invoiceId])
+  @@index([stripeConnectedAccountId])
+  @@index([status])
+  @@map("invoice_connected_account_transfers")
 }
 
 model PurchaseOrder {
@@ -1658,6 +1682,13 @@ enum PaymentStatus {
   PARTIALLY_ALLOCATED
   ALLOCATED
   REFUNDED
+}
+
+enum StripeTransferStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
 }
 
 enum ChannelPartnerType {
