@@ -60,8 +60,6 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
     }
 
     const amount = toMinorUnit(lineItem.totalPrice);
-    if (amount <= 0) continue;
-
     const current = transferTotals.get(destination);
     if (current) {
       current.amount += amount;
@@ -81,6 +79,87 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
   const transferGroup = params.invoice.stripeInvoiceId || params.invoice.id;
 
   for (const [destination, transfer] of transferTotals.entries()) {
+    const existingTransfer = await prisma.invoiceConnectedAccountTransfer.findUnique({
+      where: {
+        invoiceId_stripeConnectedAccountId: {
+          invoiceId: params.invoice.id,
+          stripeConnectedAccountId: destination,
+        },
+      },
+    });
+
+    if (existingTransfer?.status === "SENT" && existingTransfer.stripeTransferId) {
+      continue;
+    }
+
+    const storedAmount = Number((transfer.amount / 100).toFixed(2));
+
+    if (transfer.amount <= 0) {
+      await prisma.invoiceConnectedAccountTransfer.upsert({
+        where: {
+          invoiceId_stripeConnectedAccountId: {
+            invoiceId: params.invoice.id,
+            stripeConnectedAccountId: destination,
+          },
+        },
+        create: {
+          invoiceId: params.invoice.id,
+          stripeConnectedAccountId: destination,
+          amount: storedAmount,
+          currency: currency.toUpperCase(),
+          status: "SKIPPED",
+          failureMessage: "Net transfer amount is not positive after adjustments.",
+          transferGroup,
+          serviceIds: [...new Set(transfer.serviceIds)],
+          invoiceLineItemIds: [...new Set(transfer.lineItemIds)],
+        },
+        update: {
+          amount: storedAmount,
+          currency: currency.toUpperCase(),
+          status: "SKIPPED",
+          failureMessage: "Net transfer amount is not positive after adjustments.",
+          transferGroup,
+          serviceIds: [...new Set(transfer.serviceIds)],
+          invoiceLineItemIds: [...new Set(transfer.lineItemIds)],
+          stripeTransferId: null,
+        },
+      });
+      console.warn(
+        `Skipping Stripe transfer for invoice ${params.invoice.id} destination ${destination} because the net transfer amount is not positive after adjustments: ${transfer.amount}.`,
+      );
+      continue;
+    }
+
+    await prisma.invoiceConnectedAccountTransfer.upsert({
+      where: {
+        invoiceId_stripeConnectedAccountId: {
+          invoiceId: params.invoice.id,
+          stripeConnectedAccountId: destination,
+        },
+      },
+      create: {
+        invoiceId: params.invoice.id,
+        stripeConnectedAccountId: destination,
+        amount: storedAmount,
+        currency: currency.toUpperCase(),
+        status: "PENDING",
+        failureMessage: null,
+        transferGroup,
+        serviceIds: [...new Set(transfer.serviceIds)],
+        invoiceLineItemIds: [...new Set(transfer.lineItemIds)],
+      },
+      update: {
+        amount: storedAmount,
+        currency: currency.toUpperCase(),
+        status: "PENDING",
+        failureMessage: null,
+        transferGroup,
+        serviceIds: [...new Set(transfer.serviceIds)],
+        invoiceLineItemIds: [...new Set(transfer.lineItemIds)],
+        stripeTransferId: null,
+      },
+    });
+
     try {
       const created = await stripe.transfers.create(
         {
@@ -101,8 +180,34 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
         },
       );
 
+      await prisma.invoiceConnectedAccountTransfer.update({
+        where: {
+          invoiceId_stripeConnectedAccountId: {
+            invoiceId: params.invoice.id,
+            stripeConnectedAccountId: destination,
+          },
+        },
+        data: {
+          stripeTransferId: created.id,
+          status: "SENT",
+          failureMessage: null,
+        },
+      });
+
       createdTransfers.push({ id: created.id });
     } catch (error) {
+      await prisma.invoiceConnectedAccountTransfer.update({
+        where: {
+          invoiceId_stripeConnectedAccountId: {
+            invoiceId: params.invoice.id,
+            stripeConnectedAccountId: destination,
+          },
+        },
+        data: {
+          status: "FAILED",
+          failureMessage: error instanceof Error ? error.message : "Stripe transfer failed.",
+        },
+      });
       console.error(
         `Skipping Stripe transfer for invoice ${params.invoice.id} destination ${destination} because Stripe rejected the transfer:`,
         error,

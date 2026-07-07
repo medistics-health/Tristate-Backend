@@ -32,14 +32,16 @@ function formatCityStateZip(
   return [cityState, zipCode].filter(Boolean).join(" ").trim();
 }
 
-function buildLocationLines(location?: {
-  locationName?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
-} | null): string[] {
+function buildLocationLines(
+  location?: {
+    locationName?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  } | null,
+): string[] {
   if (!location) return [];
 
   return [
@@ -62,10 +64,10 @@ function selectPrimaryOnboardingLocation(practice: any) {
 
   const onboardingPractice =
     latestOnboarding?.practices?.find((practiceEntry: any) => {
-      const practiceName = String(practice?.name || "").trim().toLowerCase();
-      const onboardingPracticeName = String(
-        practiceEntry?.practiceName || "",
-      )
+      const practiceName = String(practice?.name || "")
+        .trim()
+        .toLowerCase();
+      const onboardingPracticeName = String(practiceEntry?.practiceName || "")
         .trim()
         .toLowerCase();
       return (
@@ -80,7 +82,9 @@ function selectPrimaryOnboardingLocation(practice: any) {
   return (
     onboardingPractice.locations.find(
       (location: any) => location?.isPrimaryLocation,
-    ) || onboardingPractice.locations[0] || null
+    ) ||
+    onboardingPractice.locations[0] ||
+    null
   );
 }
 
@@ -514,7 +518,9 @@ export function generateReceiptPdfBuffer(
 
       // 2. Company Info (Left Side) & Company Logo (Right Side)
       const companyName = receiptData.practiceInfo.name || "Tristate MSO";
-      const locationLines = buildLocationLines(receiptData.practiceInfo.location);
+      const locationLines = buildLocationLines(
+        receiptData.practiceInfo.location,
+      );
       const fallbackAddressLines = [
         receiptData.practiceInfo.address,
         formatCityStateZip(
@@ -534,7 +540,8 @@ export function generateReceiptPdfBuffer(
       // Draw Company Info on the Left
       doc.font(mediumTextFont).text(companyName, 40, 35);
       let headerY = 48;
-      const headerLines = locationLines.length > 0 ? locationLines : fallbackAddressLines;
+      const headerLines =
+        locationLines.length > 0 ? locationLines : fallbackAddressLines;
       for (const line of headerLines) {
         doc.font(bodyFont).text(line, 40, headerY);
         headerY += 13;
@@ -573,14 +580,16 @@ export function generateReceiptPdfBuffer(
       // Add green PAID badge
       doc.save();
       doc.fillColor("#D1F2DF"); // Light green background
-      doc.roundedRect(240, 33 + offsetY, 52, 17, 4).fill();
+      doc.roundedRect(280, 35 + offsetY, 58, 20, 4).fill();
       doc
         .font(boldTextFont)
         .fontSize(9)
         .fillColor("#10B981")
-        .text("PAID", 240, 37.5 + offsetY, { width: 52, align: "center" }); // Green text
+        .text("PAID", 280, 41 + offsetY, {
+          width: 58,
+          align: "center",
+        });
       doc.restore();
-
       // 4. Metadata section (Receipt Number, Invoice Number, Dates)
       const metaY = 70 + offsetY;
 
@@ -647,7 +656,16 @@ export function generateReceiptPdfBuffer(
       const normalizedMethod = (receiptData.paymentMethod || "").toLowerCase();
       if (
         receiptData.paymentMethod &&
-        !["stripe", "card", "credit_card", "ach", "us_bank_account", "customer_balance", "bank_transfer", "check"].includes(normalizedMethod)
+        ![
+          "stripe",
+          "card",
+          "credit_card",
+          "ach",
+          "us_bank_account",
+          "customer_balance",
+          "bank_transfer",
+          "check",
+        ].includes(normalizedMethod)
       ) {
         paymentMethodText = receiptData.paymentMethod;
       } else if (
@@ -685,7 +703,9 @@ export function generateReceiptPdfBuffer(
           paymentDetails = `Check #${receiptData.paymentDetails.last4Digits}`;
         }
       } else if (receiptData.paymentMethod) {
-        paymentMethodText = receiptData.paymentMethod.charAt(0).toUpperCase() + receiptData.paymentMethod.slice(1);
+        paymentMethodText =
+          receiptData.paymentMethod.charAt(0).toUpperCase() +
+          receiptData.paymentMethod.slice(1);
         if (receiptData.paymentDetails?.last4Digits) {
           paymentDetails = `••••${receiptData.paymentDetails.last4Digits}`;
         }
@@ -696,18 +716,18 @@ export function generateReceiptPdfBuffer(
         .font(boldTextFont)
         .fontSize(8.5)
         .fillColor("#4B5563")
-        .text("PAYMENT METHOD", 44, paymentMethodY);
+        .text("PAYMENT METHOD", 40, paymentMethodY);
       doc
         .font(boldTextFont)
         .fontSize(12)
         .fillColor("#0369A1")
-        .text(paymentMethodText, 44, paymentMethodY + 14);
+        .text(paymentMethodText, 40, paymentMethodY + 14);
       if (paymentDetails) {
         doc
           .font(bodyFont)
           .fontSize(9)
           .fillColor("#4B5563")
-          .text(paymentDetails, 44, paymentMethodY + 28);
+          .text(paymentDetails, 40, paymentMethodY + 28);
       }
       paymentMethodExtraHeight = 60;
 
@@ -1180,7 +1200,10 @@ export async function generateReceiptPdfBufferFromDb(
             };
           }
         } catch (e) {
-          console.warn("[receiptPdf] Failed to parse payment externalReference:", e);
+          console.warn(
+            "[receiptPdf] Failed to parse payment externalReference:",
+            e,
+          );
         }
       }
     }
