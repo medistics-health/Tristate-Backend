@@ -19,6 +19,12 @@ model User {
   updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
   approvalDecisions     ApprovalDecision[]     @relation("ApprovalDecisionByUser")
   approvedBillingRuns   BillingRun[]           @relation("BillingRunApprovedBy")
+  credentialingAssigned CredentialingRequest[] @relation("CredentialingAssignedToUser")
+  credentialingCreated  CredentialingRequest[] @relation("CredentialingCreatedByUser")
+  credentialingUpdated  CredentialingRequest[] @relation("CredentialingUpdatedByUser")
+  credentialingActivity  CredentialingActivityLog[] @relation("CredentialingActivityByUser")
+  credentialingFollowUps CredentialingFollowUpLog[] @relation("CredentialingFollowUpByUser")
+  credentialingDocuments CredentialingDocument[] @relation("CredentialingDocumentByUser")
   resolvedExceptions    ExceptionEvent[]       @relation("ExceptionResolvedByUser")
   quickbooksConnections QuickBooksConnection[] @relation("QuickBooksConnectedByUser")
 
@@ -124,6 +130,7 @@ model Practice {
   payments              Payment[]
   onboardings           Onboarding[]
   persons               PracticePerson[]
+  credentialingRequests CredentialingRequest[]
   billToTaxId           TaxId?                 @relation("PracticeBillToTaxId", fields: [billToTaxIdId], references: [id])
   company               Company?               @relation(fields: [companyId], references: [id])
   practiceGroup         PracticeGroup?         @relation(fields: [practiceGroupId], references: [id])
@@ -218,6 +225,7 @@ model Person {
   docusealSubmissions DocusealSubmission[]
   onboardings         Onboarding[]
   practices           PracticePerson[]
+  credentialingRequests CredentialingRequest[]
 
   @@map("contacts")
 }
@@ -1318,6 +1326,121 @@ model OnboardingMarketing {
   @@map("OnboardingMarketing")
 }
 
+model CredentialingRequest {
+  id                     String                        @id @default(uuid()) @db.Uuid
+  credentialingId        String                        @unique @map("credentialing_id")
+  practiceId             String                        @map("practice_id") @db.Uuid
+  providerId             String?                       @map("provider_id") @db.Uuid
+  providerName           String?                       @map("provider_name")
+  insurancePayerName     String                        @map("insurance_payer_name")
+  requestType            CredentialingRequestType      @map("request_type")
+  contractType           CredentialingContractType     @map("contract_type")
+  ipaDelegatedEntityName String?                       @map("ipa_delegated_entity_name")
+  status                 CredentialingRequestStatus    @default(NOT_STARTED)
+  payerProviderId        String?                       @map("payer_provider_id")
+  startDate              DateTime?                     @map("start_date")
+  submissionDate         DateTime?                     @map("submission_date")
+  approvalDate           DateTime?                     @map("approval_date")
+  effectiveDate          DateTime?                     @map("effective_date")
+  expirationDate         DateTime?                     @map("expiration_date")
+  nextFollowUpDate       DateTime?                     @map("next_follow_up_date")
+  reCredentialingDueDate DateTime?                     @map("re_credentialing_due_date")
+  lastActivityDate       DateTime?                     @map("last_activity_date")
+  tinVerified            CredentialingVerificationStatus @default(PENDING) @map("tin_verified")
+  addressVerified        CredentialingVerificationStatus @default(PENDING) @map("address_verified")
+  lineOfBusiness         String[]                      @map("lines_of_business")
+  priority               CredentialingPriority          @default(MEDIUM)
+  internalNotes          String?                       @map("internal_notes")
+  assignedToUserId       String?                       @map("assigned_to_user_id") @db.Uuid
+  createdByUserId        String?                       @map("created_by_user_id") @db.Uuid
+  updatedByUserId        String?                       @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @default(now()) @updatedAt @map("updated_at")
+  practice               Practice                      @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  provider               Person?                       @relation(fields: [providerId], references: [id])
+  assignedToUser         User?                         @relation("CredentialingAssignedToUser", fields: [assignedToUserId], references: [id])
+  createdByUser          User?                         @relation("CredentialingCreatedByUser", fields: [createdByUserId], references: [id])
+  updatedByUser          User?                         @relation("CredentialingUpdatedByUser", fields: [updatedByUserId], references: [id])
+  documents              CredentialingDocument[]
+  followUpLogs           CredentialingFollowUpLog[]
+  activityLogs           CredentialingActivityLog[]
+
+  @@unique([practiceId, providerId, insurancePayerName])
+  @@index([practiceId])
+  @@index([providerId])
+  @@index([assignedToUserId])
+  @@index([status])
+  @@index([insurancePayerName])
+  @@index([nextFollowUpDate])
+  @@index([reCredentialingDueDate])
+  @@index([updatedAt])
+  @@map("credentialing_requests")
+}
+
+model CredentialingFollowUpLog {
+  id                     String                         @id @default(uuid()) @db.Uuid
+  credentialingRequestId String                         @map("credentialing_request_id") @db.Uuid
+  dateTime               DateTime                       @default(now()) @map("date_time")
+  channel                CredentialingCommunicationChannel
+  direction              CredentialingDirection
+  referenceNumber        String?                        @map("reference_number")
+  summary                String
+  nextAction             String?                        @map("next_action")
+  loggedByName           String?                        @map("logged_by_name")
+  loggedByUserId         String?                        @map("logged_by_user_id") @db.Uuid
+  createdAt              DateTime                       @default(now()) @map("created_at")
+  updatedAt              DateTime                       @default(now()) @updatedAt @map("updated_at")
+  request                CredentialingRequest           @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
+  loggedByUser           User?                          @relation("CredentialingFollowUpByUser", fields: [loggedByUserId], references: [id])
+
+  @@index([credentialingRequestId])
+  @@index([dateTime])
+  @@index([loggedByUserId])
+  @@map("credentialing_follow_up_logs")
+}
+
+model CredentialingDocument {
+  id                     String                         @id @default(uuid()) @db.Uuid
+  credentialingRequestId String                         @map("credentialing_request_id") @db.Uuid
+  documentType           CredentialingDocumentType      @map("document_type")
+  fileName               String                         @map("file_name")
+  fileUrl                String?                        @map("file_url")
+  fileSize               Int?                           @map("file_size")
+  mimeType               String?                        @map("mime_type")
+  expiryDate             DateTime?                      @map("expiry_date")
+  uploadedByName         String?                        @map("uploaded_by_name")
+  uploadedByUserId       String?                        @map("uploaded_by_user_id") @db.Uuid
+  createdAt              DateTime                       @default(now()) @map("created_at")
+  updatedAt              DateTime                       @default(now()) @updatedAt @map("updated_at")
+  request                CredentialingRequest           @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
+  uploadedByUser         User?                          @relation("CredentialingDocumentByUser", fields: [uploadedByUserId], references: [id])
+
+  @@index([credentialingRequestId])
+  @@index([documentType])
+  @@index([expiryDate])
+  @@index([uploadedByUserId])
+  @@map("credentialing_documents")
+}
+
+model CredentialingActivityLog {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  credentialingRequestId String                     @map("credentialing_request_id") @db.Uuid
+  activityType           CredentialingActivityType  @map("activity_type")
+  action                 String
+  details                String?
+  actorName              String?                    @map("actor_name")
+  createdByUserId        String?                    @map("created_by_user_id") @db.Uuid
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @default(now()) @updatedAt @map("updated_at")
+  request                CredentialingRequest       @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
+  createdByUser          User?                      @relation("CredentialingActivityByUser", fields: [createdByUserId], references: [id])
+
+  @@index([credentialingRequestId])
+  @@index([activityType])
+  @@index([createdByUserId])
+  @@map("credentialing_activity_logs")
+}
+
 enum UserRoles {
   ADMIN
   SALES
@@ -1712,4 +1835,75 @@ enum ContactRoles {
 enum ReportStatus {
   PENDING
   SUBMITTED
+}
+
+enum CredentialingRequestStatus {
+  NOT_STARTED
+  APPLICATION_SUBMITTED
+  IN_PROCESS_PAYER_REVIEW
+  PENDING_ADDITIONAL_INFO
+  CONTRACTED_DIRECT
+  CONTRACTED_IPA_DELEGATED
+  OUT_OF_NETWORK
+  DECLINED_APPLICATION_REJECTED
+  RE_CREDENTIALING_DUE
+  TERMINATED
+}
+
+enum CredentialingRequestType {
+  NEW_CREDENTIALING
+  RE_CREDENTIALING
+  DEMOGRAPHIC_UPDATE
+  ADD_LOCATION
+}
+
+enum CredentialingContractType {
+  DIRECT_CONTRACT
+  IPA_DELEGATED
+  UNKNOWN_PENDING_CONFIRMATION
+}
+
+enum CredentialingVerificationStatus {
+  YES
+  NO
+  PENDING
+}
+
+enum CredentialingPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum CredentialingCommunicationChannel {
+  PHONE
+  EMAIL
+  PAYER_PORTAL
+  FAX
+  MAIL
+}
+
+enum CredentialingDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CredentialingDocumentType {
+  MEDICAL_LICENSE
+  DEA
+  BOARD_CERTIFICATE
+  CV
+  W9
+  INSURANCE_CERTIFICATE
+  OTHER_DOCUMENTS
+}
+
+enum CredentialingActivityType {
+  CREATED
+  UPDATED
+  EDITED
+  STATUS_CHANGED
+  DOCUMENT_UPLOADED
+  FOLLOW_UP_LOGGED
+  DELETED
 }
