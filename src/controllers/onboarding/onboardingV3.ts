@@ -347,7 +347,10 @@ const onboardingInclude = {
 
 class PracticeOnboardingConflictError extends Error {
   constructor(practiceId: string) {
-    super(`Onboarding already exists for practice ${practiceId}.`);
+    // super(`Onboarding already exists for practice ${practiceId}.`);
+    super(
+      `An onboarding has already been submitted for the selected practice.`,
+    );
     this.name = "PracticeOnboardingConflictError";
   }
 }
@@ -658,8 +661,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
                         pr.ipaAffiliationsProviderLevel,
                       nppesUsername: pr.nppesUsername,
                       nppesPassword: pr.nppesPassword,
-                      railroadMedicareIndividual:
-                        pr.railroadMedicareIndividual,
+                      railroadMedicareIndividual: pr.railroadMedicareIndividual,
                       copyOfBoardCertification: pr.copyOfBoardCertification,
                       copyOfProfessionalLiabilityInsurance:
                         pr.copyOfProfessionalLiabilityInsurance,
@@ -719,8 +721,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
               eftEraSetup: body.billing.eftEraSetup,
               invoiceRecipient: body.billing.invoiceRecipient,
               invoiceEmail: body.billing.invoiceEmail,
-              preferredReportingCadence:
-                body.billing.preferredReportingCadence,
+              preferredReportingCadence: body.billing.preferredReportingCadence,
               billingPainPoints: body.billing.billingPainPoints,
               additionalNotes: body.billing.additionalNotes,
             },
@@ -741,8 +742,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
               designatedPortalContactPhone:
                 body.credentialing.designatedPortalContactPhone,
               irsDocument147c: body.credentialing.irsDocument147c,
-              desiredInsurancePlans:
-                body.credentialing.desiredInsurancePlans,
+              desiredInsurancePlans: body.credentialing.desiredInsurancePlans,
               caqhMaintained: body.credentialing.caqhMaintained,
               currentCredentialingIssues: body.credentialing
                 .currentCredentialingIssues as any,
@@ -793,14 +793,12 @@ async function createOnboardingRecord(body: OnboardingBody) {
         ? {
             create: {
               preferredLab: body.labPharmacy.preferredLab,
-              existingLabRelationship:
-                body.labPharmacy.existingLabRelationship,
+              existingLabRelationship: body.labPharmacy.existingLabRelationship,
               labInterfaceStatus: body.labPharmacy.labInterfaceStatus,
               labContactName: body.labPharmacy.labContactName,
               labContactEmail: body.labPharmacy.labContactEmail,
               pharmacyPartnerName: body.labPharmacy.pharmacyPartnerName,
-              pharmacyPartnerInvolved:
-                body.labPharmacy.pharmacyPartnerInvolved,
+              pharmacyPartnerInvolved: body.labPharmacy.pharmacyPartnerInvolved,
               additionalNotes: body.labPharmacy.additionalNotes,
             },
           }
@@ -823,8 +821,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
               programsPlanned: body.careProgram.programsPlanned || [],
               estimatedEligiblePatients:
                 body.careProgram.estimatedEligiblePatients,
-              currentEnrolledPatients:
-                body.careProgram.currentEnrolledPatients,
+              currentEnrolledPatients: body.careProgram.currentEnrolledPatients,
               patientEnrollmentHandler:
                 body.careProgram.patientEnrollmentHandler,
               monthlyFollowUpHandler: body.careProgram.monthlyFollowUpHandler,
@@ -849,17 +846,14 @@ async function createOnboardingRecord(body: OnboardingBody) {
               existingBrandAssets: body.marketing.existingBrandAssets,
               googleBusinessProfileClaimed:
                 body.marketing.googleBusinessProfileClaimed,
-              patientAcquisitionGoals:
-                body.marketing.patientAcquisitionGoals,
+              patientAcquisitionGoals: body.marketing.patientAcquisitionGoals,
               aiToolsUsed: body.marketing.aiToolsUsed,
-              additionalMarketingNotes:
-                body.marketing.additionalMarketingNotes,
+              additionalMarketingNotes: body.marketing.additionalMarketingNotes,
             },
           }
         : undefined,
       status:
-        (body.status as OnboardingStatus | undefined) ??
-        OnboardingStatus.DRAFT,
+        (body.status as OnboardingStatus | undefined) ?? OnboardingStatus.DRAFT,
     },
     include: onboardingInclude as any,
   } as any)) as any;
@@ -876,9 +870,7 @@ async function findExistingExternalOnboarding(practiceId: string) {
   return onboarding;
 }
 
-async function handleCompletedOnboarding(
-  onboardingId: string,
-): Promise<void> {
+async function handleCompletedOnboarding(onboardingId: string): Promise<void> {
   const onboarding = (await prisma.onboarding.findUnique({
     where: { id: onboardingId },
     include: {
@@ -1083,9 +1075,7 @@ export async function uploadExternalOnboardingDocument(
       decodeHeader(req.header("x-file-content-type")) ||
       req.header("content-type") ||
       "application/octet-stream";
-    const fileBuffer = Buffer.isBuffer(req.body)
-      ? req.body
-      : Buffer.from([]);
+    const fileBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
 
     if (!practiceId) {
       return res.status(400).json({ message: "Practice id is required." });
@@ -1338,7 +1328,10 @@ export async function updateOnboarding(
       return res.status(404).json({ message: "Onboarding not found." });
     }
 
-    await ensureUniquePracticeOnboarding(body.practiceId ?? existing.practiceId, id);
+    await ensureUniquePracticeOnboarding(
+      body.practiceId ?? existing.practiceId,
+      id,
+    );
 
     let onboarding = (await prisma.onboarding.update({
       where: { id },
@@ -1671,7 +1664,8 @@ export async function updateOnboarding(
                   ehrSystem: body.technology.ehrSystem,
                   practiceManagementSystem:
                     body.technology.practiceManagementSystem,
-                  patientPortalAvailable: body.technology.patientPortalAvailable,
+                  patientPortalAvailable:
+                    body.technology.patientPortalAvailable,
                   patientListExportable: body.technology.patientListExportable,
                   appointmentListExportable:
                     body.technology.appointmentListExportable,
@@ -1692,7 +1686,8 @@ export async function updateOnboarding(
                   ehrSystem: body.technology.ehrSystem,
                   practiceManagementSystem:
                     body.technology.practiceManagementSystem,
-                  patientPortalAvailable: body.technology.patientPortalAvailable,
+                  patientPortalAvailable:
+                    body.technology.patientPortalAvailable,
                   patientListExportable: body.technology.patientListExportable,
                   appointmentListExportable:
                     body.technology.appointmentListExportable,
