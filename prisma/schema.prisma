@@ -862,7 +862,7 @@ model Onboarding {
   requestedGoLiveDate           DateTime?                @map("requested_go_live_date")
   priorityLevel                 String?                  @map("priority_level")
   servicesForAllPractices       String?                  @map("services_for_all_practices")
-  selectedPractices             String[]                 @map("selected_practices")
+  selectedPractices             String[]                 @default([]) @map("selected_practices")
   replacingExistingVendor       Boolean?                 @map("replacing_existing_vendor")
   currentVendorName             String?                  @map("current_vendor_name")
   currentVendorEndDate          DateTime?                @map("current_vendor_end_date")
@@ -974,6 +974,7 @@ model OnboardingLocation {
   officeManagerName      String?            @map("office_manager_name")
   patientOutreachManaged String?            @map("patient_outreach_managed")
   billingManaged         String?            @map("billing_managed")
+  cliaNumber             String?            @map("clia_number")
   notes                  String?
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at")
@@ -994,7 +995,6 @@ model OnboardingProvider {
   credentials            String?
   providerType           String?            @map("provider_type")
   specialty              String?
-  cliaNumber             String?            @map("clia_number")
   npi                    String?
   caqhId                 String?            @map("caqh_id")
   ssnFullDigits          String?            @map("ssn_full_digits")
@@ -1526,8 +1526,9 @@ enum ServiceType {
   TCM
   LAB_RELATIONSHIP_SUPPORT
   PHARMACY_PROGRAM_SUPPORT
-  PATIENT_ACQUISITION
+  PATIENT_ACQUISITION_BRAND_GROWTH
   BRAND_GROWTH
+  MSP_TECH_SUPPORT
   AI_VISIBILITY
   OTHER
 }
