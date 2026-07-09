@@ -103,7 +103,7 @@ model Practice {
   name                  String
   npi                   String?
   status                PracticeStatus
-  region                String
+  region                String?
   source                PracticeSource
   bucket                String[]
   stripeCustomerId      String?                @map("stripe_customer_id")
