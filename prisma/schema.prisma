@@ -259,6 +259,7 @@ model Agreement {
   effectiveDate       DateTime?              @map("effective_date")
   renewalDate         DateTime?              @map("renewal_date")
   externalReference   String?                @map("external_reference")
+  services            Service[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at")
   serviceTerms        AgreementServiceTerm[]
@@ -333,6 +334,7 @@ model Service {
   createdAt              DateTime                 @default(now()) @map("created_at")
   updatedAt              DateTime                 @default(now()) @updatedAt @map("updated_at")
   agreementTerms         AgreementServiceTerm[]
+  agreements             Agreement[]
   billingInputSnapshots  BillingInputSnapshot[]
   billingRunItems        BillingRunItem[]
   DealSelectedService DealSelectedService[]
