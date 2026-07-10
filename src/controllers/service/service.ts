@@ -15,9 +15,55 @@ type ServiceBody = {
   margin?: number;
 };
 
-function serializeService<T extends Record<string, unknown>>(service: T) {
+function getStripeAccountDisplayName(account: any) {
+  const rawDisplayName =
+    account?.business_profile?.name ||
+    account?.company?.name ||
+    [account?.individual?.first_name, account?.individual?.last_name]
+      .filter(Boolean)
+      .join(" ") ||
+    account?.display_name ||
+    account?.settings?.dashboard?.display_name ||
+    account?.email ||
+    account?.id ||
+    null;
+
+  return String(rawDisplayName || "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+async function resolveStripeAccountNames(accountIds: Array<string | null | undefined>) {
+  const uniqueIds = [...new Set(accountIds.filter((value): value is string => Boolean(value)))];
+  if (uniqueIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const accounts = await stripe.accounts.list({ limit: 100 });
+  const map = new Map<string, string>();
+
+  for (const account of accounts.data) {
+    if (account.deleted) {
+      continue;
+    }
+
+    if (!uniqueIds.includes(account.id)) {
+      continue;
+    }
+
+    map.set(account.id, getStripeAccountDisplayName(account));
+  }
+
+  return map;
+}
+
+function serializeService<T extends Record<string, unknown>>(
+  service: T,
+  stripeConnectedAccountName?: string | null,
+) {
   return {
     ...service,
+    stripeConnectedAccountName: stripeConnectedAccountName ?? null,
     // clientRate: null,
     // vendorRate: null,
     // margin: null,
@@ -70,8 +116,9 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    let stripeAccount = null;
     try {
-      await ensureValidStripeConnectedAccount(stripeConnectedAccountId);
+      stripeAccount = await ensureValidStripeConnectedAccount(stripeConnectedAccountId);
     } catch (error) {
       return res.status(400).json({
         message: "Invalid Stripe connected account.",
@@ -83,17 +130,6 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
       const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
       if (!vendor) {
         return res.status(404).json({ message: "Vendor not found." });
-      }
-    }
-
-    if (stripeConnectedAccountId !== undefined && stripeConnectedAccountId) {
-      try {
-        await ensureValidStripeConnectedAccount(stripeConnectedAccountId);
-      } catch (error) {
-        return res.status(400).json({
-          message: "Invalid Stripe connected account.",
-          error: error instanceof Error ? error.message : error,
-        });
       }
     }
 
@@ -111,7 +147,7 @@ export async function createService(req: AuthenticatedRequest, res: Response) {
 
     return res.status(201).json({
       message: "Service created successfully.",
-      service: serializeService(service),
+      service: serializeService(service, stripeAccount ? getStripeAccountDisplayName(stripeAccount) : null),
       // ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
       //   ? {
       //       warning:
@@ -148,9 +184,15 @@ export async function getService(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ message: "Service not found." });
     }
 
+    const stripeAccountName = service.stripeConnectedAccountId
+      ? getStripeAccountDisplayName(
+          await ensureValidStripeConnectedAccount(service.stripeConnectedAccountId),
+        )
+      : null;
+
     return res.status(200).json({
       message: "Service fetched successfully.",
-      service: serializeService(service),
+      service: serializeService(service, stripeAccountName),
     });
   } catch (error) {
     return res.status(500).json({
@@ -187,6 +229,18 @@ export async function updateService(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    let stripeAccount = null;
+    if (stripeConnectedAccountId !== undefined && stripeConnectedAccountId) {
+      try {
+        stripeAccount = await ensureValidStripeConnectedAccount(stripeConnectedAccountId);
+      } catch (error) {
+        return res.status(400).json({
+          message: "Invalid Stripe connected account.",
+          error: error instanceof Error ? error.message : error,
+        });
+      }
+    }
+
     const service = await prisma.service.update({
       where: { id },
       data: {
@@ -204,7 +258,7 @@ export async function updateService(req: AuthenticatedRequest, res: Response) {
 
     return res.status(200).json({
       message: "Service updated successfully.",
-      service: serializeService(service),
+      service: serializeService(service, stripeAccount ? getStripeAccountDisplayName(stripeAccount) : null),
       ...(hasDeprecatedPricingFields({ clientRate, vendorRate, margin })
         ? {
             warning:
@@ -278,9 +332,20 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
       prisma.service.count({ where }),
     ]);
 
+    const stripeAccountNames = await resolveStripeAccountNames(
+      services.map((service) => service.stripeConnectedAccountId),
+    );
+
     return res.status(200).json({
       message: "Services fetched successfully.",
-      services: services.map((service) => serializeService(service)),
+      services: services.map((service) =>
+        serializeService(
+          service,
+          service.stripeConnectedAccountId
+            ? stripeAccountNames.get(service.stripeConnectedAccountId) || null
+            : null,
+        ),
+      ),
       pagination: {
         total,
         page,

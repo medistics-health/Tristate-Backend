@@ -11,6 +11,7 @@ import {
   getInvoiceStripeEvents,
   resendStripeInvoice,
 } from "../controllers/invoice/invoice";
+import { getInvoiceStripePayoutSummary } from "../controllers/invoice/invoiceTransfer";
 import {
   createInvoiceLineItem,
   getInvoiceLineItem,
@@ -51,6 +52,7 @@ invoiceRouter.delete(
 );
 
 // Invoice detail routes
+invoiceRouter.get("/stripe-payouts", getInvoiceStripePayoutSummary);
 invoiceRouter.get("/:id", getInvoice);
 invoiceRouter.get("/:id/pdf", getInvoicePdf);
 invoiceRouter.get("/:id/receipt-pdf", getInvoiceReceiptPdf);

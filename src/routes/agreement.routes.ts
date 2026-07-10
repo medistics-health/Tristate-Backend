@@ -11,7 +11,8 @@ import {
   getDocusealTemplates,
   getDocusealFormBySlug,
   handleDocusealWebhook,
-} from "../controllers/agreement/agreementV2";
+} from "../controllers/agreement/agreementV3";
+import { sendOnboardingForm } from "../controllers/agreement/agreementV3";
 import {
   createAgreementVersion,
   getAgreementVersion,
@@ -48,6 +49,11 @@ agreementRouter.post(
   "/send-email",
   requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
   sendAgreementEmail,
+);
+agreementRouter.post(
+  "/send-onboarding-form",
+  requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
+  sendOnboardingForm,
 );
 agreementRouter.post(
   "/docuseal/submission",
