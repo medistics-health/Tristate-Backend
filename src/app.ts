@@ -21,6 +21,7 @@ import monthlyReportRouter from "./routes/monthlyReport.routes";
 import vendorRouter from "./routes/vendor.routes";
 import billingRouter from "./routes/billing.routes";
 import vendorPayableRouter from "./routes/vendorPayable.routes";
+import credentialingRouter from "./routes/credentialing.routes";
 import portalRouter from "./routes/portal.routes";
 import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
 import {
@@ -32,8 +33,11 @@ import settingsRouter from "./routes/settings.routes";
 import mercuryRouter from "./routes/mercury.routes";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import path from "path";
 
 const app = express();
+
+app.use(express.static(path.join(__dirname, "..", "public")));
 
 app.use("/api/v1/stripe/webhook", stripeWebhookRouter);
 app.use(express.json({ limit: "25mb" }));
@@ -59,6 +63,7 @@ app.use("/api/v1/services", serviceRouter);
 app.use("/api/v1/onboarding", onboardingRouter);
 app.use("/api/v1/vendors", vendorRouter);
 app.use("/api/v1/vendor-payables", vendorPayableRouter);
+app.use("/api/v1/credentialing", credentialingRouter);
 app.use("/api/v1/billing", billingRouter);
 app.use("/api/v1/invoices", invoiceRouter);
 app.use("/api/v1/purchase-orders", purchaseOrderRouter);
