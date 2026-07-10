@@ -302,7 +302,7 @@ function getPricingTermApprovalData(
       ? Number(((grossMargin / clientAmount) * 100).toFixed(2))
       : 0;
 
-  let requiresApproval = clientAmount > 0 && marginPct < 20;
+  let requiresApproval = marginPct < 20;
 
   if (pricingModel === PricingModel.HYBRID) {
     const components = Array.isArray(pricingConfig.components)
@@ -322,7 +322,7 @@ function getPricingTermApprovalData(
 
       const compMargin = cVal - vVal;
       const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
-      if (cVal > 0 && compMarginPct < 20) {
+      if (compMarginPct < 20) {
         anyCompBelow20 = true;
         break;
       }
@@ -634,6 +634,22 @@ const COMMON_STYLES = `
     padding: 32px; 
   }
   h1 { margin: 0 0 8px 0; font-size: 1.75rem; font-weight: 600; color: #1a202c; }
+  .page-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+  .page-title h1 {
+    margin: 0;
+  }
+  .page-title img {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
   h2 { margin: 0 0 16px 0; font-size: 1.1rem; font-weight: 600; color: #1a202c; }
   h3 { margin: 0 0 12px 0; font-size: 1rem; font-weight: 600; color: #1a202c; }
   .intro { margin: 0 0 18px 0; color: #64748b; font-size: 0.98rem; line-height: 1.5; }
@@ -825,6 +841,11 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
       pricingConfig.collectionSource.trim()
         ? pricingConfig.collectionSource.trim()
         : null;
+    const approvalNotes =
+      typeof pricingConfig.approvalNotes === "string" &&
+      pricingConfig.approvalNotes.trim()
+        ? pricingConfig.approvalNotes.trim()
+        : null;
 
     const clientSubject = `Pricing Packet for ${serviceName} - Action Required`;
     const clientBody = `
@@ -835,6 +856,14 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
       <h3>Rates:</h3>
       ${clientRatesHtml}
       ${collectionSource ? `<p><strong>Collection Source:</strong> ${escapeHtml(collectionSource)}</p>` : ""}
+      ${
+        approvalNotes
+          ? `
+      <h3>Justification / Approval Notes</h3>
+      <p>${escapeHtml(approvalNotes)}</p>
+      `
+          : ""
+      }
       <p>Please review and respond:</p>
       <p><a href="${clientApprovalUrl}" style="display:inline-block;padding:10px 16px;border-radius:6px;background:#4f63ea;color:#ffffff;text-decoration:none;">Accept or Deny Packet</a></p>
       <p>If the button does not work, copy and paste this URL into your browser:</p>
@@ -879,6 +908,11 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
         typeof pricingConfig.collectionSource === "string" &&
         pricingConfig.collectionSource.trim()
           ? pricingConfig.collectionSource.trim()
+          : null;
+      const approvalNotes =
+        typeof pricingConfig.approvalNotes === "string" &&
+        pricingConfig.approvalNotes.trim()
+          ? pricingConfig.approvalNotes.trim()
           : null;
 
       let approvalBody = "";
@@ -939,6 +973,7 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
           <p style="margin: 4px 0;"><strong>Effective Start Date:</strong> ${escapeHtml(effectiveStartDate)}</p>
           <p style="margin: 4px 0;"><strong>Effective End Date:</strong> ${escapeHtml(effectiveEndDate)}</p>
           ${collectionSource ? `<p style="margin: 4px 0;"><strong>Collection Source:</strong> ${escapeHtml(collectionSource)}</p>` : ""}
+          ${approvalNotes ? `<p style="margin: 4px 0;"><strong>Justification / Approval Notes:</strong> ${escapeHtml(approvalNotes)}</p>` : ""}
           
           <h3>Margin Preview</h3>
           ${hybridEmailMarginPreviewHtml}
@@ -956,12 +991,13 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
           <p><strong>Service:</strong> ${escapeHtml(serviceName)}</p>
           <p><strong>Vendor:</strong> ${escapeHtml(vendorName)}</p>
           <p><strong>Pricing Model:</strong> ${escapeHtml(term.pricingModel)}</p>
-          <p><strong>Effective Start Date:</strong> ${escapeHtml(effectiveStartDate)}</p>
-          <p><strong>Effective End Date:</strong> ${escapeHtml(effectiveEndDate)}</p>
-          <h3>Client Rates:</h3>
-          ${clientRatesHtml}
-          ${vendorRatesHtml ? `<h3>Vendor Rates:</h3>${vendorRatesHtml}` : ""}
-          <p><strong>${approvalData.isPercentageBased ? "Client Rate:" : "Client Amount:"}</strong> ${formatValue(approvalData.clientAmount)}</p>
+      <p><strong>Effective Start Date:</strong> ${escapeHtml(effectiveStartDate)}</p>
+      <p><strong>Effective End Date:</strong> ${escapeHtml(effectiveEndDate)}</p>
+      <h3>Client Rates:</h3>
+      ${clientRatesHtml}
+      ${vendorRatesHtml ? `<h3>Vendor Rates:</h3>${vendorRatesHtml}` : ""}
+      ${approvalNotes ? `<p><strong>Justification / Approval Notes:</strong> ${escapeHtml(approvalNotes)}</p>` : ""}
+      <p><strong>${approvalData.isPercentageBased ? "Client Rate:" : "Client Amount:"}</strong> ${formatValue(approvalData.clientAmount)}</p>
           <p><strong>${approvalData.isPercentageBased ? "Vendor Rate:" : "Vendor Amount:"}</strong> ${formatValue(approvalData.vendorAmount)}</p>
           <p><strong>Gross Margin:</strong> ${formatValue(approvalData.grossMargin)}</p>
           <p><strong>Margin %:</strong> ${approvalData.marginPct.toFixed(2)}%</p>
@@ -1099,6 +1135,11 @@ export async function getAgreementServiceTermApprovalPage(
       pricingConfig.collectionSource.trim()
         ? pricingConfig.collectionSource.trim()
         : null;
+    const approvalNotes =
+      typeof pricingConfig.approvalNotes === "string" &&
+      pricingConfig.approvalNotes.trim()
+        ? pricingConfig.approvalNotes.trim()
+        : null;
 
     const vendorPricing =
       typeof pricingConfig.vendorPricing === "object" &&
@@ -1200,10 +1241,10 @@ export async function getAgreementServiceTermApprovalPage(
       }
     } else {
       marginPreviewHtml = `
-        ${clientRevenue ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Client Rate" : "Est. Client Revenue"}</dt><dd style="color:#4f46e5;font-size:1.2rem;">${escapeHtml(clientRevenue)}</dd></div>` : ""}
-        ${vendorCost ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Vendor Rate" : "Est. Vendor Cost"}</dt><dd style="color:#ef4444;font-size:1.2rem;">${escapeHtml(vendorCost)}</dd></div>` : ""}
-        ${grossMargin ? `<div class="detail-card"><dt>Est. Gross Margin</dt><dd style="color:#10b981;font-size:1.2rem;">${escapeHtml(grossMargin)}</dd></div>` : ""}
-        ${marginPct ? `<div class="detail-card"><dt>Margin %</dt><dd style="color:${approvalData.marginPct < 20 ? "#f59e0b" : "#10b981"};font-size:1.2rem;">${escapeHtml(marginPct)}</dd></div>` : ""}
+        ${clientRevenue !== null ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Client Rate" : "Est. Client Revenue"}</dt><dd style="color:#4f46e5;font-size:1.2rem;">${escapeHtml(clientRevenue)}</dd></div>` : ""}
+        ${vendorCost !== null ? `<div class="detail-card"><dt>${approvalData.isPercentageBased ? "Est. Vendor Rate" : "Est. Vendor Cost"}</dt><dd style="color:#ef4444;font-size:1.2rem;">${escapeHtml(vendorCost)}</dd></div>` : ""}
+        ${grossMargin !== null ? `<div class="detail-card"><dt>Est. Gross Margin</dt><dd style="color:#10b981;font-size:1.2rem;">${escapeHtml(grossMargin)}</dd></div>` : ""}
+        ${marginPct !== null ? `<div class="detail-card"><dt>Margin %</dt><dd style="color:${approvalData.marginPct < 20 ? "#f59e0b" : "#10b981"};font-size:1.2rem;">${escapeHtml(marginPct)}</dd></div>` : ""}
         ${approvalData.requiresApproval ? `<div class="note-card" style="background:#fef3c7;border-color:#fde047;color:#92400e;"><strong>⚠ Margin below threshold (${approvalData.marginPct.toFixed(2)}%)</strong></div>` : ""}
       `;
     }
@@ -1220,7 +1261,10 @@ export async function getAgreementServiceTermApprovalPage(
       </head>
       <body>
         <div class="card">
-          <h1>Pricing Term Approval</h1>
+          <div class="page-title">
+            <h1>Pricing Term Approval</h1>
+            <img src="/tristate-logo.png" alt="Tristate Logo" />
+          </div>
           <p class="intro">Review the pricing term details below and decide whether to approve or reject it.</p>
           <span class="badge ${approvalStatusCss}">${escapeHtml(internalApprovalStatus)}</span>
           
@@ -1241,6 +1285,19 @@ export async function getAgreementServiceTermApprovalPage(
               ${collectionSource ? `<div class="rate-item"><span class="rate-label">Collection Source:</span> <span class="rate-value">${escapeHtml(collectionSource)}</span></div>` : ""}
             </div>
           </div>
+
+          ${
+            approvalNotes
+              ? `
+          <div class="section">
+            <h2>Justification / Approval Notes</h2>
+            <div class="note-card approved" style="text-align:left;">
+              <p>${escapeHtml(approvalNotes)}</p>
+            </div>
+          </div>
+          `
+              : ""
+          }
 
           ${
             vendorRatesHtml
@@ -1377,6 +1434,11 @@ export async function getAgreementServiceTermClientApprovalPage(
       pricingConfig.collectionSource.trim()
         ? pricingConfig.collectionSource.trim()
         : null;
+    const approvalNotes =
+      typeof pricingConfig.approvalNotes === "string" &&
+      pricingConfig.approvalNotes.trim()
+        ? pricingConfig.approvalNotes.trim()
+        : null;
     const clientApprovalNote =
       typeof pricingConfig.clientApprovalNote === "string"
         ? pricingConfig.clientApprovalNote.trim()
@@ -1402,6 +1464,7 @@ export async function getAgreementServiceTermClientApprovalPage(
               <div class="note-card ${isApproved ? "approved" : "rejection"}">
                 <strong>${isApproved ? "✓ This packet has been accepted" : "✕ This packet has been denied"}</strong>
                 <p>${isApproved ? "Thank you for accepting this pricing packet." : "This pricing packet has been denied."}</p>
+                ${approvalNotes ? `<p style="margin-top:12px;"><strong>Justification / Approval Notes:</strong> ${escapeHtml(approvalNotes)}</p>` : ""}
                 ${clientApprovalNote ? `<p style="margin-top:12px;"><strong>Reason:</strong> ${escapeHtml(clientApprovalNote)}</p>` : ""}
                 <p style="margin-top:16px;color:#94a3b8;font-size:0.85rem;">No further action is required.</p>
               </div>
@@ -1427,7 +1490,10 @@ export async function getAgreementServiceTermClientApprovalPage(
       </head>
       <body>
         <div class="card">
-          <h1>Pricing Packet</h1>
+          <div class="page-title">
+            <h1>Pricing Packet</h1>
+            <img src="/tristate-logo.png" alt="Tristate Logo" />
+          </div>
           <p class="intro">Please review the pricing details below and accept or deny this packet.</p>
           <span class="badge badge-pending">Pending Your Response</span>
           
@@ -1458,6 +1524,19 @@ export async function getAgreementServiceTermClientApprovalPage(
               ${collectionSource ? `<div class="rate-item"><span class="rate-label">Collection Source:</span> <span class="rate-value">${escapeHtml(collectionSource)}</span></div>` : ""}
             </div>
           </div>
+
+          ${
+            approvalNotes
+              ? `
+          <div class="section">
+            <h2>Justification / Approval Notes</h2>
+            <div class="note-card approved" style="text-align:left;">
+              <p>${escapeHtml(approvalNotes)}</p>
+            </div>
+          </div>
+          `
+              : ""
+          }
 
           <div class="section">
             <h2>Your Response</h2>
@@ -1839,7 +1918,7 @@ export async function getAgreementServiceTerms(
     const serviceId = req.query.serviceId as string;
 
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = parseInt(req.query.limit as string) || 1000;
     const skip = (page - 1) * limit;
 
     const where: any = {};

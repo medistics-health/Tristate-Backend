@@ -958,6 +958,7 @@ model OnboardingLocation {
   officeManagerName      String?            @map("office_manager_name")
   patientOutreachManaged String?            @map("patient_outreach_managed")
   billingManaged         String?            @map("billing_managed")
+  cliaNumber             String?            @map("clia_number")
   notes                  String?
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at")
@@ -1625,8 +1626,10 @@ enum ServiceType {
   TCM
   LAB_RELATIONSHIP_SUPPORT
   PHARMACY_PROGRAM_SUPPORT
+  PATIENT_ACQUISITION_BRAND_GROWTH
   PATIENT_ACQUISITION
   BRAND_GROWTH
+  MSP_TECH_SUPPORT
   AI_VISIBILITY
   OTHER
 }

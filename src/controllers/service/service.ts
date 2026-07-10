@@ -256,7 +256,7 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
     }
 
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = parseInt(req.query.limit as string) || 1000;
     const search = (req.query.search as string) || "";
 
     const skip = (page - 1) * limit;
