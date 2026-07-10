@@ -214,7 +214,7 @@ export async function getAllAudits(req: AuthenticatedRequest, res: Response) {
       return res.status(401).json({ message: "Unauthorized." });
     }
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = parseInt(req.query.limit as string) || 1000;
     // const search = (req.query.search as string) || "";
     const type = (req.query.type as string) || "";
 
