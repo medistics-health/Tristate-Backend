@@ -867,7 +867,7 @@ model Onboarding {
   isCredentialingEntity         Boolean?                 @map("is_credentialing_entity")
   primarySpecialty              String?                  @map("primary_specialty")
   additionalSpecialties         String[]                 @map("additional_specialties")
-  requestedServices             ServiceType[]            @map("requested_services")
+  requestedServices             String[]            @map("requested_services")
   primaryServiceToLaunch        String?                  @map("primary_service_to_launch")
   requestedGoLiveDate           DateTime?                @map("requested_go_live_date")
   priorityLevel                 String?                  @map("priority_level")
