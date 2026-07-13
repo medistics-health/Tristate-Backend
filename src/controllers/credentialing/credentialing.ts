@@ -371,9 +371,14 @@ function mapRequest(request: any) {
     ? [request.provider.firstName, request.provider.lastName].filter(Boolean).join(" ")
     : request.providerName || "";
   const assignedToUserName = request.assignedToUser
-    ? [request.assignedToUser.firstName, request.assignedToUser.lastName]
-        .filter(Boolean)
-        .join(" ")
+    ? [
+        [request.assignedToUser.firstName, request.assignedToUser.lastName]
+          .filter(Boolean)
+          .join(" ")
+          .trim(),
+        request.assignedToUser.userName,
+        request.assignedToUser.email,
+      ].find((entry) => Boolean(entry && String(entry).trim())) || ""
     : "";
 
   return {
@@ -406,6 +411,7 @@ function mapRequest(request: any) {
     priority: getPriorityLabel(request.priority),
     internalNotes: request.internalNotes || "",
     assignedToUserId: request.assignedToUserId || "",
+    assignedUserId: request.assignedToUserId || "",
     assignedUser: assignedToUserName,
     createdByUserId: request.createdByUserId || "",
     updatedByUserId: request.updatedByUserId || "",
@@ -496,14 +502,20 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
 
   const assignedTerm = query.assignedUser?.trim();
   if (assignedTerm) {
-    where.assignedToUser = {
-      OR: [
-        { firstName: { contains: assignedTerm, mode: "insensitive" } },
-        { lastName: { contains: assignedTerm, mode: "insensitive" } },
-        { userName: { contains: assignedTerm, mode: "insensitive" } },
-        { email: { contains: assignedTerm, mode: "insensitive" } },
-      ],
-    };
+    where.OR = [
+      ...(where.OR ?? []),
+      { assignedToUserId: { equals: assignedTerm } },
+      {
+        assignedToUser: {
+          OR: [
+            { firstName: { contains: assignedTerm, mode: "insensitive" } },
+            { lastName: { contains: assignedTerm, mode: "insensitive" } },
+            { userName: { contains: assignedTerm, mode: "insensitive" } },
+            { email: { contains: assignedTerm, mode: "insensitive" } },
+          ],
+        },
+      },
+    ];
   }
 
   if (query.dateFrom || query.dateTo) {
@@ -636,6 +648,17 @@ async function resolveUserId(userId?: string | null, userName?: string | null) {
         { email: { equals: term, mode: "insensitive" } },
         { firstName: { contains: term, mode: "insensitive" } },
         { lastName: { contains: term, mode: "insensitive" } },
+        {
+          AND: [
+            { firstName: { contains: term.split(" ")[0] || term, mode: "insensitive" } },
+            {
+              lastName: {
+                contains: term.split(" ").slice(1).join(" ") || term,
+                mode: "insensitive",
+              },
+            },
+          ],
+        },
       ],
     },
   });
@@ -880,6 +903,7 @@ function prepareFollowUpCreates(
   requestId: string,
   body: CredentialingBody,
   actorName: string,
+  defaultLoggedByName: string,
   actorUserId: string,
 ) {
   const followUps = Array.isArray(body.followUpLogs) ? body.followUpLogs : [];
@@ -898,9 +922,31 @@ function prepareFollowUpCreates(
       referenceNumber: entry.referenceNumber?.trim() || null,
       summary: entry.summary || "",
       nextAction: entry.nextAction?.trim() || null,
-      loggedByName: entry.loggedByName || actorName,
+      loggedByName: entry.loggedByName || defaultLoggedByName || actorName,
       loggedByUserId: actorUserId,
     }));
+}
+
+async function fetchCredentialingRequestWithDetails(requestId: string) {
+  return prisma.credentialingRequest.findUniqueOrThrow({
+    where: { id: requestId },
+    include: {
+      practice: true,
+      provider: true,
+      assignedToUser: true,
+      createdByUser: true,
+      updatedByUser: true,
+      documents: {
+        orderBy: { createdAt: "desc" },
+      },
+      followUpLogs: {
+        orderBy: { dateTime: "desc" },
+      },
+      activityLogs: {
+        orderBy: { createdAt: "desc" },
+      },
+    },
+  });
 }
 
 export async function getCredentialingRequests(
@@ -1162,6 +1208,7 @@ export async function createCredentialingRequest(
     }
 
     const actorName = getActorName(req);
+    const loggedByName = req.user.role || actorName;
     const requestId = crypto.randomUUID();
     const documentCreates = await prepareCredentialingDocuments(
       requestId,
@@ -1174,6 +1221,7 @@ export async function createCredentialingRequest(
       requestId,
       body,
       actorName,
+      loggedByName,
       currentUserId,
     );
 
@@ -1204,30 +1252,16 @@ export async function createCredentialingRequest(
         followUpCreates,
       );
 
-      return tx.credentialingRequest.findUniqueOrThrow({
-        where: { id: created.id },
-        include: {
-          practice: true,
-          provider: true,
-          assignedToUser: true,
-          createdByUser: true,
-          updatedByUser: true,
-          documents: {
-            orderBy: { createdAt: "desc" },
-          },
-          followUpLogs: {
-            orderBy: { dateTime: "desc" },
-          },
-          activityLogs: {
-            orderBy: { createdAt: "desc" },
-          },
-        },
-      });
+      return created.id;
     });
+
+    const createdRecord = await fetchCredentialingRequestWithDetails(
+      credentialingRequest,
+    );
 
     return res.status(201).json({
       message: "Credentialing request created successfully.",
-      credentialingRequest: mapRequest(credentialingRequest),
+      credentialingRequest: mapRequest(createdRecord),
     });
   } catch (error) {
     return res.status(500).json({
@@ -1297,6 +1331,7 @@ export async function updateCredentialingRequest(
     }
 
     const actorName = getActorName(req);
+    const loggedByName = req.user.role || actorName;
     const documentCreates = await prepareCredentialingDocuments(
       existing.id,
       existing.credentialingId,
@@ -1308,9 +1343,10 @@ export async function updateCredentialingRequest(
       existing.id,
       body,
       actorName,
+      loggedByName,
       currentUserId,
     );
-    const current = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.credentialingDocument.deleteMany({
         where: { credentialingRequestId: existing.id },
       });
@@ -1346,27 +1382,9 @@ export async function updateCredentialingRequest(
         documentCreates,
         followUpCreates,
       );
-
-      return tx.credentialingRequest.findUniqueOrThrow({
-        where: { id: updated.id },
-        include: {
-          practice: true,
-          provider: true,
-          assignedToUser: true,
-          createdByUser: true,
-          updatedByUser: true,
-          documents: {
-            orderBy: { createdAt: "desc" },
-          },
-          followUpLogs: {
-            orderBy: { dateTime: "desc" },
-          },
-          activityLogs: {
-            orderBy: { createdAt: "desc" },
-          },
-        },
-      });
     });
+
+    const current = await fetchCredentialingRequestWithDetails(existing.id);
 
     return res.status(200).json({
       message: "Credentialing request updated successfully.",
