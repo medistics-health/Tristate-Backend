@@ -193,11 +193,16 @@ import {
       submitter_uuid?: string;
     }>,
     submitterUuid?: string | null,
+    serviceNames?: string[],
   ) {
     if (!submitterUuid) {
       return [];
     }
-  
+
+    const normalizedServices = (serviceNames || [])
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean);
+
     return templateFields
       .filter(
         (field) =>
@@ -206,35 +211,12 @@ import {
       )
       .map((field) => ({
         name: String(field.name || "").trim(),
-        readonly: String(field.type || "").toLowerCase() !== "signature",
-      }));
-  }
-
-  function buildServiceEditableFieldNames(
-    templateFields: Array<{
-      name?: string;
-      type?: string;
-      submitter_uuid?: string;
-    }>,
-    submitterUuid: string | null,
-    serviceNames: string[],
-  ): string[] {
-    if (!submitterUuid || serviceNames.length === 0) return [];
-
-    const normalizedServices = serviceNames
-      .map((name) => name.trim().toLowerCase())
-      .filter(Boolean);
-
-    return templateFields
-      .filter(
-        (field) =>
-          String(field.name || "").trim() &&
-          field.submitter_uuid === submitterUuid &&
-          normalizedServices.includes(
+        readonly:
+          String(field.type || "").toLowerCase() !== "signature" &&
+          !normalizedServices.includes(
             String(field.name || "").trim().toLowerCase(),
           ),
-      )
-      .map((field) => String(field.name || "").trim());
+      }));
   }
   
   async function updateDealAfterAgreementSend(agreementId: string) {
@@ -600,19 +582,7 @@ import {
         const secondPartyFields = buildReadonlyFieldsForSubmitter(
           template.fields || [],
           secondPartyUuid,
-        );
-
-        const serviceEditableFieldNames =
-          agreement.services.length > 0
-            ? buildServiceEditableFieldNames(
-                template.fields || [],
-                secondPartyUuid,
-                agreement.services.map((s) => s.name),
-              )
-            : [];
-
-        const mergedSecondPartyFields = secondPartyFields.filter(
-          (f) => !serviceEditableFieldNames.includes(f.name),
+          agreement.services.map((s) => s.name),
         );
         const expireAt = new Date();
         expireAt.setHours(expireAt.getHours() + 48);
@@ -651,7 +621,7 @@ import {
               name: `${person.firstName} ${person.lastName}`,
               // values: mergedValues,
               values: secondPartyValues,
-              fields: mergedSecondPartyFields,
+              fields: secondPartyFields,
             },
   
             // {
@@ -879,19 +849,7 @@ import {
       const secondPartyFields = buildReadonlyFieldsForSubmitter(
         template.fields || [],
         secondPartyUuid,
-      );
-
-      const serviceEditableFieldNames =
-        agreement.services.length > 0
-          ? buildServiceEditableFieldNames(
-              template.fields || [],
-              secondPartyUuid,
-              agreement.services.map((s) => s.name),
-            )
-          : [];
-
-      const mergedSecondPartyFields = secondPartyFields.filter(
-        (f) => !serviceEditableFieldNames.includes(f.name),
+        agreement.services.map((s) => s.name),
       );
 
       console.log(mergedValues);
@@ -915,7 +873,7 @@ import {
             name: `${person.firstName} ${person.lastName}`,
             // values: mergedValues,
             values: secondPartyValues,
-            fields: mergedSecondPartyFields,
+            fields: secondPartyFields,
           },
   
           // {
@@ -1574,19 +1532,7 @@ import {
               const secondPartyFields = buildReadonlyFieldsForSubmitter(
                 template.fields || [],
                 secondPartyUuid,
-              );
-
-              const serviceEditableFieldNames =
-                agreement.services.length > 0
-                  ? buildServiceEditableFieldNames(
-                      template.fields || [],
-                      secondPartyUuid,
-                      agreement.services.map((s) => s.name),
-                    )
-                  : [];
-
-              const mergedSecondPartyFields = secondPartyFields.filter(
-                (f) => !serviceEditableFieldNames.includes(f.name),
+                agreement.services.map((s) => s.name),
               );
   
               const expireAt = new Date();
@@ -1608,7 +1554,7 @@ import {
                     email: eligiblePerson.email,
                     name: `${eligiblePerson.firstName} ${eligiblePerson.lastName}`,
                     values: secondPartyValues,
-                    fields: mergedSecondPartyFields,
+                    fields: secondPartyFields,
                   },
                 ],
                 expire_at: expireAt.toISOString(),
@@ -2131,19 +2077,7 @@ import {
               const secondPartyFields = buildReadonlyFieldsForSubmitter(
                 template.fields || [],
                 secondPartyUuid,
-              );
-
-              const serviceEditableFieldNames =
-                agreementForAutoSend.services.length > 0
-                  ? buildServiceEditableFieldNames(
-                      template.fields || [],
-                      secondPartyUuid,
-                      agreementForAutoSend.services.map((s) => s.name),
-                    )
-                  : [];
-
-              const mergedSecondPartyFields = secondPartyFields.filter(
-                (f) => !serviceEditableFieldNames.includes(f.name),
+                agreementForAutoSend.services.map((s) => s.name),
               );
   
               const expireAt = new Date();
@@ -2165,7 +2099,7 @@ import {
                     email: eligiblePerson.email,
                     name: `${eligiblePerson.firstName} ${eligiblePerson.lastName}`,
                     values: secondPartyValues,
-                    fields: mergedSecondPartyFields,
+                    fields: secondPartyFields,
                   },
                 ],
                 expire_at: expireAt.toISOString(),
