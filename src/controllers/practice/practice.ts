@@ -229,9 +229,9 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (!name || !status || !region || !source || !npi) {
+    if (!name || !status || !source) {
       return res.status(400).json({
-        message: "name, status, region, source, npi are required.",
+        message: "name, status, source are required.",
       });
     }
 

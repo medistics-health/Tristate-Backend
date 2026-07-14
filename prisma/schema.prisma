@@ -109,7 +109,7 @@ model Practice {
   name                  String
   npi                   String?
   status                PracticeStatus
-  region                String
+  region                String?
   source                PracticeSource
   bucket                String[]
   stripeCustomerId      String?                @map("stripe_customer_id")
@@ -267,6 +267,7 @@ model Agreement {
   effectiveDate       DateTime?              @map("effective_date")
   renewalDate         DateTime?              @map("renewal_date")
   externalReference   String?                @map("external_reference")
+  services            Service[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at")
   serviceTerms        AgreementServiceTerm[]
@@ -341,6 +342,7 @@ model Service {
   createdAt              DateTime                 @default(now()) @map("created_at")
   updatedAt              DateTime                 @default(now()) @updatedAt @map("updated_at")
   agreementTerms         AgreementServiceTerm[]
+  agreements             Agreement[]
   billingInputSnapshots  BillingInputSnapshot[]
   billingRunItems        BillingRunItem[]
   DealSelectedService DealSelectedService[]
@@ -865,7 +867,7 @@ model Onboarding {
   isCredentialingEntity         Boolean?                 @map("is_credentialing_entity")
   primarySpecialty              String?                  @map("primary_specialty")
   additionalSpecialties         String[]                 @map("additional_specialties")
-  requestedServices             ServiceType[]            @map("requested_services")
+  requestedServices             String[]            @map("requested_services")
   primaryServiceToLaunch        String?                  @map("primary_service_to_launch")
   requestedGoLiveDate           DateTime?                @map("requested_go_live_date")
   priorityLevel                 String?                  @map("priority_level")
