@@ -209,6 +209,33 @@ import {
         readonly: String(field.type || "").toLowerCase() !== "signature",
       }));
   }
+
+  function buildServiceEditableFieldNames(
+    templateFields: Array<{
+      name?: string;
+      type?: string;
+      submitter_uuid?: string;
+    }>,
+    submitterUuid: string | null,
+    serviceNames: string[],
+  ): string[] {
+    if (!submitterUuid || serviceNames.length === 0) return [];
+
+    const normalizedServices = serviceNames
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean);
+
+    return templateFields
+      .filter(
+        (field) =>
+          String(field.name || "").trim() &&
+          field.submitter_uuid === submitterUuid &&
+          normalizedServices.includes(
+            String(field.name || "").trim().toLowerCase(),
+          ),
+      )
+      .map((field) => String(field.name || "").trim());
+  }
   
   async function updateDealAfterAgreementSend(agreementId: string) {
     const agreement = await prisma.agreement.findUnique({
@@ -484,6 +511,7 @@ import {
         where: { id: agreementId },
         include: {
           practice: true,
+          services: true,
           docusealSubmissions: {
             select: {
               templateId: true,
@@ -573,6 +601,19 @@ import {
           template.fields || [],
           secondPartyUuid,
         );
+
+        const serviceEditableFieldNames =
+          agreement.services.length > 0
+            ? buildServiceEditableFieldNames(
+                template.fields || [],
+                secondPartyUuid,
+                agreement.services.map((s) => s.name),
+              )
+            : [];
+
+        const mergedSecondPartyFields = secondPartyFields.filter(
+          (f) => !serviceEditableFieldNames.includes(f.name),
+        );
         const expireAt = new Date();
         expireAt.setHours(expireAt.getHours() + 48);
   
@@ -610,7 +651,7 @@ import {
               name: `${person.firstName} ${person.lastName}`,
               // values: mergedValues,
               values: secondPartyValues,
-              fields: secondPartyFields,
+              fields: mergedSecondPartyFields,
             },
   
             // {
@@ -761,7 +802,7 @@ import {
   
       const agreement = await prisma.agreement.findFirst({
         where: { id: agreementId },
-        include: { practice: true },
+        include: { practice: true, services: true },
       });
   
       if (!agreement) {
@@ -839,6 +880,20 @@ import {
         template.fields || [],
         secondPartyUuid,
       );
+
+      const serviceEditableFieldNames =
+        agreement.services.length > 0
+          ? buildServiceEditableFieldNames(
+              template.fields || [],
+              secondPartyUuid,
+              agreement.services.map((s) => s.name),
+            )
+          : [];
+
+      const mergedSecondPartyFields = secondPartyFields.filter(
+        (f) => !serviceEditableFieldNames.includes(f.name),
+      );
+
       console.log(mergedValues);
       const expireAt = new Date();
       expireAt.setHours(expireAt.getHours() + 48);
@@ -860,7 +915,7 @@ import {
             name: `${person.firstName} ${person.lastName}`,
             // values: mergedValues,
             values: secondPartyValues,
-            fields: secondPartyFields,
+            fields: mergedSecondPartyFields,
           },
   
           // {
@@ -1434,6 +1489,7 @@ import {
         include: {
           docusealSubmissions: true,
           versions: true,
+          services: true,
         },
       });
   
@@ -1519,6 +1575,19 @@ import {
                 template.fields || [],
                 secondPartyUuid,
               );
+
+              const serviceEditableFieldNames =
+                agreement.services.length > 0
+                  ? buildServiceEditableFieldNames(
+                      template.fields || [],
+                      secondPartyUuid,
+                      agreement.services.map((s) => s.name),
+                    )
+                  : [];
+
+              const mergedSecondPartyFields = secondPartyFields.filter(
+                (f) => !serviceEditableFieldNames.includes(f.name),
+              );
   
               const expireAt = new Date();
               expireAt.setHours(expireAt.getHours() + 48);
@@ -1539,7 +1608,7 @@ import {
                     email: eligiblePerson.email,
                     name: `${eligiblePerson.firstName} ${eligiblePerson.lastName}`,
                     values: secondPartyValues,
-                    fields: secondPartyFields,
+                    fields: mergedSecondPartyFields,
                   },
                 ],
                 expire_at: expireAt.toISOString(),
@@ -1992,6 +2061,7 @@ import {
           where: { id },
           include: {
             practice: true,
+            services: true,
             docusealSubmissions: {
               include: {
                 signers: true,
@@ -2062,6 +2132,19 @@ import {
                 template.fields || [],
                 secondPartyUuid,
               );
+
+              const serviceEditableFieldNames =
+                agreementForAutoSend.services.length > 0
+                  ? buildServiceEditableFieldNames(
+                      template.fields || [],
+                      secondPartyUuid,
+                      agreementForAutoSend.services.map((s) => s.name),
+                    )
+                  : [];
+
+              const mergedSecondPartyFields = secondPartyFields.filter(
+                (f) => !serviceEditableFieldNames.includes(f.name),
+              );
   
               const expireAt = new Date();
               expireAt.setHours(expireAt.getHours() + 48);
@@ -2082,7 +2165,7 @@ import {
                     email: eligiblePerson.email,
                     name: `${eligiblePerson.firstName} ${eligiblePerson.lastName}`,
                     values: secondPartyValues,
-                    fields: secondPartyFields,
+                    fields: mergedSecondPartyFields,
                   },
                 ],
                 expire_at: expireAt.toISOString(),
