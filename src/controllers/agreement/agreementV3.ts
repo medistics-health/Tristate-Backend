@@ -54,6 +54,7 @@ import {
     effectiveDate?: string;
     renewalDate?: string;
     docusealSubmissions?: DocusealSubmissionInput[];
+    serviceIds?: string[];
   };
   
   type SendAgreementEmailBody = {
@@ -1348,6 +1349,7 @@ import {
         effectiveDate,
         renewalDate,
         docusealSubmissions,
+        serviceIds,
       } = req.body as AgreementBody;
   
       if (!req.user?.sub) {
@@ -1402,6 +1404,9 @@ import {
           status,
           effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
           renewalDate: renewalDate ? new Date(renewalDate) : undefined,
+          services: {
+            connect: serviceIds?.map((id) => ({ id })) || [],
+          },
           docusealSubmissions: {
             create: docusealSubmissions?.map((s) => ({
               url: s.url,
@@ -1743,6 +1748,7 @@ import {
             channelPartners: true,
             docusealSubmissions: true,
             versions: true,
+            services: true,
           },
           skip,
           take: limit,
@@ -1795,6 +1801,7 @@ import {
           docusealSubmissions: true,
           versions: true,
           serviceTerms: true,
+          services: true,
         },
       });
   
@@ -1829,6 +1836,7 @@ import {
         effectiveDate,
         renewalDate,
         docusealSubmissions,
+        serviceIds,
       } = req.body as AgreementBody;
   
       if (!req.user?.sub) {
@@ -1912,6 +1920,9 @@ import {
             : {}),
           ...(renewalDate !== undefined
             ? { renewalDate: renewalDate ? new Date(renewalDate) : null }
+            : {}),
+          ...(serviceIds !== undefined
+            ? { services: { set: serviceIds.map((id) => ({ id })) } }
             : {}),
         },
       });
