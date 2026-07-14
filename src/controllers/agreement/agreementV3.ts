@@ -9,7 +9,7 @@ import {
   import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
   import { sendOutlookEmail } from "../../utils/outlook";
   import { docuseal } from "../../utils/docuseal";
-  
+
   function escapeHtml(str: string | undefined): string {
     if (!str) return "";
     return str
@@ -19,19 +19,19 @@ import {
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
   }
-  
+
   function formatAgreementDate(value?: Date | null) {
     if (!value) {
       return "Not specified";
     }
-  
+
     return value.toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
     });
   }
-  
+
   type DocusealSubmissionInput = {
     id?: string;
     docusealSubmissionId: number;
@@ -43,7 +43,7 @@ import {
     submissionApprovalNote?: string | null;
     submitters?: Array<{ role: string; uuid: string }>;
   };
-  
+
   type AgreementBody = {
     practiceId?: string;
     dealId?: string | null;
@@ -56,7 +56,7 @@ import {
     docusealSubmissions?: DocusealSubmissionInput[];
     serviceIds?: string[];
   };
-  
+
   type SendAgreementEmailBody = {
     agreementId: string;
     personId: string;
@@ -71,21 +71,21 @@ import {
     message?: string;
     formLink?: string;
   };
-  
+
   type AgreementMailSettings = {
     authorizedSigner: string | null;
     notifyTo: string[];
   };
-  
+
   const AGREEMENT_APPROVAL_STATUSES = [
     "PENDING_APPROVAL",
     "APPROVED",
     "REJECTED",
   ] as const;
-  
+
   type AgreementApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
   type SubmissionApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
-  
+
   async function getAgreementMailSettings(): Promise<AgreementMailSettings> {
     const settings = await prisma.systemSettings.findFirst({
       select: {
@@ -93,7 +93,7 @@ import {
         notifyTo: true,
       },
     });
-  
+
     return {
       authorizedSigner: settings?.authorizedSigner?.trim() || null,
       notifyTo: (settings?.notifyTo || [])
@@ -101,7 +101,7 @@ import {
         .filter(Boolean),
     };
   }
-  
+
   async function resolveInitialPacketTemplateIds(agreementId: string) {
     const agreement = await prisma.agreement.findFirst({
       where: { id: agreementId },
@@ -113,35 +113,35 @@ import {
         },
       },
     });
-  
+
     if (!agreement) {
       return { error: "Agreement not found." as const };
     }
-  
+
     const templateIds = agreement.docusealSubmissions
       .map((submission) => submission.templateId)
       .filter((value): value is number => value !== null);
-  
+
     const uniqueTemplateIds = [...new Set(templateIds)];
-  
+
     if (uniqueTemplateIds.length === 0) {
       return {
         error:
           "No DocuSeal templates were found on this agreement. Pass templateId explicitly or create the agreement with docusealSubmissions first.",
       };
     }
-  
+
     return {
       agreement,
       templateIds: uniqueTemplateIds,
     };
   }
-  
+
   function normalizeFieldValues(value: unknown): Record<string, string> {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
     }
-  
+
     return Object.entries(value).reduce<Record<string, string>>(
       (acc, [key, currentValue]) => {
         if (typeof currentValue === "string") {
@@ -154,7 +154,7 @@ import {
       {},
     );
   }
-  
+
   function buildDocusealValuesBySubmitter(
     templateFields: Array<{
       uuid?: string;
@@ -167,25 +167,25 @@ import {
     if (!submitterUuid) {
       return {};
     }
-  
+
     return templateFields.reduce<Record<string, string>>((acc, field) => {
       const fieldName = String(field.name || "").trim();
       const fieldUuid = String(field.uuid || "").trim();
-  
+
       if (!fieldName || field.submitter_uuid !== submitterUuid) {
         return acc;
       }
-  
+
       const value = fieldValues[fieldName] ?? fieldValues[fieldUuid];
-  
+
       if (value !== undefined) {
         acc[fieldName] = String(value);
       }
-  
+
       return acc;
     }, {});
   }
-  
+
   function buildReadonlyFieldsForSubmitter(
     templateFields: Array<{
       name?: string;
@@ -216,19 +216,20 @@ import {
           !normalizedServices.includes(
             String(field.name || "").trim().toLowerCase(),
           ),
+          required:true
       }));
   }
-  
+
   async function updateDealAfterAgreementSend(agreementId: string) {
     const agreement = await prisma.agreement.findUnique({
       where: { id: agreementId },
       select: { dealId: true },
     });
-  
+
     if (!agreement?.dealId) {
       return;
     }
-  
+
     await prisma.deal.update({
       where: { id: agreement.dealId },
       data: {
@@ -241,17 +242,17 @@ import {
       },
     });
   }
-  
+
   async function updateDealAfterAgreementSigned(agreementId: string) {
     const agreement = await prisma.agreement.findUnique({
       where: { id: agreementId },
       select: { dealId: true },
     });
-  
+
     if (!agreement?.dealId) {
       return;
     }
-  
+
     await prisma.deal.update({
       where: { id: agreement.dealId },
       data: {
@@ -264,27 +265,27 @@ import {
       },
     });
   }
-  
+
   export async function handleDocusealWebhook(req: Request, res: Response) {
     try {
       const { event_type, data } = req.body;
-  
+
       let externalId: number;
-  
+
       if (event_type === "form.completed") {
         console.log(event_type, data);
         externalId = data.submission_id;
-  
+
         const dbSubmission = await prisma.docusealSubmission.findFirst({
           where: { docusealSubmissionId: externalId },
           include: { signers: true },
         });
-  
+
         console.log({ dbSubmission });
         if (dbSubmission) {
           console.log("dbSubmission if condition");
           const signer = dbSubmission.signers.find((s) => s.email === data.email);
-  
+
           if (signer) {
             console.log("udpating signers");
             await prisma.docuSigner.update({
@@ -298,19 +299,19 @@ import {
               },
             });
           }
-  
+
           if (data?.role === "First Party") {
             const secondParty = dbSubmission.signers.find(
               (s) => s.role === "Second Party",
             );
-  
+
             console.log({ secondParty });
             if (secondParty?.email) {
               const agreement = await prisma.agreement.findUnique({
                 where: { id: dbSubmission.agreementId },
                 include: { practice: true },
               });
-  
+
               const signerName =
                 signer?.name || data.email || "the business owner";
               console.log({ signerName });
@@ -340,7 +341,7 @@ import {
                 </p>
                 <p>Best regards,<br/>The Tristate Team</p>
               `;
-  
+
               await sendOutlookEmail(secondParty.email, subject, body);
               console.log({ sent: true });
             }
@@ -357,7 +358,7 @@ import {
           //
         }
       }
-  
+
       if (event_type === "submission.completed") {
         console.log(event_type, data);
         externalId = data?.id;
@@ -372,7 +373,7 @@ import {
         if (dbSubmission.status === "completed") {
           return res.status(200).send("OK");
         }
-  
+
         await prisma.docusealSubmission.update({
           where: { docusealSubmissionId: externalId },
           data: {
@@ -381,21 +382,21 @@ import {
             status: data.status,
           },
         });
-  
+
         if (dbSubmission.personId) {
           const allDocs = await prisma.docusealSubmission.findMany({
             where: { personId: dbSubmission.personId },
           });
-  
+
           const allCompleted = allDocs.every((doc) => doc.status === "completed");
           if (allCompleted) {
             await prisma.agreement.update({
               where: { id: dbSubmission.agreementId },
               data: { status: AgreementStatus.SIGNED },
             });
-  
+
             await updateDealAfterAgreementSigned(dbSubmission.agreementId);
-  
+
           }
         }
       }
@@ -405,7 +406,7 @@ import {
       return res.status(500).send("Internal Server Error");
     }
   }
-  
+
   function buildAutoFillValues(
     fields: Array<{ name: string }>,
     person: {
@@ -422,11 +423,11 @@ import {
     const fullName = `${person.firstName} ${person.lastName}`;
     const effectiveDate =
       agreement.effectiveDate?.toISOString().split("T")[0] || "";
-  
+
     const values: Record<string, string> = {};
     for (const field of fields) {
       const name = field.name.toLowerCase();
-  
+
       if (name.includes("first")) {
         values[field.name] = person.firstName;
       } else if (name.includes("last")) {
@@ -453,7 +454,7 @@ import {
     }
     return values;
   }
-  
+
   export async function createDocusealSubmission(
     req: AuthenticatedRequest,
     res: Response,
@@ -472,23 +473,23 @@ import {
         fieldValues?: Record<string, string>;
         fieldValuesByTemplateId?: Record<string, Record<string, string>>;
       };
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!agreementId || !personId) {
         return res.status(400).json({
           message: "agreementId and personId are required.",
         });
       }
-  
+
       let templateIds = Array.isArray(templateId)
         ? templateId
         : templateId !== undefined
           ? [templateId]
           : [];
-  
+
       const agreement = await prisma.agreement.findFirst({
         where: { id: agreementId },
         include: {
@@ -502,21 +503,21 @@ import {
           },
         },
       });
-  
+
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
-  
+
       if (templateIds.length === 0) {
         const resolved = await resolveInitialPacketTemplateIds(agreementId);
-  
+
         if ("error" in resolved) {
           return res.status(400).json({ message: resolved.error });
         }
-  
+
         templateIds = resolved.templateIds;
       }
-  
+
       const person = await prisma.person.findFirst({
         where: {
           id: personId,
@@ -527,24 +528,24 @@ import {
           },
         },
       });
-  
+
       if (!person || !person.email) {
         return res.status(404).json({
           message: "Person not found for this practice or has no email address.",
         });
       }
-  
+
       const agreementMailSettings = await getAgreementMailSettings();
-  
+
       const newSubmissions = [];
-  
+
       for (const tid of templateIds) {
         const templateIdNumber = Number(tid);
         const template = await docuseal.getTemplate(templateIdNumber);
         const storedDraftSubmission = agreement.docusealSubmissions.find(
           (submission) => submission.templateId === templateIdNumber,
         );
-  
+
         const autoFillValues = buildAutoFillValues(
           template.fields || [],
           person,
@@ -586,9 +587,9 @@ import {
         );
         const expireAt = new Date();
         expireAt.setHours(expireAt.getHours() + 48);
-  
+
         console.log(mergedValues);
-  
+
         const submission: any = await docuseal.createSubmission({
           template_id: templateIdNumber,
           send_email: false,
@@ -605,7 +606,7 @@ import {
             //   email: "pkolankar@medisticshealth.com",
             //   name: "TristateMSO",
             // },
-  
+
             {
               role: "First Party",
               // email: "nmelchiorre@tristatemso.com",
@@ -623,7 +624,7 @@ import {
               values: secondPartyValues,
               fields: secondPartyFields,
             },
-  
+
             // {
             //   role: "First Party",
             //   // email: "nmelchiorre@tristatemso.com",
@@ -640,28 +641,28 @@ import {
           ],
           expire_at: expireAt.toISOString(),
         });
-  
+
         console.log(submission);
-  
+
         const docusealSubmissionData = Array.isArray(submission)
           ? submission[0]
           : submission;
-  
+
         const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-  
+
         const existingSubmission = await prisma.docusealSubmission.findFirst({
           where: {
             agreementId,
             templateId: templateIdNumber,
           },
         });
-  
+
         let newSubmission;
         if (existingSubmission) {
           await prisma.docuSigner.deleteMany({
             where: { submissionId: existingSubmission.id },
           });
-  
+
           for (let i = 0; i < docusealSubmissionData.submitters.length; i++) {
             const sub = docusealSubmissionData.submitters[i];
             await prisma.docuSigner.create({
@@ -679,7 +680,7 @@ import {
               },
             });
           }
-  
+
           newSubmission = await prisma.docusealSubmission.update({
             where: { id: existingSubmission.id },
             data: {
@@ -719,10 +720,10 @@ import {
             },
           });
         }
-  
+
         newSubmissions.push(newSubmission);
       }
-  
+
       return res.status(200).json({
         message: "Docuseal submissions created successfully.",
         submissions: newSubmissions,
@@ -734,7 +735,7 @@ import {
       });
     }
   }
-  
+
   export async function resubmitDocusealSubmission(
     req: AuthenticatedRequest,
     res: Response,
@@ -753,32 +754,32 @@ import {
         fieldValues?: Record<string, string>;
         submissionApprovalStatus: string;
       };
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!agreementId || !personId || !templateId) {
         return res.status(400).json({
           message: "agreementId, personId, and templateId are required.",
         });
       }
-  
+
       if (submissionApprovalStatus !== "APPROVED") {
         return res.status(400).json({
           message: "Required Admin Approval to resend",
         });
       }
-  
+
       const agreement = await prisma.agreement.findFirst({
         where: { id: agreementId },
         include: { practice: true, services: true },
       });
-  
+
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
-  
+
       const person = await prisma.person.findFirst({
         where: {
           id: personId,
@@ -789,15 +790,15 @@ import {
           },
         },
       });
-  
+
       if (!person || !person.email) {
         return res.status(404).json({
           message: "Person not found for this practice or has no email address.",
         });
       }
-  
+
       const agreementMailSettings = await getAgreementMailSettings();
-  
+
       const template = await docuseal.getTemplate(templateId);
       const existingSubmission = await prisma.docusealSubmission.findFirst({
         where: {
@@ -810,19 +811,19 @@ import {
           fieldValues: true,
         },
       });
-  
+
       const autoFillValues = buildAutoFillValues(
         template.fields || [],
         person,
         agreement,
       );
-  
+
       if (existingSubmission?.docusealSubmissionId) {
         await docuseal.permanentlyDeleteSubmission(
           existingSubmission.docusealSubmissionId,
         );
       }
-  
+
       const mergedValues = {
         // ...autoFillValues,
         ...normalizeFieldValues(existingSubmission?.fieldValues),
@@ -875,7 +876,7 @@ import {
             values: secondPartyValues,
             fields: secondPartyFields,
           },
-  
+
           // {
           //   role: "First Party",
           //   // email: "nmelchiorre@tristatemso.com",
@@ -892,17 +893,17 @@ import {
         ],
         expire_at: expireAt.toISOString(),
       });
-  
+
       const docusealSubmissionData = Array.isArray(submission)
         ? submission[0]
         : submission;
-  
+
       let newSubmission;
       if (existingSubmission) {
         await prisma.docuSigner.deleteMany({
           where: { submissionId: existingSubmission.id },
         });
-  
+
         for (let i = 0; i < docusealSubmissionData.submitters.length; i++) {
           const sub = docusealSubmissionData.submitters[i];
           await prisma.docuSigner.create({
@@ -920,7 +921,7 @@ import {
             },
           });
         }
-  
+
         newSubmission = await prisma.docusealSubmission.update({
           where: { id: existingSubmission.id },
           data: {
@@ -960,7 +961,7 @@ import {
           },
         });
       }
-  
+
       const practiceName = agreement.practice?.name || "Unknown Practice";
       const templateName = template.name || `Template #${templateId}`;
       const emailSubject = `Updated Document Ready for Signature - ${agreement.type} - ${practiceName}`;
@@ -972,7 +973,7 @@ import {
       const firstPartySigner = docusealSubmissionData.submitters?.find(
         (s: any) => s.role === "First Party",
       );
-  
+
       const emailBody = `
         <p>Hello ${firstPartySigner?.name || "there"},</p>
         <p>The document <strong>${templateName}</strong> for your agreement
@@ -991,7 +992,7 @@ import {
         <p>Best regards,<br/>The Tristate Team</p>
       `;
       console.log(firstPartySigner?.email, emailSubject, emailBody);
-  
+
       const resppp = await sendOutlookEmail(
         firstPartySigner?.email || "SJangir@Tristatemso.com",
         emailSubject,
@@ -1001,12 +1002,12 @@ import {
         },
       );
       console.log(resppp);
-  
+
       await prisma.docusealSubmission.updateMany({
         where: { agreementId: agreementId },
         data: { submissionApprovalStatus: "APPROVED" },
       });
-  
+
       return res.status(200).json({
         message: "Docuseal submission re-created and email sent successfully.",
         submission: newSubmission,
@@ -1018,7 +1019,7 @@ import {
       });
     }
   }
-  
+
   export async function getDocusealTemplates(
     req: AuthenticatedRequest,
     res: Response,
@@ -1027,11 +1028,11 @@ import {
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       const templates = await docuseal.listTemplates({
         limit: 100,
       });
-  
+
       return res.status(200).json({
         message: "Docuseal templates fetched successfully.",
         templates,
@@ -1043,23 +1044,23 @@ import {
       });
     }
   }
-  
+
   export async function getDocusealFormBySlug(req: Request, res: Response) {
     try {
       const { slug } = req.params;
-  
+
       if (!slug) {
         return res.status(400).json({ message: "Slug is required." });
       }
-  
+
       const templates = await docuseal.listTemplates({ limit: 100 });
-  
+
       const template = templates.data.find((t: any) => t.slug === slug);
-  
+
       if (!template) {
         return res.status(404).json({ message: "Form not found." });
       }
-  
+
       return res.status(200).json(template);
     } catch (error) {
       return res.status(500).json({
@@ -1068,7 +1069,7 @@ import {
       });
     }
   }
-  
+
   export async function sendAgreementEmail(
     req: AuthenticatedRequest,
     res: Response,
@@ -1076,17 +1077,17 @@ import {
     try {
       const { agreementId, personId, subject, message } =
         req.body as SendAgreementEmailBody;
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!agreementId || !personId) {
         return res.status(400).json({
           message: "agreementId and personId are required.",
         });
       }
-  
+
       const agreement = await prisma.agreement.findFirst({
         where: {
           id: agreementId,
@@ -1100,22 +1101,22 @@ import {
           },
         },
       });
-  
+
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
-  
+
       // const practicePersonExists = await prisma.practicePerson.findFirst({
       //   where: {
       //     personId,
       //     practiceId: agreement.practiceId,
       //   },
       // });
-  
+
       // const personExists = await prisma.person.findFirst({
       //   where: { id: personId },
       // });
-  
+
       const person = await prisma.person.findFirst({
         where: {
           id: personId,
@@ -1126,17 +1127,17 @@ import {
           },
         },
       });
-  
+
       if (!person || !person.email) {
         return res.status(404).json({
           message: "Person not found for this practice or has no email address.",
         });
       }
-  
+
       const emailSubject =
         subject ||
         `Agreement: ${agreement.type} - ${agreement.practice?.name || "Unknown"}`;
-  
+
       const firstPartySigners = agreement.docusealSubmissions.flatMap(
         (submission) =>
           submission.signers.filter((signer) => signer.role === "First Party"),
@@ -1149,7 +1150,7 @@ import {
               const link = process.env.FRONTEND_URL
                 ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
                 : `http://localhost:5173/sign/${signer.submissionSlug}`;
-  
+
               return `
               <p>
                ${decodeURIComponent(
@@ -1162,51 +1163,51 @@ import {
             }),
         )
         .join("");
-  
+
       const firstPartyName = firstPartySigners[0]?.name || "there";
       const practiceName = agreement.practice?.name || "Unknown Practice";
-  
+
       const emailBody = `
         <p>Hello ${firstPartyName},</p>
-  
+
         <p>Please find the agreement details for
         <strong>${practiceName}</strong>.</p>
-  
+
         <p><strong>Agreement Type:</strong> ${agreement.type}</p>
         <p><strong>Effective Date:</strong> ${formatAgreementDate(agreement.effectiveDate)}</p>
         <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
-  
+
         <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
         <p>After you sign, the agreement will be routed to the client for signature.</p>
-  
+
         <p>
            <strong>Important:</strong>
            The signing link will expire in 48 hours.
         </p>
-  
+
         <p><strong>Documents:</strong></p>
         ${submissionLinks}
-  
+
         ${message ? `<p>${escapeHtml(message)}</p>` : ""}
-  
+
         <p>
           Best regards,<br/>
           The Tristate Team
         </p>
       `;
-  
+
       const firstPartyEmail =
         firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
-  
+
       await sendOutlookEmail(firstPartyEmail, emailSubject, emailBody);
-  
+
       await updateDealAfterAgreementSend(agreementId);
-  
+
       await prisma.agreement.update({
         where: { id: agreementId },
         data: { status: "SENT" },
       });
-  
+
       return res.status(200).json({
         message: "Agreement email sent successfully.",
       });
@@ -1324,15 +1325,15 @@ import {
       });
     }
   }
-  
+
   function isAgreementType(type: string): type is AgreementType {
     return Object.values(AgreementType).includes(type as AgreementType);
   }
-  
+
   function isAgreementStatus(status: string): status is AgreementStatus {
     return Object.values(AgreementStatus).includes(status as AgreementStatus);
   }
-  
+
   function isAgreementApprovalStatus(
     status: string,
   ): status is AgreementApprovalStatus {
@@ -1340,7 +1341,7 @@ import {
       status as AgreementApprovalStatus,
     );
   }
-  
+
   function isSubmissionApprovalStatus(
     status: string,
   ): status is SubmissionApprovalStatus {
@@ -1348,7 +1349,7 @@ import {
       status as SubmissionApprovalStatus,
     );
   }
-  
+
   export async function createAgreement(
     req: AuthenticatedRequest,
     res: Response,
@@ -1364,51 +1365,51 @@ import {
         docusealSubmissions,
         serviceIds,
       } = req.body as AgreementBody;
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!practiceId || !type || !status) {
         return res.status(400).json({
           message: "practiceId, type and status are required.",
         });
       }
-  
+
       if (!isAgreementType(type)) {
         return res.status(400).json({
           message: "Invalid agreement type.",
           allowedTypes: Object.values(AgreementType),
         });
       }
-  
+
       if (!isAgreementStatus(status)) {
         return res.status(400).json({
           message: "Invalid agreement status.",
           allowedStatuses: Object.values(AgreementStatus),
         });
       }
-  
+
       const practice = await prisma.practice.findFirst({
         where: { id: practiceId },
       });
-  
+
       if (!practice) {
         return res.status(404).json({ message: "Practice not found." });
       }
-  
+
       if (dealId) {
         const deal = await prisma.deal.findFirst({
           where: { id: dealId, practiceId },
         });
-  
+
         if (!deal) {
           return res
             .status(404)
             .json({ message: "Deal not found for practice." });
         }
       }
-  
+
       const agreement = await prisma.agreement.create({
         data: {
           practiceId,
@@ -1450,7 +1451,7 @@ import {
           services: true,
         },
       });
-  
+
       const initialVersion = await prisma.agreementVersion.create({
         data: {
           agreementId: agreement.id,
@@ -1461,7 +1462,7 @@ import {
           notes: "Initial version auto-created with agreement creation.",
         },
       });
-  
+
       await prisma.practice.update({
         where: { id: practiceId },
         data: {
@@ -1470,13 +1471,13 @@ import {
           },
         },
       });
-  
+
       const isApprovedForAutoSend =
         (agreement.docusealSubmissions || []).length > 0 &&
         agreement.docusealSubmissions.every(
           (submission) => submission.approval_status === "APPROVED",
         );
-  
+
       if (practice.status === "ACTIVE" && isApprovedForAutoSend) {
         const eligiblePerson = await prisma.person.findFirst({
           where: {
@@ -1491,23 +1492,23 @@ import {
             OR: [{ role: "ADMIN" }, { role: "OWNER" }],
           },
         });
-  
+
         if (eligiblePerson?.id && eligiblePerson.email) {
           const resolved = await resolveInitialPacketTemplateIds(agreement.id);
-  
+
           if (!("error" in resolved)) {
             const agreementMailSettings = await getAgreementMailSettings();
-  
+
             for (const currentTemplateId of resolved.templateIds) {
               const template = await docuseal.getTemplate(currentTemplateId);
               const existingSubmission = agreement.docusealSubmissions.find(
                 (submission) => submission.templateId === currentTemplateId,
               );
-  
+
               if (existingSubmission?.personId) {
                 continue;
               }
-  
+
               const mergedValues = {
                 ...normalizeFieldValues(existingSubmission?.fieldValues),
               };
@@ -1534,7 +1535,7 @@ import {
                 secondPartyUuid,
                 agreement.services.map((s) => s.name),
               );
-  
+
               const expireAt = new Date();
               expireAt.setHours(expireAt.getHours() + 48);
               const submission: any = await docuseal.createSubmission({
@@ -1559,16 +1560,16 @@ import {
                 ],
                 expire_at: expireAt.toISOString(),
               });
-  
+
               const docusealSubmissionData = Array.isArray(submission)
                 ? submission[0]
                 : submission;
-  
+
               if (existingSubmission) {
                 await prisma.docuSigner.deleteMany({
                   where: { submissionId: existingSubmission.id },
                 });
-  
+
                 for (
                   let i = 0;
                   i < docusealSubmissionData.submitters.length;
@@ -1590,7 +1591,7 @@ import {
                     },
                   });
                 }
-  
+
                 await prisma.docusealSubmission.update({
                   where: { id: existingSubmission.id },
                   data: {
@@ -1603,7 +1604,7 @@ import {
                 });
               }
             }
-  
+
             const refreshedAgreement = await prisma.agreement.findFirst({
               where: { id: agreement.id },
               include: {
@@ -1615,7 +1616,7 @@ import {
                 },
               },
             });
-  
+
             if (refreshedAgreement) {
               const firstPartySigners =
                 refreshedAgreement.docusealSubmissions.flatMap((submission) =>
@@ -1631,7 +1632,7 @@ import {
                       const link = process.env.FRONTEND_URL
                         ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
                         : `http://localhost:5173/sign/${signer.submissionSlug}`;
-  
+
                       return `
               <p>
                ${decodeURIComponent(
@@ -1644,46 +1645,46 @@ import {
                     }),
                 )
                 .join("");
-  
+
               const firstPartyName = firstPartySigners[0]?.name || "there";
               const practiceName =
                 refreshedAgreement.practice?.name || "Unknown Practice";
               const emailBody = `
         <p>Hello ${firstPartyName},</p>
-  
+
         <p>Please find the agreement details for
         <strong>${practiceName}</strong>.</p>
-  
+
         <p><strong>Agreement Type:</strong> ${refreshedAgreement.type}</p>
-  
+
         <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
         <p>After you sign, the agreement will be routed to the client for signature.</p>
-  
+
         <p>
            <strong>Important:</strong>
            The signing link will expire in 48 hours.
         </p>
-  
+
         <p><strong>Documents:</strong></p>
         ${submissionLinks}
-  
+
         <p>
           Best regards,<br/>
           The Tristate Team
         </p>
       `;
-  
+
               const firstPartyEmail =
                 firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
-  
+
               await sendOutlookEmail(
                 firstPartyEmail,
                 `Agreement: ${refreshedAgreement.type} - ${refreshedAgreement.practice?.name || "Unknown"}`,
                 emailBody,
               );
-  
+
               await updateDealAfterAgreementSend(agreement.id);
-  
+
               await prisma.agreement.update({
                 where: { id: agreement.id },
                 data: { status: "SENT" },
@@ -1692,7 +1693,7 @@ import {
           }
         }
       }
-  
+
       return res.status(201).json({
         message: "Agreement created successfully.",
         agreement: {
@@ -1708,22 +1709,22 @@ import {
       });
     }
   }
-  
+
   export async function getAgreements(req: AuthenticatedRequest, res: Response) {
     try {
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
       const search = (req.query.search as string) || "";
       const type = (req.query.type as string) || "";
       const status = (req.query.status as string) || "";
       const practiceId = (req.query.practiceId as string) || "";
-  
+
       const skip = (page - 1) * limit;
-  
+
       const where: any = {};
       if (practiceId) {
         where.practiceId = practiceId;
@@ -1733,7 +1734,7 @@ import {
           name: { contains: search, mode: "insensitive" },
         };
       }
-  
+
       if (type) {
         if (!isAgreementType(type)) {
           return res.status(400).json({
@@ -1743,7 +1744,7 @@ import {
         }
         where.type = type as AgreementType;
       }
-  
+
       if (status) {
         if (!isAgreementStatus(status)) {
           return res.status(400).json({
@@ -1753,7 +1754,7 @@ import {
         }
         where.status = status as AgreementStatus;
       }
-  
+
       const [agreements, totalRecords] = await Promise.all([
         prisma.agreement.findMany({
           where,
@@ -1773,9 +1774,9 @@ import {
         }),
         prisma.agreement.count({ where }),
       ]);
-  
+
       const totalPages = Math.ceil(totalRecords / limit);
-  
+
       return res.status(200).json({
         message: "Agreements fetched successfully.",
         agreements,
@@ -1793,19 +1794,19 @@ import {
       });
     }
   }
-  
+
   export async function getAgreement(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params as { id: string };
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!id) {
         return res.status(400).json({ message: "Agreement id is required." });
       }
-  
+
       const agreement = await prisma.agreement.findUnique({
         where: { id },
         include: {
@@ -1819,11 +1820,11 @@ import {
           services: true,
         },
       });
-  
+
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
-  
+
       return res.status(200).json({
         message: "Agreement fetched successfully.",
         agreement,
@@ -1835,7 +1836,7 @@ import {
       });
     }
   }
-  
+
   export async function updateAgreement(
     req: AuthenticatedRequest,
     res: Response,
@@ -1853,29 +1854,29 @@ import {
         docusealSubmissions,
         serviceIds,
       } = req.body as AgreementBody;
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!id) {
         return res.status(400).json({ message: "Agreement id is required." });
       }
-  
+
       if (type !== undefined && !isAgreementType(type)) {
         return res.status(400).json({
           message: "Invalid agreement type.",
           allowedTypes: Object.values(AgreementType),
         });
       }
-  
+
       if (status !== undefined && !isAgreementStatus(status)) {
         return res.status(400).json({
           message: "Invalid agreement status.",
           allowedStatuses: Object.values(AgreementStatus),
         });
       }
-  
+
       if (
         approvalStatus !== undefined &&
         !isAgreementApprovalStatus(approvalStatus)
@@ -1885,7 +1886,7 @@ import {
           allowedStatuses: [...AGREEMENT_APPROVAL_STATUSES],
         });
       }
-  
+
       if (
         submissionApprovalStatus !== undefined &&
         !isSubmissionApprovalStatus(submissionApprovalStatus)
@@ -1895,15 +1896,15 @@ import {
           allowedStatuses: [...AGREEMENT_APPROVAL_STATUSES],
         });
       }
-  
+
       const existingAgreement = await prisma.agreement.findFirst({
         where: { id },
       });
-  
+
       if (!existingAgreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
-  
+
       if (dealId) {
         const deal = await prisma.deal.findFirst({
           where: {
@@ -1911,17 +1912,17 @@ import {
             practiceId: existingAgreement.practiceId,
           },
         });
-  
+
         if (!deal) {
           return res
             .status(404)
             .json({ message: "Deal not found for agreement." });
         }
       }
-  
+
       const isApprovalStatusUpdate =
         approvalStatus !== undefined && isAgreementApprovalStatus(approvalStatus);
-  
+
       const agreement = await prisma.agreement.update({
         where: { id },
         data: {
@@ -1941,19 +1942,19 @@ import {
             : {}),
         },
       });
-  
+
       if (isApprovalStatusUpdate) {
         await prisma.docusealSubmission.updateMany({
           where: { agreementId: id },
           data: { approval_status: approvalStatus },
         });
       }
-  
+
       if (submissionApprovalStatus !== undefined) {
         const submissionsToUpdate = docusealSubmissions?.length
           ? docusealSubmissions
           : [undefined];
-  
+
         await Promise.all(
           submissionsToUpdate.map((submission) =>
             prisma.docusealSubmission.updateMany({
@@ -1978,7 +1979,7 @@ import {
         );
       }
       console.log("Creted Submission from updateAgreement");
-  
+
       if (docusealSubmissions?.length) {
         await Promise.all(
           docusealSubmissions.map((submission) =>
@@ -2001,7 +2002,7 @@ import {
           ),
         );
       }
-  
+
       if (approvalStatus === "APPROVED") {
         const agreementForAutoSend = await prisma.agreement.findFirst({
           where: { id },
@@ -2015,7 +2016,7 @@ import {
             },
           },
         });
-  
+
         const hasPendingAutoSendTemplates =
           agreementForAutoSend?.status !== "SENT" &&
           agreementForAutoSend?.practice?.status === "ACTIVE" &&
@@ -2026,7 +2027,7 @@ import {
           agreementForAutoSend.docusealSubmissions.some(
             (submission) => submission.templateId && !submission.personId,
           );
-  
+
         if (agreementForAutoSend && hasPendingAutoSendTemplates) {
           const eligiblePerson = await prisma.person.findFirst({
             where: {
@@ -2041,15 +2042,15 @@ import {
               OR: [{ role: "ADMIN" }, { role: "OWNER" }],
             },
           });
-  
+
           if (eligiblePerson?.id && eligiblePerson.email) {
             const agreementMailSettings = await getAgreementMailSettings();
-  
+
             for (const existingSubmission of agreementForAutoSend.docusealSubmissions) {
               if (!existingSubmission.templateId || existingSubmission.personId) {
                 continue;
               }
-  
+
               const template = await docuseal.getTemplate(
                 existingSubmission.templateId,
               );
@@ -2079,7 +2080,7 @@ import {
                 secondPartyUuid,
                 agreementForAutoSend.services.map((s) => s.name),
               );
-  
+
               const expireAt = new Date();
               expireAt.setHours(expireAt.getHours() + 48);
               const submission: any = await docuseal.createSubmission({
@@ -2104,15 +2105,15 @@ import {
                 ],
                 expire_at: expireAt.toISOString(),
               });
-  
+
               const docusealSubmissionData = Array.isArray(submission)
                 ? submission[0]
                 : submission;
-  
+
               await prisma.docuSigner.deleteMany({
                 where: { submissionId: existingSubmission.id },
               });
-  
+
               for (let i = 0; i < docusealSubmissionData.submitters.length; i++) {
                 const sub = docusealSubmissionData.submitters[i];
                 await prisma.docuSigner.create({
@@ -2130,7 +2131,7 @@ import {
                   },
                 });
               }
-  
+
               await prisma.docusealSubmission.update({
                 where: { id: existingSubmission.id },
                 data: {
@@ -2142,7 +2143,7 @@ import {
                 },
               });
             }
-  
+
             const refreshedAgreement = await prisma.agreement.findFirst({
               where: { id },
               include: {
@@ -2154,7 +2155,7 @@ import {
                 },
               },
             });
-  
+
             if (refreshedAgreement) {
               const firstPartySigners =
                 refreshedAgreement.docusealSubmissions.flatMap((submission) =>
@@ -2170,7 +2171,7 @@ import {
                       const link = process.env.FRONTEND_URL
                         ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
                         : `http://localhost:5173/sign/${signer.submissionSlug}`;
-  
+
                       return `
               <p>
                ${decodeURIComponent(
@@ -2183,46 +2184,46 @@ import {
                     }),
                 )
                 .join("");
-  
+
               const firstPartyName = firstPartySigners[0]?.name || "there";
               const practiceName =
                 refreshedAgreement.practice?.name || "Unknown Practice";
               const emailBody = `
         <p>Hello ${firstPartyName},</p>
-  
+
         <p>Please find the agreement details for
         <strong>${practiceName}</strong>.</p>
-  
+
         <p><strong>Agreement Type:</strong> ${refreshedAgreement.type}</p>
-  
+
         <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
         <p>After you sign, the agreement will be routed to the client for signature.</p>
-  
+
         <p>
            <strong>Important:</strong>
            The signing link will expire in 48 hours.
         </p>
-  
+
         <p><strong>Documents:</strong></p>
         ${submissionLinks}
-  
+
         <p>
           Best regards,<br/>
           The Tristate Team
         </p>
       `;
-  
+
               const firstPartyEmail =
                 firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
-  
+
               await sendOutlookEmail(
                 firstPartyEmail,
                 `Agreement: ${refreshedAgreement.type} - ${refreshedAgreement.practice?.name || "Unknown"}`,
                 emailBody,
               );
-  
+
               await updateDealAfterAgreementSend(id);
-  
+
               await prisma.agreement.update({
                 where: { id },
                 data: { status: "SENT" },
@@ -2231,7 +2232,7 @@ import {
           }
         }
       }
-  
+
       return res.status(200).json({
         message: "Agreement updated successfully.",
         agreement,
@@ -2243,30 +2244,30 @@ import {
       });
     }
   }
-  
+
   export async function deleteAgreement(
     req: AuthenticatedRequest,
     res: Response,
   ) {
     try {
       const { id } = req.params as { id: string };
-  
+
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
       }
-  
+
       if (!id) {
         return res.status(400).json({ message: "Agreement id is required." });
       }
-  
+
       const existingAgreement = await prisma.agreement.findFirst({
         where: { id },
       });
-  
+
       if (!existingAgreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
-  
+
       const agreement = await prisma.agreement.update({
         where: { id },
         data: {
@@ -2280,7 +2281,7 @@ import {
           versions: true,
         },
       });
-  
+
       return res.status(200).json({
         message: "Agreement marked inactive successfully.",
         agreement,
@@ -2292,4 +2293,3 @@ import {
       });
     }
   }
-  
