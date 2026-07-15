@@ -856,14 +856,6 @@ async function sendPricingTermNotificationEmails(req: Request, term: any) {
       <h3>Rates:</h3>
       ${clientRatesHtml}
       ${collectionSource ? `<p><strong>Collection Source:</strong> ${escapeHtml(collectionSource)}</p>` : ""}
-      ${
-        approvalNotes
-          ? `
-      <h3>Justification / Approval Notes</h3>
-      <p>${escapeHtml(approvalNotes)}</p>
-      `
-          : ""
-      }
       <p>Please review and respond:</p>
       <p><a href="${clientApprovalUrl}" style="display:inline-block;padding:10px 16px;border-radius:6px;background:#4f63ea;color:#ffffff;text-decoration:none;">Accept or Deny Packet</a></p>
       <p>If the button does not work, copy and paste this URL into your browser:</p>
@@ -1464,7 +1456,6 @@ export async function getAgreementServiceTermClientApprovalPage(
               <div class="note-card ${isApproved ? "approved" : "rejection"}">
                 <strong>${isApproved ? "✓ This packet has been accepted" : "✕ This packet has been denied"}</strong>
                 <p>${isApproved ? "Thank you for accepting this pricing packet." : "This pricing packet has been denied."}</p>
-                ${approvalNotes ? `<p style="margin-top:12px;"><strong>Justification / Approval Notes:</strong> ${escapeHtml(approvalNotes)}</p>` : ""}
                 ${clientApprovalNote ? `<p style="margin-top:12px;"><strong>Reason:</strong> ${escapeHtml(clientApprovalNote)}</p>` : ""}
                 <p style="margin-top:16px;color:#94a3b8;font-size:0.85rem;">No further action is required.</p>
               </div>
@@ -1524,19 +1515,6 @@ export async function getAgreementServiceTermClientApprovalPage(
               ${collectionSource ? `<div class="rate-item"><span class="rate-label">Collection Source:</span> <span class="rate-value">${escapeHtml(collectionSource)}</span></div>` : ""}
             </div>
           </div>
-
-          ${
-            approvalNotes
-              ? `
-          <div class="section">
-            <h2>Justification / Approval Notes</h2>
-            <div class="note-card approved" style="text-align:left;">
-              <p>${escapeHtml(approvalNotes)}</p>
-            </div>
-          </div>
-          `
-              : ""
-          }
 
           <div class="section">
             <h2>Your Response</h2>
