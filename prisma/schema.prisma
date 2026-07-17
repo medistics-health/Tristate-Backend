@@ -1403,6 +1403,46 @@ model CredentialingRequest {
   @@map("credentialing_requests")
 }
 
+model InsuranceCarrier {
+  id          String               @id @default(uuid()) @db.Uuid
+  carrierName String               @map("carrier_name")
+  carrierCode String               @unique @map("carrier_code")
+  carrierType InsuranceCarrierType @map("carrier_type")
+  status      InsuranceStatus
+  website     String?
+  telecom     Json?
+  address     Json?
+  notes       String?
+  contacts    Json?
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @default(now()) @updatedAt @map("updated_at")
+  plans       InsurancePlan[]
+
+  @@index([carrierName])
+  @@index([carrierType])
+  @@index([status])
+  @@map("insurance_carriers")
+}
+
+model InsurancePlan {
+  id        String            @id @default(uuid()) @db.Uuid
+  carrierId String            @map("carrier_id") @db.Uuid
+  planName  String            @map("plan_name")
+  planCode  String            @unique @map("plan_code")
+  planType  InsurancePlanType @map("plan_type")
+  status    InsuranceStatus
+  address   Json?
+  notes     String?
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @default(now()) @updatedAt @map("updated_at")
+  carrier   InsuranceCarrier  @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+
+  @@index([carrierId])
+  @@index([planName])
+  @@index([status])
+  @@map("insurance_plans")
+}
+
 model CredentialingFollowUpLog {
   id                     String                         @id @default(uuid()) @db.Uuid
   credentialingRequestId String                         @map("credentialing_request_id") @db.Uuid
@@ -1941,4 +1981,28 @@ enum CredentialingActivityType {
   DOCUMENT_UPLOADED
   FOLLOW_UP_LOGGED
   DELETED
+}
+
+enum InsuranceCarrierType {
+  COMMERCIAL
+  GOVERNMENT
+  MEDICARE
+  MEDICAID
+  TPA
+  MANAGED_CARE
+  OTHER
+}
+
+enum InsurancePlanType {
+  HMO
+  PPO
+  POS
+  EPO
+  INDEMNITY
+  OTHER
+}
+
+enum InsuranceStatus {
+  ACTIVE
+  INACTIVE
 }

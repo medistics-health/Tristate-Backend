@@ -431,10 +431,12 @@ function mapRequest(request: any) {
 
 function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingRequestWhereInput {
   const where: Prisma.CredentialingRequestWhereInput = {};
+  const clauses: Prisma.CredentialingRequestWhereInput[] = [];
   const search = query.search?.trim();
 
   if (search) {
-    where.OR = [
+    clauses.push({
+      OR: [
       { credentialingId: { contains: search, mode: "insensitive" } },
       { insurancePayerName: { contains: search, mode: "insensitive" } },
       { providerName: { contains: search, mode: "insensitive" } },
@@ -454,7 +456,8 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
           ],
         },
       },
-    ];
+      ],
+    });
   }
 
   const practiceTerm = query.practice?.trim();
@@ -466,8 +469,8 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
 
   const providerTerm = query.provider?.trim();
   if (providerTerm) {
-    where.OR = [
-      ...(where.OR ?? []),
+    clauses.push({
+      OR: [
       { providerName: { contains: providerTerm, mode: "insensitive" } },
       {
         provider: {
@@ -477,7 +480,8 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
           ],
         },
       },
-    ];
+      ],
+    });
   }
 
   const payerTerm = query.insuranceCompany?.trim();
@@ -502,8 +506,8 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
 
   const assignedTerm = query.assignedUser?.trim();
   if (assignedTerm) {
-    where.OR = [
-      ...(where.OR ?? []),
+    clauses.push({
+      OR: [
       { assignedToUserId: { equals: assignedTerm } },
       {
         assignedToUser: {
@@ -515,19 +519,24 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
           ],
         },
       },
-    ];
+      ],
+    });
   }
 
   if (query.dateFrom || query.dateTo) {
-    where.updatedAt = {};
+    where.submissionDate = {};
     if (query.dateFrom) {
-      where.updatedAt.gte = new Date(query.dateFrom);
+      where.submissionDate.gte = new Date(query.dateFrom);
     }
     if (query.dateTo) {
       const dateTo = new Date(query.dateTo);
       dateTo.setHours(23, 59, 59, 999);
-      where.updatedAt.lte = dateTo;
+      where.submissionDate.lte = dateTo;
     }
+  }
+
+  if (clauses.length) {
+    where.AND = clauses;
   }
 
   return where;
@@ -685,6 +694,25 @@ async function resolveBodyReferences(body: CredentialingBody) {
   };
 }
 
+function normalizeComparableValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).map((entry) => String(entry).trim()).sort().join("|");
+  }
+
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function formatChangedField(label: string, previousValue: unknown, nextValue: unknown) {
+  const prev = normalizeComparableValue(previousValue);
+  const next = normalizeComparableValue(nextValue);
+  if (prev === next) return null;
+  return `${label}: ${prev || "-"} -> ${next || "-"}`;
+}
+
 async function buildActivityEntries(
   requestId: string,
   previous: any | null,
@@ -707,15 +735,39 @@ async function buildActivityEntries(
     return entries;
   }
 
-  entries.push({
-    credentialingRequestId: requestId,
-    activityType: CredentialingActivityType.EDITED,
-    action: "Edited Record",
-    details: `Credentialing request updated for ${nextPayload.providerName || previous.providerName || previous.practiceId || "record"}.`,
-    actorName,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const changedFields = [
+    formatChangedField("Practice", previous.practice?.name || previous.practiceId, nextPayload.practiceName || nextPayload.practiceId),
+    formatChangedField("Provider", previous.providerName || previous.providerId, nextPayload.providerName || nextPayload.providerId),
+    formatChangedField("Insurance Plan", previous.insurancePayerName, nextPayload.insurancePayerName),
+    formatChangedField("Request Type", getRequestTypeLabel(previous.requestType), nextPayload.requestType),
+    formatChangedField("Contract Type", getContractTypeLabel(previous.contractType), nextPayload.contractType),
+    formatChangedField("IPA / Delegated Entity", previous.ipaDelegatedEntityName || "", nextPayload.ipaDelegatedEntityName || ""),
+    formatChangedField("Assigned Specialist", previous.assignedToUser?.id || previous.assignedToUserId || "", nextPayload.assignedToUserId || ""),
+    formatChangedField("Priority", getPriorityLabel(previous.priority), nextPayload.priority),
+    formatChangedField("Status", getStatusLabel(previous.status), nextPayload.status),
+    formatChangedField("Payer Provider ID", previous.payerProviderId || "", nextPayload.payerProviderId || ""),
+    formatChangedField("Submission Date", formatFriendlyDate(previous.submissionDate), formatFriendlyDate(nextPayload.submissionDate)),
+    formatChangedField("Effective Date", formatFriendlyDate(previous.effectiveDate), formatFriendlyDate(nextPayload.effectiveDate)),
+    formatChangedField("Expiration Date", formatFriendlyDate(previous.expirationDate), formatFriendlyDate(nextPayload.expirationDate)),
+    formatChangedField("Next Follow-up Date", formatFriendlyDate(previous.nextFollowUpDate), formatFriendlyDate(nextPayload.nextFollowUpDate)),
+    formatChangedField("Re-credentialing Due Date", formatFriendlyDate(previous.reCredentialingDueDate), formatFriendlyDate(nextPayload.reCredentialingDueDate)),
+    formatChangedField("TIN Verified", getVerificationLabel(previous.tinVerified), nextPayload.tinVerified),
+    formatChangedField("Address Verified", getVerificationLabel(previous.addressVerified), nextPayload.addressVerified),
+    formatChangedField("Lines of Business", previous.lineOfBusiness || [], nextPayload.lineOfBusiness || []),
+    formatChangedField("Internal Notes", previous.internalNotes || "", nextPayload.internalNotes || ""),
+  ].filter((entry): entry is string => Boolean(entry));
+
+  if (changedFields.length) {
+    entries.push({
+      credentialingRequestId: requestId,
+      activityType: CredentialingActivityType.EDITED,
+      action: "Edited Record",
+      details: changedFields.join("; "),
+      actorName,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 
   if ((previous.status || "") !== (nextPayload.status || "")) {
     entries.push({
@@ -729,7 +781,30 @@ async function buildActivityEntries(
     });
   }
 
-  if ((previous.documents?.length || 0) !== (nextPayload.documents?.length || 0)) {
+  const previousDocuments = JSON.stringify(
+    (previous.documents || []).map((document: any) => ({
+      documentType: document.documentType,
+      fileName: document.fileName,
+      fileUrl: document.fileUrl,
+      fileSize: document.fileSize,
+      mimeType: document.mimeType,
+      expiryDate: formatFriendlyDate(document.expiryDate),
+      uploadedByName: document.uploadedByName,
+    })),
+  );
+  const nextDocuments = JSON.stringify(
+    (nextPayload.documents || []).map((document) => ({
+      documentType: document.documentType,
+      fileName: document.fileName,
+      fileUrl: document.fileUrl,
+      fileSize: document.fileSize,
+      mimeType: document.mimeType,
+      expiryDate: formatFriendlyDate(document.expiryDate),
+      uploadedByName: document.uploadedByName,
+    })),
+  );
+
+  if (previousDocuments !== nextDocuments) {
     entries.push({
       credentialingRequestId: requestId,
       activityType: CredentialingActivityType.DOCUMENT_UPLOADED,
@@ -741,7 +816,30 @@ async function buildActivityEntries(
     });
   }
 
-  if ((previous.followUpLogs?.length || 0) !== (nextPayload.followUpLogs?.length || 0)) {
+  const previousFollowUps = JSON.stringify(
+    (previous.followUpLogs || []).map((entry: any) => ({
+      dateTime: formatFriendlyDate(entry.dateTime),
+      channel: entry.channel,
+      direction: entry.direction,
+      referenceNumber: entry.referenceNumber || "",
+      summary: entry.summary || "",
+      nextAction: entry.nextAction || "",
+      loggedByName: entry.loggedByName || "",
+    })),
+  );
+  const nextFollowUps = JSON.stringify(
+    (nextPayload.followUpLogs || []).map((entry) => ({
+      dateTime: entry.dateTime ? formatFriendlyDate(entry.dateTime) : "",
+      channel: entry.channel,
+      direction: entry.direction,
+      referenceNumber: entry.referenceNumber || "",
+      summary: entry.summary || "",
+      nextAction: entry.nextAction || "",
+      loggedByName: entry.loggedByName || "",
+    })),
+  );
+
+  if (previousFollowUps !== nextFollowUps) {
     entries.push({
       credentialingRequestId: requestId,
       activityType: CredentialingActivityType.FOLLOW_UP_LOGGED,
@@ -775,6 +873,18 @@ function buildCredentialingData(
 
   if (!requestType || !contractType || !status || !tinVerified || !addressVerified || !priority) {
     return { error: "One or more credentialing values are invalid." as const };
+  }
+
+  if (!refs.providerResolvedId) {
+    return { error: "Provider is required." as const };
+  }
+
+  if (!body.insurancePayerName?.trim()) {
+    return { error: "Insurance Plan is required." as const };
+  }
+
+  if (!refs.assignedResolvedId) {
+    return { error: "Assigned Specialist is required." as const };
   }
 
   return {
@@ -909,7 +1019,7 @@ function prepareFollowUpCreates(
   const followUps = Array.isArray(body.followUpLogs) ? body.followUpLogs : [];
 
   return followUps
-    .filter((entry) => entry.summary || entry.nextAction)
+    .filter((entry) => entry.summary || entry.nextAction || entry.referenceNumber)
     .map((entry) => ({
       credentialingRequestId: requestId,
       dateTime: entry.dateTime ? new Date(entry.dateTime) : new Date(),
