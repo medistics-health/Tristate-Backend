@@ -713,6 +713,25 @@ function formatChangedField(label: string, previousValue: unknown, nextValue: un
   return `${label}: ${prev || "-"} -> ${next || "-"}`;
 }
 
+async function findDuplicateCredentialingRequest(
+  practiceId: string,
+  providerId: string,
+  insurancePayerName: string,
+  requestType: CredentialingRequestType,
+  excludeId?: string,
+) {
+  return prisma.credentialingRequest.findFirst({
+    where: {
+      practiceId,
+      providerId,
+      insurancePayerName: { equals: insurancePayerName, mode: "insensitive" },
+      requestType,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    select: { id: true },
+  });
+}
+
 async function buildActivityEntries(
   requestId: string,
   previous: any | null,
@@ -763,88 +782,6 @@ async function buildActivityEntries(
       activityType: CredentialingActivityType.EDITED,
       action: "Edited Record",
       details: changedFields.join("; "),
-      actorName,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  if ((previous.status || "") !== (nextPayload.status || "")) {
-    entries.push({
-      credentialingRequestId: requestId,
-      activityType: CredentialingActivityType.STATUS_CHANGED,
-      action: "Status Changed",
-      details: `${getStatusLabel(previous.status)} -> ${nextPayload.status || getStatusLabel(previous.status)}`,
-      actorName,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  const previousDocuments = JSON.stringify(
-    (previous.documents || []).map((document: any) => ({
-      documentType: document.documentType,
-      fileName: document.fileName,
-      fileUrl: document.fileUrl,
-      fileSize: document.fileSize,
-      mimeType: document.mimeType,
-      expiryDate: formatFriendlyDate(document.expiryDate),
-      uploadedByName: document.uploadedByName,
-    })),
-  );
-  const nextDocuments = JSON.stringify(
-    (nextPayload.documents || []).map((document) => ({
-      documentType: document.documentType,
-      fileName: document.fileName,
-      fileUrl: document.fileUrl,
-      fileSize: document.fileSize,
-      mimeType: document.mimeType,
-      expiryDate: formatFriendlyDate(document.expiryDate),
-      uploadedByName: document.uploadedByName,
-    })),
-  );
-
-  if (previousDocuments !== nextDocuments) {
-    entries.push({
-      credentialingRequestId: requestId,
-      activityType: CredentialingActivityType.DOCUMENT_UPLOADED,
-      action: "Document Uploaded",
-      details: "Credentialing documents were added or updated.",
-      actorName,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  const previousFollowUps = JSON.stringify(
-    (previous.followUpLogs || []).map((entry: any) => ({
-      dateTime: formatFriendlyDate(entry.dateTime),
-      channel: entry.channel,
-      direction: entry.direction,
-      referenceNumber: entry.referenceNumber || "",
-      summary: entry.summary || "",
-      nextAction: entry.nextAction || "",
-      loggedByName: entry.loggedByName || "",
-    })),
-  );
-  const nextFollowUps = JSON.stringify(
-    (nextPayload.followUpLogs || []).map((entry) => ({
-      dateTime: entry.dateTime ? formatFriendlyDate(entry.dateTime) : "",
-      channel: entry.channel,
-      direction: entry.direction,
-      referenceNumber: entry.referenceNumber || "",
-      summary: entry.summary || "",
-      nextAction: entry.nextAction || "",
-      loggedByName: entry.loggedByName || "",
-    })),
-  );
-
-  if (previousFollowUps !== nextFollowUps) {
-    entries.push({
-      credentialingRequestId: requestId,
-      activityType: CredentialingActivityType.FOLLOW_UP_LOGGED,
-      action: "Follow-up Logged",
-      details: "Follow-up entries were added or updated.",
       actorName,
       createdAt: now,
       updatedAt: now,
@@ -1317,6 +1254,19 @@ export async function createCredentialingRequest(
       return res.status(400).json({ message: data.error });
     }
 
+    const duplicate = await findDuplicateCredentialingRequest(
+      data.practiceId,
+      data.providerId,
+      data.insurancePayerName,
+      data.requestType,
+    );
+    if (duplicate) {
+      return res.status(400).json({
+        message:
+          "Credentialing already exists for the selected practice, provider, insurance plan, and request type.",
+      });
+    }
+
     const actorName = getActorName(req);
     const loggedByName = req.user.role || actorName;
     const requestId = crypto.randomUUID();
@@ -1438,6 +1388,20 @@ export async function updateCredentialingRequest(
 
     if ("error" in data) {
       return res.status(400).json({ message: data.error });
+    }
+
+    const duplicate = await findDuplicateCredentialingRequest(
+      data.practiceId,
+      data.providerId,
+      data.insurancePayerName,
+      data.requestType,
+      existing.id,
+    );
+    if (duplicate) {
+      return res.status(400).json({
+        message:
+          "Credentialing already exists for the selected practice, provider, insurance plan, and request type.",
+      });
     }
 
     const actorName = getActorName(req);
