@@ -22,6 +22,7 @@ import vendorRouter from "./routes/vendor.routes";
 import billingRouter from "./routes/billing.routes";
 import vendorPayableRouter from "./routes/vendorPayable.routes";
 import credentialingRouter from "./routes/credentialing.routes";
+import insuranceRouter from "./routes/insurance.routes";
 import portalRouter from "./routes/portal.routes";
 import { stripeRouter, stripeWebhookRouter } from "./routes/stripe.routes";
 import {
@@ -64,6 +65,7 @@ app.use("/api/v1/onboarding", onboardingRouter);
 app.use("/api/v1/vendors", vendorRouter);
 app.use("/api/v1/vendor-payables", vendorPayableRouter);
 app.use("/api/v1/credentialing", credentialingRouter);
+app.use("/api/v1/insurance", insuranceRouter);
 app.use("/api/v1/billing", billingRouter);
 app.use("/api/v1/invoices", invoiceRouter);
 app.use("/api/v1/purchase-orders", purchaseOrderRouter);
