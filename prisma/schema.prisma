@@ -368,6 +368,8 @@ model Invoice {
   billingPeriodStart     DateTime?           @map("billing_period_start")
   billingPeriodEnd       DateTime?           @map("billing_period_end")
   subtotalAmount         Decimal?            @map("subtotal_amount") @db.Decimal(12, 2)
+  paymentMethod          String?             @map("payment_method")
+  processingFeeAmount    Decimal?            @map("processing_fee_amount") @db.Decimal(12, 2)
   taxAmount              Decimal?            @map("tax_amount") @db.Decimal(12, 2)
   discountAmount         Decimal?            @map("discount_amount") @db.Decimal(12, 2)
   stripeInvoiceId        String?             @map("stripe_invoice_id")
@@ -545,6 +547,7 @@ model BillingRun {
   approvedByUserId String?                @map("approved_by_user_id") @db.Uuid
   approvedAt       DateTime?              @map("approved_at")
   notes            String?
+  paymentMethod    String                 @map("payment_method")
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at")
   inputSnapshots   BillingInputSnapshot[]

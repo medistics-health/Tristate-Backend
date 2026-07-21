@@ -9,6 +9,11 @@ import {
   createInvoiceReceiptSasUrlFromBlobUrl,
   uploadInvoiceReceiptBufferToAzureBlob,
 } from "../../utils/invoiceReceiptBlob";
+import {
+  getProcessingFeeDescription,
+  getStripePaymentMethodTypes,
+  isBillingPaymentMethod,
+} from "../../utils/paymentProcessing";
 
 type InvoiceBody = {
   practiceId?: string;
@@ -21,6 +26,8 @@ type InvoiceBody = {
   billingPeriodStart?: string | null;
   billingPeriodEnd?: string | null;
   subtotalAmount?: number | null;
+  paymentMethod?: string | null;
+  processingFeeAmount?: number | null;
   taxAmount?: number | null;
   discountAmount?: number | null;
   stripeInvoiceId?: string | null;
@@ -28,6 +35,10 @@ type InvoiceBody = {
   stripeInvoicePdfUrl?: string | null;
   quickbooksInvoiceId?: string | null;
 };
+
+function toStripeMinorUnit(amount: number | string) {
+  return Math.round(Number(amount) * 100);
+}
 
 function buildPdfFolder(prefix: string, date: Date, invoiceNumber?: string | null) {
   const year = String(date.getFullYear());
@@ -91,6 +102,8 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
       billingPeriodStart,
       billingPeriodEnd,
       subtotalAmount,
+      paymentMethod,
+      processingFeeAmount,
       taxAmount,
       discountAmount,
       stripeInvoiceId,
@@ -172,6 +185,8 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
             }
           : {}),
         ...(subtotalAmount !== undefined ? { subtotalAmount } : {}),
+        ...(paymentMethod !== undefined ? { paymentMethod: paymentMethod || null } : {}),
+        ...(processingFeeAmount !== undefined ? { processingFeeAmount } : {}),
         ...(taxAmount !== undefined ? { taxAmount } : {}),
         ...(discountAmount !== undefined ? { discountAmount } : {}),
         ...(stripeInvoiceId !== undefined
@@ -339,6 +354,8 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
       billingPeriodStart,
       billingPeriodEnd,
       subtotalAmount,
+      paymentMethod,
+      processingFeeAmount,
       taxAmount,
       discountAmount,
       stripeInvoiceId,
@@ -441,6 +458,8 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
             }
           : {}),
         ...(subtotalAmount !== undefined ? { subtotalAmount } : {}),
+        ...(paymentMethod !== undefined ? { paymentMethod: paymentMethod || null } : {}),
+        ...(processingFeeAmount !== undefined ? { processingFeeAmount } : {}),
         ...(taxAmount !== undefined ? { taxAmount } : {}),
         ...(discountAmount !== undefined ? { discountAmount } : {}),
         ...(stripeInvoiceId !== undefined
@@ -630,15 +649,10 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
   if (!stripeInvoiceId) {
     // 1. Get or create Stripe Customer
     const customerId = await ensureStripeCustomerForPractice(invoice.practice);
-
-    const hasCreditCardChargesService = billingRunItems.some((item) => {
-      const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
-      return name === "creditcardcharges";
-    });
-
-    const paymentMethodTypes: string[] = hasCreditCardChargesService
-      ? ["card"]
-      : ["us_bank_account"];
+    const paymentMethod = isBillingPaymentMethod(invoice.paymentMethod)
+      ? invoice.paymentMethod
+      : "ACH";
+    const paymentMethodTypes = getStripePaymentMethodTypes(paymentMethod);
 
     // 3. Create Invoice
     const stripeInvoice = await stripeRequest<{ id: string; hosted_invoice_url?: string | null; invoice_pdf?: string | null }>("POST", "/v1/invoices", {
@@ -676,6 +690,21 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
             localInvoiceLineItemId: item.id,
             serviceId: item.serviceId,
             stripeConnectedAccountId: item.stripeConnectedAccountId || "",
+          },
+        });
+      }
+
+      const processingFeeAmount = Number(invoice.processingFeeAmount || 0);
+      if (processingFeeAmount > 0) {
+        await stripeRequest("POST", "/v1/invoiceitems", {
+          customer: customerId,
+          invoice: stripeInvoiceId,
+          amount: toStripeMinorUnit(processingFeeAmount),
+          currency,
+          description: getProcessingFeeDescription(paymentMethod),
+          metadata: {
+            localInvoiceId: invoice.id,
+            itemType: "processing_fee",
           },
         });
       }

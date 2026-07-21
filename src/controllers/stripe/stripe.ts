@@ -15,6 +15,11 @@ import {
   sendInvoiceFirstEmail,
   sendPaymentReceiptEmail,
 } from "../../utils/stripeEmailFlow";
+import {
+  getProcessingFeeDescription,
+  getStripePaymentMethodTypes,
+  isBillingPaymentMethod,
+} from "../../utils/paymentProcessing";
 
 function normalizeCurrency(currency?: string | null) {
   return (currency || "USD").toLowerCase();
@@ -41,6 +46,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
       } | null;
     }>;
   };
+  sourceTransactionId?: string | null;
 }) {
   const transferTotals = new Map<
     string,
@@ -77,6 +83,14 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
   const createdTransfers: Array<{ id: string }> = [];
   const currency = normalizeCurrency(params.invoice.currency);
   const transferGroup = params.invoice.stripeInvoiceId || params.invoice.id;
+  const sourceTransactionId = params.sourceTransactionId?.trim() || null;
+
+  if (!sourceTransactionId) {
+    console.error(
+      `Skipping Stripe connected account transfers for invoice ${params.invoice.id} because no source_transaction charge id was resolved from the paid invoice.`,
+    );
+    return createdTransfers;
+  }
 
   for (const [destination, transfer] of transferTotals.entries()) {
     const existingTransfer = await prisma.invoiceConnectedAccountTransfer.findUnique({
@@ -166,11 +180,13 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
           amount: transfer.amount,
           currency,
           destination,
+          source_transaction: sourceTransactionId,
           transfer_group: transferGroup,
           metadata: {
             invoiceId: params.invoice.id,
             stripeInvoiceId: params.invoice.stripeInvoiceId || "",
             stripeAccountId: destination,
+            sourceTransactionId,
             serviceIds: transfer.serviceIds.join(","),
             lineItemIds: transfer.lineItemIds.join(","),
           },
@@ -195,7 +211,12 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
       });
 
       createdTransfers.push({ id: created.id });
+      console.info(
+        `Created Stripe transfer ${created.id} for invoice ${params.invoice.id} destination ${destination} using source_transaction ${sourceTransactionId}.`,
+      );
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Stripe transfer failed.";
       await prisma.invoiceConnectedAccountTransfer.update({
         where: {
           invoiceId_stripeConnectedAccountId: {
@@ -205,11 +226,11 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
         },
         data: {
           status: "FAILED",
-          failureMessage: error instanceof Error ? error.message : "Stripe transfer failed.",
+          failureMessage: message,
         },
       });
       console.error(
-        `Skipping Stripe transfer for invoice ${params.invoice.id} destination ${destination} because Stripe rejected the transfer:`,
+        `Stripe transfer failed for invoice ${params.invoice.id} destination ${destination} with source_transaction ${sourceTransactionId}: ${message}`,
         error,
       );
     }
@@ -546,14 +567,10 @@ export async function syncStripeInvoice(
       const currency = normalizeCurrency(invoice.currency || invoice.practice.defaultCurrency);
 
       if (!invoice.stripeInvoiceId) {
-        const hasCreditCardChargesService = invoice.lineItems.some((item) => {
-          const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
-          return name === "creditcardcharges";
-        });
-
-        const paymentMethodTypes = (hasCreditCardChargesService
-          ? ["card"]
-          : ["us_bank_account", "customer_balance"]) as any;
+        const paymentMethod = isBillingPaymentMethod(invoice.paymentMethod)
+          ? invoice.paymentMethod
+          : "ACH";
+        const paymentMethodTypes = getStripePaymentMethodTypes(paymentMethod) as any;
 
         const stripeInvoice = await stripe.invoices.create({
           customer: customer.id,
@@ -589,6 +606,21 @@ export async function syncStripeInvoice(
               localInvoiceId: invoice.id,
               localInvoiceLineItemId: lineItem.id,
               serviceId: lineItem.serviceId,
+            },
+          });
+        }
+
+        const processingFeeAmount = Number(invoice.processingFeeAmount || 0);
+        if (processingFeeAmount > 0) {
+          await stripe.invoiceItems.create({
+            customer: customer.id,
+            invoice: stripeInvoice.id,
+            currency,
+            amount: toMinorUnit(processingFeeAmount),
+            description: getProcessingFeeDescription(paymentMethod),
+            metadata: {
+              localInvoiceId: invoice.id,
+              itemType: "processing_fee",
             },
           });
         }
@@ -870,6 +902,13 @@ async function processStripeWebhookEvent(event: any) {
 
       const invoice = await prisma.invoice.findFirst({
         where: { stripeInvoiceId: invoiceId },
+        include: {
+          lineItems: {
+            include: {
+              service: true,
+            },
+          },
+        },
       });
 
       if (!invoice) {
@@ -940,6 +979,18 @@ async function processStripeWebhookEvent(event: any) {
             allocatedAmount: amountPaid,
           },
         });
+      }
+
+      try {
+        await transferInvoiceLineItemsToConnectedAccounts({
+          invoice,
+          sourceTransactionId: charge.id,
+        });
+      } catch (transferErr) {
+        console.error(
+          `Failed to transfer invoice ${invoice.id} funds from charge.succeeded using source_transaction ${charge.id}:`,
+          transferErr,
+        );
       }
       return;
     }
@@ -1055,14 +1106,6 @@ async function processStripeWebhookEvent(event: any) {
       });
 
       try {
-        await transferInvoiceLineItemsToConnectedAccounts({
-          invoice,
-        });
-      } catch (transferErr) {
-        console.error("Failed to transfer invoice funds to connected accounts:", transferErr);
-      }
-
-      try {
         const receiptBuffer = await generateReceiptPdfBufferFromDb(
           invoice.id,
           "stripe",
@@ -1131,9 +1174,44 @@ async function processStripeWebhookEvent(event: any) {
         const idToRetrieve = chargeId || pi?.latest_charge;
         try {
           charge = await stripe.charges.retrieve(idToRetrieve as string);
+          chargeId = charge?.id || chargeId;
         } catch (chargeErr) {
           console.warn("Failed to retrieve charge:", chargeErr);
         }
+      }
+
+      if (!chargeId && typeof charge?.id === "string") {
+        chargeId = charge.id;
+      }
+
+      if (!chargeId) {
+        const paymentWithCharge = await prisma.payment.findFirst({
+          where: {
+            allocations: {
+              some: {
+                invoiceId: invoice.id,
+              },
+            },
+            stripeChargeId: {
+              not: null,
+            },
+          },
+          orderBy: { createdAt: "desc" },
+          select: { stripeChargeId: true },
+        });
+        chargeId = paymentWithCharge?.stripeChargeId || chargeId;
+      }
+
+      try {
+        await transferInvoiceLineItemsToConnectedAccounts({
+          invoice,
+          sourceTransactionId: chargeId,
+        });
+      } catch (transferErr) {
+        console.error(
+          `Failed to transfer invoice ${invoice.id} funds to connected accounts using source_transaction ${chargeId || "unknown"}:`,
+          transferErr,
+        );
       }
 
       try {
