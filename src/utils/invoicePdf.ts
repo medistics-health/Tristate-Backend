@@ -428,6 +428,8 @@ export interface InvoiceData {
   dueDate: Date;
   totalAmount: number;
   subtotalAmount: number | null;
+  processingFeeAmount?: number | null;
+  paymentMethod?: string | null;
   taxAmount: number | null;
   discountAmount: number | null;
   currency: string | null;
@@ -1117,6 +1119,18 @@ export async function generateInvoicePdfBufferFromDb(
     });
   }
 
+  const processingFeeAmount = Number(invoice.processingFeeAmount || 0);
+  if (processingFeeAmount > 0) {
+    const paymentMethodLabel =
+      invoice.paymentMethod === "CREDIT_CARD" ? "Credit Card" : "ACH";
+    lineItems.push({
+      description: `${paymentMethodLabel} processing fee`,
+      quantity: 1,
+      unitPrice: processingFeeAmount,
+      totalPrice: processingFeeAmount,
+    });
+  }
+
   const practiceInfo = {
     name: invoice.practice?.name || "Tristate MSO",
     address: invoice.practice?.company?.address || "",
@@ -1149,6 +1163,11 @@ export async function generateInvoicePdfBufferFromDb(
     totalAmount: Number(invoice.totalAmount || 0),
     subtotalAmount:
       invoice.subtotalAmount != null ? Number(invoice.subtotalAmount) : null,
+    processingFeeAmount:
+      invoice.processingFeeAmount != null
+        ? Number(invoice.processingFeeAmount)
+        : null,
+    paymentMethod: invoice.paymentMethod || null,
     taxAmount: invoice.taxAmount != null ? Number(invoice.taxAmount) : null,
     discountAmount:
       invoice.discountAmount != null ? Number(invoice.discountAmount) : null,

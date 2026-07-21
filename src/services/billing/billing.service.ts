@@ -18,6 +18,10 @@ import type {
   CreateBillingRunBody,
   RecordPaymentBody,
 } from "../../models/billing/billing";
+import {
+  calculateProcessingFee,
+  isBillingPaymentMethod,
+} from "../../utils/paymentProcessing";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -1641,6 +1645,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
   const practiceId = body.practiceId?.trim();
   const periodStart = asDate(body.periodStart, "periodStart");
   const periodEnd = asDate(body.periodEnd, "periodEnd");
+  const paymentMethod = body.paymentMethod?.trim().toUpperCase();
 
   if (!practiceId || !periodStart || !periodEnd) {
     throw new BillingServiceError(
@@ -1651,6 +1656,13 @@ export async function createBillingRun(body: CreateBillingRunBody) {
 
   if (periodStart > periodEnd) {
     throw new BillingServiceError(400, "periodStart must be before periodEnd.");
+  }
+
+  if (!isBillingPaymentMethod(paymentMethod)) {
+    throw new BillingServiceError(
+      400,
+      "paymentMethod must be ACH or CREDIT_CARD.",
+    );
   }
 
   const readiness = await getBillingReadiness({
@@ -1679,6 +1691,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         periodEnd,
         status: BillingRunStatus.PENDING,
         notes: body.notes || undefined,
+        paymentMethod,
         agreementIds: body.agreementIds || [],
       },
     });
@@ -2245,12 +2258,18 @@ export async function postBillingRun(billingRunId: string, userId: string) {
     const subtotalAmount = roundMoney(
       run.items.reduce((sum, item) => sum + Number(item.clientAmount), 0),
     );
+    const processingFee = calculateProcessingFee(
+      subtotalAmount,
+      isBillingPaymentMethod(run.paymentMethod) ? run.paymentMethod : "ACH",
+    );
     const invoice = await tx.invoice.create({
       data: {
         practiceId: run.practiceId,
         agreementId: invoiceAgreementId || undefined,
-        totalAmount: decimal(subtotalAmount),
+        totalAmount: decimal(processingFee.grossAmount),
         subtotalAmount: decimal(subtotalAmount),
+        paymentMethod: processingFee.paymentMethod,
+        processingFeeAmount: decimal(processingFee.feeAmount),
         taxAmount: decimal(0),
         discountAmount: decimal(0),
         status: InvoiceStatus.DRAFT,

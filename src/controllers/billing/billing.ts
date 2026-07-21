@@ -29,6 +29,13 @@ import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
 import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceiptBlob";
 import { generateInvoicePdfBuffer, formatDate, selectPrimaryOnboardingLocation } from "../../utils/invoicePdf";
 import { getLogoBuffer } from "../../utils/logoHelper";
+import {
+  calculateProcessingFee,
+  getBillingPaymentMethodLabel,
+  getProcessingFeeDescription,
+  getStripePaymentMethodTypes,
+  isBillingPaymentMethod,
+} from "../../utils/paymentProcessing";
 
 function toStripeMinorUnit(amount: number | string) {
   return Math.round(Number(amount) * 100);
@@ -175,6 +182,27 @@ async function buildBillingRunInvoicePreview(run: any) {
     });
   }
 
+  const subtotalAmount = Number(
+    (run.items || []).reduce(
+      (sum: number, item: any) => sum + Number(item.clientAmount || 0),
+      0,
+    ),
+  );
+  const processingFee = calculateProcessingFee(
+    subtotalAmount,
+    isBillingPaymentMethod(run.paymentMethod) ? run.paymentMethod : "ACH",
+  );
+
+  if (processingFee.feeAmount > 0) {
+    lineItems.push({
+      description: getProcessingFeeDescription(processingFee.paymentMethod),
+      quantity: 1,
+      unitPrice: processingFee.feeAmount,
+      totalPrice: processingFee.feeAmount,
+      hasDetails: false,
+    });
+  }
+
   const logoBuffer = await getLogoBuffer();
 
   const practiceInfo = {
@@ -203,10 +231,10 @@ async function buildBillingRunInvoicePreview(run: any) {
     invoiceNumber: `Preview-${run.id.slice(0, 8).toUpperCase()}`,
     invoiceDate: new Date(),
     dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    totalAmount: Number(
-      (run.items || []).reduce((sum: number, item: any) => sum + Number(item.clientAmount || 0), 0),
-    ),
-    subtotalAmount: null,
+    totalAmount: processingFee.grossAmount,
+    subtotalAmount,
+    processingFeeAmount: processingFee.feeAmount,
+    paymentMethod: getBillingPaymentMethodLabel(processingFee.paymentMethod),
     taxAmount: 0,
     discountAmount: 0,
     currency,
@@ -245,14 +273,10 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
     };
   }
 
-  const hasCreditCardChargesService = invoice.lineItems.some((item) => {
-    const name = (item.service?.name || "").toLowerCase().replace(/\s/g, "");
-    return name === "creditcardcharges";
-  });
-
-  const paymentMethodTypes: string[] = hasCreditCardChargesService
-    ? ["card"]
-    : ["us_bank_account"];
+  const paymentMethod = isBillingPaymentMethod(invoice.paymentMethod)
+    ? invoice.paymentMethod
+    : "ACH";
+  const paymentMethodTypes = getStripePaymentMethodTypes(paymentMethod);
 
   const stripeInvoice = await stripeRequest<{
     id: string;
@@ -293,6 +317,21 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
         localInvoiceId: invoice.id,
         localInvoiceLineItemId: lineItem.id,
         serviceId: lineItem.serviceId,
+      },
+    });
+  }
+
+  const processingFeeAmount = Number(invoice.processingFeeAmount || 0);
+  if (processingFeeAmount > 0) {
+    await stripeRequest("POST", "/v1/invoiceitems", {
+      customer: stripeCustomerId,
+      invoice: stripeInvoice.id,
+      currency,
+      amount: toStripeMinorUnit(processingFeeAmount),
+      description: getProcessingFeeDescription(paymentMethod),
+      metadata: {
+        localInvoiceId: invoice.id,
+        itemType: "processing_fee",
       },
     });
   }

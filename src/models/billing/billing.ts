@@ -13,6 +13,7 @@ export type CreateBillingRunBody = {
   periodStart?: string;
   periodEnd?: string;
   notes?: string;
+  paymentMethod?: string;
   autoCalculate?: boolean;
   snapshots?: BillingSnapshotInput[];
   agreementIds?: string[];
