@@ -181,6 +181,22 @@ function formatFriendlyDate(value?: Date | string | null) {
   return date.toISOString();
 }
 
+function formatActivityDateOnly(value?: Date | string | null) {
+  if (!value) return "";
+  if (typeof value === "string") {
+    const dateMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (dateMatch) return dateMatch[1];
+  }
+
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "";
+
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getActorName(req: AuthenticatedRequest) {
   if (!req.user) return "System";
   return req.user.userName || req.user.email || "System";
@@ -713,6 +729,9 @@ function formatChangedField(label: string, previousValue: unknown, nextValue: un
   return `${label}: ${prev || "-"} -> ${next || "-"}`;
 }
 
+const DUPLICATE_CREDENTIALING_MESSAGE =
+  "A credentialing request already exists for this practice, provider, and insurance plan. Please update the existing request instead of creating a duplicate.";
+
 async function findDuplicateCredentialingRequest(
   practiceId: string,
   providerId: string,
@@ -730,6 +749,10 @@ async function findDuplicateCredentialingRequest(
     },
     select: { id: true },
   });
+}
+
+function isUniqueCredentialingRequestConflict(error: unknown) {
+  return Boolean(error && typeof error === "object" && (error as any).code === "P2002");
 }
 
 async function buildActivityEntries(
@@ -765,11 +788,11 @@ async function buildActivityEntries(
     formatChangedField("Priority", getPriorityLabel(previous.priority), nextPayload.priority),
     formatChangedField("Status", getStatusLabel(previous.status), nextPayload.status),
     formatChangedField("Payer Provider ID", previous.payerProviderId || "", nextPayload.payerProviderId || ""),
-    formatChangedField("Submission Date", formatFriendlyDate(previous.submissionDate), formatFriendlyDate(nextPayload.submissionDate)),
-    formatChangedField("Effective Date", formatFriendlyDate(previous.effectiveDate), formatFriendlyDate(nextPayload.effectiveDate)),
-    formatChangedField("Expiration Date", formatFriendlyDate(previous.expirationDate), formatFriendlyDate(nextPayload.expirationDate)),
-    formatChangedField("Next Follow-up Date", formatFriendlyDate(previous.nextFollowUpDate), formatFriendlyDate(nextPayload.nextFollowUpDate)),
-    formatChangedField("Re-credentialing Due Date", formatFriendlyDate(previous.reCredentialingDueDate), formatFriendlyDate(nextPayload.reCredentialingDueDate)),
+    formatChangedField("Submission Date", formatActivityDateOnly(previous.submissionDate), formatActivityDateOnly(nextPayload.submissionDate)),
+    formatChangedField("Effective Date", formatActivityDateOnly(previous.effectiveDate), formatActivityDateOnly(nextPayload.effectiveDate)),
+    formatChangedField("Expiration Date", formatActivityDateOnly(previous.expirationDate), formatActivityDateOnly(nextPayload.expirationDate)),
+    formatChangedField("Next Follow-up Date", formatActivityDateOnly(previous.nextFollowUpDate), formatActivityDateOnly(nextPayload.nextFollowUpDate)),
+    formatChangedField("Re-credentialing Due Date", formatActivityDateOnly(previous.reCredentialingDueDate), formatActivityDateOnly(nextPayload.reCredentialingDueDate)),
     formatChangedField("TIN Verified", getVerificationLabel(previous.tinVerified), nextPayload.tinVerified),
     formatChangedField("Address Verified", getVerificationLabel(previous.addressVerified), nextPayload.addressVerified),
     formatChangedField("Lines of Business", previous.lineOfBusiness || [], nextPayload.lineOfBusiness || []),
@@ -789,6 +812,57 @@ async function buildActivityEntries(
   }
 
   return entries;
+}
+
+function buildDocumentActivityEntries(
+  requestId: string,
+  documents: Prisma.CredentialingDocumentCreateManyInput[],
+  actorName: string,
+) {
+  const now = new Date();
+
+  return documents.map((document) => ({
+    credentialingRequestId: requestId,
+    activityType: CredentialingActivityType.DOCUMENT_UPLOADED,
+    action: "Uploaded Document",
+    details: [
+      `Type: ${getDocumentTypeLabel(document.documentType)}`,
+      `File: ${document.fileName}`,
+      document.expiryDate ? `Expiry: ${formatActivityDateOnly(document.expiryDate)}` : null,
+    ]
+      .filter(Boolean)
+      .join("; "),
+    actorName,
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
+function buildFollowUpActivityEntries(
+  requestId: string,
+  followUps: Prisma.CredentialingFollowUpLogCreateManyInput[],
+  actorName: string,
+) {
+  const now = new Date();
+
+  return followUps.map((followUp) => ({
+    credentialingRequestId: requestId,
+    activityType: CredentialingActivityType.FOLLOW_UP_LOGGED,
+    action: "Logged Follow-up Communication",
+    details: [
+      `Date: ${formatActivityDateOnly(followUp.dateTime)}`,
+      `Channel: ${getChannelLabel(followUp.channel)}`,
+      `Direction: ${getDirectionLabel(followUp.direction)}`,
+      followUp.referenceNumber ? `Reference: ${followUp.referenceNumber}` : null,
+      followUp.summary ? `Summary: ${followUp.summary}` : null,
+      followUp.nextAction ? `Next Action: ${followUp.nextAction}` : null,
+    ]
+      .filter(Boolean)
+      .join("; "),
+    actorName,
+    createdAt: now,
+    updatedAt: now,
+  }));
 }
 
 function buildCredentialingData(
@@ -866,6 +940,7 @@ async function writeCredentialingChildren(
   requestId: string,
   documentCreates: Prisma.CredentialingDocumentCreateManyInput[],
   followUpCreates: Prisma.CredentialingFollowUpLogCreateManyInput[],
+  activityCreates: Prisma.CredentialingActivityLogCreateManyInput[] = [],
 ) {
   if (documentCreates.length) {
     await tx.credentialingDocument.createMany({ data: documentCreates });
@@ -873,6 +948,10 @@ async function writeCredentialingChildren(
 
   if (followUpCreates.length) {
     await tx.credentialingFollowUpLog.createMany({ data: followUpCreates });
+  }
+
+  if (activityCreates.length) {
+    await tx.credentialingActivityLog.createMany({ data: activityCreates });
   }
 }
 
@@ -1262,8 +1341,7 @@ export async function createCredentialingRequest(
     );
     if (duplicate) {
       return res.status(400).json({
-        message:
-          "Credentialing already exists for the selected practice, provider, insurance plan, and request type.",
+        message: DUPLICATE_CREDENTIALING_MESSAGE,
       });
     }
 
@@ -1284,36 +1362,52 @@ export async function createCredentialingRequest(
       loggedByName,
       currentUserId,
     );
+    const activityCreates = [
+      ...buildDocumentActivityEntries(requestId, documentCreates, actorName),
+      ...buildFollowUpActivityEntries(requestId, followUpCreates, actorName),
+    ];
 
-    const credentialingRequest = await prisma.$transaction(async (tx) => {
-      const created = await tx.credentialingRequest.create({
-        data: {
-          id: requestId,
-          ...data,
-          lastActivityDate: data.lastActivityDate || new Date(),
-        },
+    let credentialingRequest: string;
+    try {
+      credentialingRequest = await prisma.$transaction(async (tx) => {
+        const created = await tx.credentialingRequest.create({
+          data: {
+            id: requestId,
+            ...data,
+            lastActivityDate: data.lastActivityDate || new Date(),
+          },
+        });
+
+        await tx.credentialingActivityLog.create({
+          data: {
+            credentialingRequestId: created.id,
+            activityType: CredentialingActivityType.CREATED,
+            action: "Created Credentialing",
+            details: `Credentialing request created for ${body.providerName || body.practiceName || "practice"}.`,
+            actorName,
+            createdByUserId: currentUserId,
+          },
+        });
+
+        await writeCredentialingChildren(
+          tx,
+          created.id,
+          documentCreates,
+          followUpCreates,
+          activityCreates,
+        );
+
+        return created.id;
       });
+    } catch (error) {
+      if (isUniqueCredentialingRequestConflict(error)) {
+        return res.status(400).json({
+          message: DUPLICATE_CREDENTIALING_MESSAGE,
+        });
+      }
 
-      await tx.credentialingActivityLog.create({
-        data: {
-          credentialingRequestId: created.id,
-          activityType: CredentialingActivityType.CREATED,
-          action: "Created Credentialing",
-          details: `Credentialing request created for ${body.providerName || body.practiceName || "practice"}.`,
-          actorName,
-          createdByUserId: currentUserId,
-        },
-      });
-
-      await writeCredentialingChildren(
-        tx,
-        created.id,
-        documentCreates,
-        followUpCreates,
-      );
-
-      return created.id;
-    });
+      throw error;
+    }
 
     const createdRecord = await fetchCredentialingRequestWithDetails(
       credentialingRequest,
@@ -1399,8 +1493,7 @@ export async function updateCredentialingRequest(
     );
     if (duplicate) {
       return res.status(400).json({
-        message:
-          "Credentialing already exists for the selected practice, provider, insurance plan, and request type.",
+        message: DUPLICATE_CREDENTIALING_MESSAGE,
       });
     }
 
@@ -1420,43 +1513,58 @@ export async function updateCredentialingRequest(
       loggedByName,
       currentUserId,
     );
-    await prisma.$transaction(async (tx) => {
-      await tx.credentialingDocument.deleteMany({
-        where: { credentialingRequestId: existing.id },
-      });
-      await tx.credentialingFollowUpLog.deleteMany({
-        where: { credentialingRequestId: existing.id },
-      });
+    const activityCreates = [
+      ...buildDocumentActivityEntries(existing.id, documentCreates, actorName),
+      ...buildFollowUpActivityEntries(existing.id, followUpCreates, actorName),
+    ];
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.credentialingDocument.deleteMany({
+          where: { credentialingRequestId: existing.id },
+        });
+        await tx.credentialingFollowUpLog.deleteMany({
+          where: { credentialingRequestId: existing.id },
+        });
 
-      const updated = await tx.credentialingRequest.update({
-        where: { id: existing.id },
-        data: {
-          ...data,
-          updatedByUserId: currentUserId,
-          lastActivityDate: new Date(),
-        },
+        await tx.credentialingRequest.update({
+          where: { id: existing.id },
+          data: {
+            ...data,
+            updatedByUserId: currentUserId,
+            lastActivityDate: new Date(),
+          },
+        });
+
+        const activityEntries = await buildActivityEntries(
+          existing.id,
+          existing,
+          body,
+          actorName,
+        );
+
+        if (activityEntries.length) {
+          await tx.credentialingActivityLog.createMany({
+            data: activityEntries,
+          });
+        }
+
+        await writeCredentialingChildren(
+          tx,
+          existing.id,
+          documentCreates,
+          followUpCreates,
+          activityCreates,
+        );
       });
-
-      const activityEntries = await buildActivityEntries(
-        existing.id,
-        existing,
-        body,
-        actorName,
-      );
-
-      if (activityEntries.length) {
-        await tx.credentialingActivityLog.createMany({
-          data: activityEntries,
+    } catch (error) {
+      if (isUniqueCredentialingRequestConflict(error)) {
+        return res.status(400).json({
+          message: DUPLICATE_CREDENTIALING_MESSAGE,
         });
       }
 
-      await writeCredentialingChildren(
-        tx,
-        existing.id,
-        documentCreates,
-        followUpCreates,
-      );
-    });
+      throw error;
+    }
 
     const current = await fetchCredentialingRequestWithDetails(existing.id);
 

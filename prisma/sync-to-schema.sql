@@ -29,7 +29,7 @@ CREATE INDEX "credentialing_requests_re_credentialing_due_date_idx" ON "credenti
 CREATE INDEX "credentialing_requests_updated_at_idx" ON "credentialing_requests"("updated_at");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "credentialing_requests_practice_id_provider_id_insurance_pa_key" ON "credentialing_requests"("practice_id", "provider_id", "insurance_payer_name");
+CREATE UNIQUE INDEX "credentialing_requests_practice_id_provider_id_insurance_pa_key" ON "credentialing_requests"("practice_id", "provider_id", "insurance_payer_name", "request_type");
 
 -- CreateIndex
 CREATE INDEX "deal_selected_services_deal_id_idx" ON "deal_selected_services"("deal_id");

@@ -1394,7 +1394,7 @@ model CredentialingRequest {
   followUpLogs           CredentialingFollowUpLog[]
   activityLogs           CredentialingActivityLog[]
 
-  @@unique([practiceId, providerId, insurancePayerName])
+  @@unique([practiceId, providerId, insurancePayerName, requestType])
   @@index([practiceId])
   @@index([providerId])
   @@index([assignedToUserId])
