@@ -14,6 +14,9 @@ export type CreateBillingRunBody = {
   periodEnd?: string;
   notes?: string;
   paymentMethod?: string;
+  feeBearer?: string;
+  companyFeeAmountOverride?: number | string | null;
+  processingFeeConfig?: unknown;
   autoCalculate?: boolean;
   snapshots?: BillingSnapshotInput[];
   agreementIds?: string[];

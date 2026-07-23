@@ -19,8 +19,11 @@ import type {
   RecordPaymentBody,
 } from "../../models/billing/billing";
 import {
-  calculateProcessingFee,
+  allocateCompanyFeeAcrossAmounts,
+  buildProcessingFeeSettings,
+  calculateBearerProcessingAmounts,
   isBillingPaymentMethod,
+  isFeeBearer,
 } from "../../utils/paymentProcessing";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
@@ -536,7 +539,7 @@ function computePricingFromModel(params: {
       amount = roundMoney(metric.quantity * rate);
       components.push({
         componentType: pricingModel,
-        description: `${componentLabel} (${metric.metricKey})`,
+        description: componentLabel,
         quantity: metric.quantity,
         rate,
         amount,
@@ -583,7 +586,7 @@ function computePricingFromModel(params: {
       amount = roundMoney(metric.quantity * normalizedRate);
       components.push({
         componentType: pricingModel,
-        description: `${componentLabel} (${metric.metricKey})`,
+        description: componentLabel,
         quantity: metric.quantity,
         rate: normalizedRate,
         amount,
@@ -1646,6 +1649,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
   const periodStart = asDate(body.periodStart, "periodStart");
   const periodEnd = asDate(body.periodEnd, "periodEnd");
   const paymentMethod = body.paymentMethod?.trim().toUpperCase();
+  const feeBearer = body.feeBearer?.trim().toUpperCase();
 
   if (!practiceId || !periodStart || !periodEnd) {
     throw new BillingServiceError(
@@ -1683,6 +1687,11 @@ export async function createBillingRun(body: CreateBillingRunBody) {
 
   return prisma.$transaction(async (tx) => {
     await ensurePracticeExists(tx, practiceId);
+    const settings = await tx.systemSettings.findFirst();
+    const baseProcessingFeeConfig = buildProcessingFeeSettings(settings);
+    const processingFeeConfig = body.processingFeeConfig
+      ? buildProcessingFeeSettings(body.processingFeeConfig)
+      : baseProcessingFeeConfig;
 
     const billingRun = await tx.billingRun.create({
       data: {
@@ -1692,6 +1701,9 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         status: BillingRunStatus.PENDING,
         notes: body.notes || undefined,
         paymentMethod,
+        feeBearer: isFeeBearer(feeBearer) ? feeBearer : "CLIENT",
+        processingFeeConfig:
+          processingFeeConfig as unknown as Prisma.InputJsonValue,
         agreementIds: body.agreementIds || [],
       },
     });
@@ -2255,21 +2267,30 @@ export async function postBillingRun(billingRunId: string, userId: string) {
     ];
     const invoiceAgreementId = uniqueAgreementIds.length === 1 ? uniqueAgreementIds[0] : null;
 
-    const subtotalAmount = roundMoney(
+    const internalSubtotalAmount = roundMoney(
       run.items.reduce((sum, item) => sum + Number(item.clientAmount), 0),
     );
-    const processingFee = calculateProcessingFee(
-      subtotalAmount,
-      isBillingPaymentMethod(run.paymentMethod) ? run.paymentMethod : "ACH",
+    const processingFeeSnapshot = buildProcessingFeeSettings(
+      run.processingFeeConfig,
     );
+    const processingAmounts = calculateBearerProcessingAmounts({
+      baseAmount: internalSubtotalAmount,
+      paymentMethod: isBillingPaymentMethod(run.paymentMethod)
+        ? run.paymentMethod
+        : "ACH",
+      feeBearer: isFeeBearer(run.feeBearer) ? run.feeBearer : "CLIENT",
+      settings: processingFeeSnapshot,
+    });
     const invoice = await tx.invoice.create({
       data: {
         practiceId: run.practiceId,
         agreementId: invoiceAgreementId || undefined,
-        totalAmount: decimal(processingFee.grossAmount),
-        subtotalAmount: decimal(subtotalAmount),
-        paymentMethod: processingFee.paymentMethod,
-        processingFeeAmount: decimal(processingFee.feeAmount),
+        totalAmount: decimal(processingAmounts.customerInvoiceAmount),
+        subtotalAmount: decimal(internalSubtotalAmount),
+        paymentMethod: run.paymentMethod,
+        feeBearer: processingAmounts.clientFeeAmount > 0 ? "CLIENT" : "COMPANY",
+        processingFeeAmount: decimal(processingAmounts.clientFeeAmount),
+        companyFeeAmount: decimal(processingAmounts.companyFeeAmount),
         taxAmount: decimal(0),
         discountAmount: decimal(0),
         status: InvoiceStatus.DRAFT,
@@ -2280,6 +2301,20 @@ export async function postBillingRun(billingRunId: string, userId: string) {
         dueDate: new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000),
       },
     });
+
+    const lineItemDrafts: Array<{
+      serviceId: string;
+      stripeConnectedAccountId: string;
+      quantity: number;
+      unitPrice: number;
+      totalPrice: number;
+      description: string;
+      billingRunItemId?: string;
+      billingRunItemComponentId?: string;
+      agreementServiceTermId?: string;
+      billingPeriodStart: Date;
+      billingPeriodEnd: Date;
+    }> = [];
 
     for (const item of run.items) {
       const defaultComponent =
@@ -2313,23 +2348,54 @@ export async function postBillingRun(billingRunId: string, userId: string) {
           );
         }
 
-        await tx.invoiceLineItem.create({
-          data: {
-            invoiceId: invoice.id,
-            serviceId: item.serviceId,
-            stripeConnectedAccountId,
-            quantity: Math.max(1, Math.round(quantity)),
-            unitPrice: decimal(unitPrice),
-            totalPrice: decimal(amount),
-            description: component.description || item.service.name,
-            billingRunItemId: item.id,
-            billingRunItemComponentId: component.id || undefined,
-            agreementServiceTermId: item.agreementServiceTermId || undefined,
-            billingPeriodStart: run.periodStart,
-            billingPeriodEnd: run.periodEnd,
-          },
+        lineItemDrafts.push({
+          serviceId: item.serviceId,
+          stripeConnectedAccountId,
+          quantity: Math.max(1, Math.round(quantity)),
+          unitPrice,
+          totalPrice: amount,
+          description: component.description || item.service.name,
+          billingRunItemId: item.id,
+          billingRunItemComponentId: component.id || undefined,
+          agreementServiceTermId: item.agreementServiceTermId || undefined,
+          billingPeriodStart: run.periodStart,
+          billingPeriodEnd: run.periodEnd,
         });
       }
+    }
+
+    const companyDeductions = allocateCompanyFeeAcrossAmounts(
+      lineItemDrafts.map((item) => item.totalPrice),
+      processingAmounts.companyFeeAmount,
+    );
+
+    for (const [index, item] of lineItemDrafts.entries()) {
+      const companyFeeDeductionAmount = companyDeductions[index] || 0;
+      const externalTotalPrice = roundMoney(
+        Math.max(0, item.totalPrice - companyFeeDeductionAmount),
+      );
+      const externalUnitPrice =
+        item.quantity > 0 ? roundMoney(externalTotalPrice / item.quantity) : 0;
+
+      await tx.invoiceLineItem.create({
+        data: {
+          invoiceId: invoice.id,
+          serviceId: item.serviceId,
+          stripeConnectedAccountId: item.stripeConnectedAccountId,
+          quantity: item.quantity,
+          unitPrice: decimal(item.unitPrice),
+          totalPrice: decimal(item.totalPrice),
+          externalUnitPrice: decimal(externalUnitPrice),
+          externalTotalPrice: decimal(externalTotalPrice),
+          companyFeeDeductionAmount: decimal(companyFeeDeductionAmount),
+          description: item.description,
+          billingRunItemId: item.billingRunItemId,
+          billingRunItemComponentId: item.billingRunItemComponentId,
+          agreementServiceTermId: item.agreementServiceTermId,
+          billingPeriodStart: item.billingPeriodStart,
+          billingPeriodEnd: item.billingPeriodEnd,
+        },
+      });
     }
 
     createdInvoices.push(invoice);
@@ -2639,64 +2705,66 @@ export async function importSnapshotsFromMonthlyReports(
 }
 
 export async function deleteBillingRun(billingRunId: string) {
-  return prisma.$transaction(async (tx) => {
-    const run = await tx.billingRun.findUnique({
-      where: { id: billingRunId },
-      include: {
-        items: true,
+  const run = await prisma.billingRun.findUnique({
+    where: { id: billingRunId },
+    select: {
+      id: true,
+      status: true,
+      items: {
+        select: {
+          id: true,
+        },
       },
-    });
-
-    if (!run) {
-      throw new BillingServiceError(404, "Billing run not found.");
-    }
-
-    if (
-      run.status === BillingRunStatus.POSTED ||
-      run.status === BillingRunStatus.CLOSED
-    ) {
-      throw new BillingServiceError(
-        400,
-        "Cannot delete a billing run that has already been posted or closed.",
-      );
-    }
-
-    // Cleanup related entities
-    const itemIds = run.items.map((item) => item.id);
-
-    // Delete exception events
-    await tx.exceptionEvent.deleteMany({
-      where: {
-        OR: [
-          { entityType: ApprovalEntityType.BILLING_RUN, entityId: billingRunId },
-          {
-            entityType: ApprovalEntityType.BILLING_RUN_ITEM,
-            entityId: { in: itemIds },
-          },
-        ],
-      },
-    });
-
-    // Delete approval decisions
-    await tx.approvalDecision.deleteMany({
-      where: {
-        entityType: ApprovalEntityType.BILLING_RUN,
-        entityId: billingRunId,
-      },
-    });
-
-    // Delete input snapshots
-    await tx.billingInputSnapshot.deleteMany({
-      where: { billingRunId },
-    });
-
-    // The rest (items, components) are handled by database cascade deletion
-    await tx.billingRun.delete({
-      where: { id: billingRunId },
-    });
-
-    return { id: billingRunId };
+    },
   });
+
+  if (!run) {
+    throw new BillingServiceError(404, "Billing run not found.");
+  }
+
+  if (
+    run.status === BillingRunStatus.POSTED ||
+    run.status === BillingRunStatus.CLOSED
+  ) {
+    throw new BillingServiceError(
+      400,
+      "Cannot delete a billing run that has already been posted or closed.",
+    );
+  }
+
+  const itemIds = run.items.map((item) => item.id);
+
+  await prisma.exceptionEvent.deleteMany({
+    where: {
+      OR: [
+        { entityType: ApprovalEntityType.BILLING_RUN, entityId: billingRunId },
+        itemIds.length > 0
+          ? {
+              entityType: ApprovalEntityType.BILLING_RUN_ITEM,
+              entityId: { in: itemIds },
+            }
+          : undefined,
+      ].filter((clause): clause is NonNullable<typeof clause> => Boolean(clause)),
+    },
+  });
+
+  await prisma.approvalDecision.deleteMany({
+    where: {
+      entityType: ApprovalEntityType.BILLING_RUN,
+      entityId: billingRunId,
+    },
+  });
+
+  await prisma.billingInputSnapshot.deleteMany({
+    where: { billingRunId },
+  });
+
+  // Billing run items and components are removed by database cascade.
+  await prisma.billingRun.delete({
+    where: { id: billingRunId },
+  });
+
+  return { id: billingRunId };
 }
 
 export { BillingServiceError };

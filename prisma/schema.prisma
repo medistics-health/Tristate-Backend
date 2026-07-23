@@ -369,7 +369,9 @@ model Invoice {
   billingPeriodEnd       DateTime?           @map("billing_period_end")
   subtotalAmount         Decimal?            @map("subtotal_amount") @db.Decimal(12, 2)
   paymentMethod          String?             @map("payment_method")
+  feeBearer              String?             @map("fee_bearer")
   processingFeeAmount    Decimal?            @map("processing_fee_amount") @db.Decimal(12, 2)
+  companyFeeAmount       Decimal?            @map("company_fee_amount") @db.Decimal(12, 2)
   taxAmount              Decimal?            @map("tax_amount") @db.Decimal(12, 2)
   discountAmount         Decimal?            @map("discount_amount") @db.Decimal(12, 2)
   stripeInvoiceId        String?             @map("stripe_invoice_id")
@@ -404,6 +406,9 @@ model InvoiceLineItem {
   quantity                  Int
   unitPrice                 Decimal                  @map("unit_price") @db.Decimal(12, 2)
   totalPrice                Decimal                  @map("total_price") @db.Decimal(12, 2)
+  externalUnitPrice         Decimal?                 @map("external_unit_price") @db.Decimal(12, 2)
+  externalTotalPrice        Decimal?                 @map("external_total_price") @db.Decimal(12, 2)
+  companyFeeDeductionAmount Decimal?                 @map("company_fee_deduction_amount") @db.Decimal(12, 2)
   description               String?
   billingRunItemId          String?                  @map("billing_run_item_id") @db.Uuid
   billingRunItemComponentId String?                  @map("billing_run_item_component_id") @db.Uuid
@@ -548,6 +553,9 @@ model BillingRun {
   approvedAt       DateTime?              @map("approved_at")
   notes            String?
   paymentMethod    String                 @map("payment_method")
+  feeBearer        String                 @default("CLIENT") @map("fee_bearer")
+  companyFeeAmountOverride Decimal?       @map("company_fee_amount_override") @db.Decimal(12, 2)
+  processingFeeConfig Json?               @map("processing_fee_config")
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at")
   inputSnapshots   BillingInputSnapshot[]
@@ -1291,6 +1299,14 @@ model SystemSettings {
   supportEmail     String?  @default("support@tristate-mso.com") @map("support_email")
   authorizedSigner String?  @map("authorized_signer")
   notifyTo         String[] @default([]) @map("notify_to")
+  creditCardCompanyRatePercent Decimal @default(1.4) @map("credit_card_company_rate_percent") @db.Decimal(8, 4)
+  creditCardCompanyFixedFee Decimal @default(0.30) @map("credit_card_company_fixed_fee") @db.Decimal(12, 2)
+  creditCardClientRatePercent Decimal @default(1.5) @map("credit_card_client_rate_percent") @db.Decimal(8, 4)
+  creditCardClientFixedFee Decimal @default(0.00) @map("credit_card_client_fixed_fee") @db.Decimal(12, 2)
+  achCompanyRatePercent Decimal @default(0.8) @map("ach_company_rate_percent") @db.Decimal(8, 4)
+  achCompanyCapAmount Decimal @default(5.00) @map("ach_company_cap_amount") @db.Decimal(12, 2)
+  achClientRatePercent Decimal @default(0.0) @map("ach_client_rate_percent") @db.Decimal(8, 4)
+  achClientCapAmount Decimal @default(0.00) @map("ach_client_cap_amount") @db.Decimal(12, 2)
   invoiceDueDays       Int      @default(15) @map("invoice_due_days")
   invoiceReminderDays  Int      @default(5) @map("invoice_reminder_days")
   updatedAt        DateTime @updatedAt @map("updated_at")

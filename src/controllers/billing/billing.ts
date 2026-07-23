@@ -30,11 +30,14 @@ import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceip
 import { generateInvoicePdfBuffer, formatDate, selectPrimaryOnboardingLocation } from "../../utils/invoicePdf";
 import { getLogoBuffer } from "../../utils/logoHelper";
 import {
-  calculateProcessingFee,
+  buildProcessingFeeSettings,
+  calculateBearerProcessingAmounts,
+  getFeeBearerLabel,
   getBillingPaymentMethodLabel,
   getProcessingFeeDescription,
   getStripePaymentMethodTypes,
   isBillingPaymentMethod,
+  isFeeBearer,
 } from "../../utils/paymentProcessing";
 
 function toStripeMinorUnit(amount: number | string) {
@@ -188,17 +191,21 @@ async function buildBillingRunInvoicePreview(run: any) {
       0,
     ),
   );
-  const processingFee = calculateProcessingFee(
-    subtotalAmount,
-    isBillingPaymentMethod(run.paymentMethod) ? run.paymentMethod : "ACH",
-  );
+  const processingAmounts = calculateBearerProcessingAmounts({
+    baseAmount: subtotalAmount,
+    paymentMethod: isBillingPaymentMethod(run.paymentMethod)
+      ? run.paymentMethod
+      : "ACH",
+    feeBearer: isFeeBearer(run.feeBearer) ? run.feeBearer : "CLIENT",
+    settings: buildProcessingFeeSettings(run.processingFeeConfig),
+  });
 
-  if (processingFee.feeAmount > 0) {
+  if (processingAmounts.clientFeeAmount > 0) {
     lineItems.push({
-      description: getProcessingFeeDescription(processingFee.paymentMethod),
+      description: getProcessingFeeDescription(processingAmounts.paymentMethod),
       quantity: 1,
-      unitPrice: processingFee.feeAmount,
-      totalPrice: processingFee.feeAmount,
+      unitPrice: processingAmounts.clientFeeAmount,
+      totalPrice: processingAmounts.clientFeeAmount,
       hasDetails: false,
     });
   }
@@ -231,10 +238,12 @@ async function buildBillingRunInvoicePreview(run: any) {
     invoiceNumber: `Preview-${run.id.slice(0, 8).toUpperCase()}`,
     invoiceDate: new Date(),
     dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    totalAmount: processingFee.grossAmount,
-    subtotalAmount,
-    processingFeeAmount: processingFee.feeAmount,
-    paymentMethod: getBillingPaymentMethodLabel(processingFee.paymentMethod),
+    totalAmount: processingAmounts.customerInvoiceAmount,
+    subtotalAmount: subtotalAmount,
+    processingFeeAmount: processingAmounts.clientFeeAmount,
+    paymentMethod: getBillingPaymentMethodLabel(processingAmounts.paymentMethod),
+    feeBearer: getFeeBearerLabel(processingAmounts.feeBearer),
+    companyFeeAmount: processingAmounts.companyFeeAmount,
     taxAmount: 0,
     discountAmount: 0,
     currency,

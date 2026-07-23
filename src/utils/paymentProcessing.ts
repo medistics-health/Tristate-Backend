@@ -1,17 +1,24 @@
 export const billingPaymentMethods = ["ACH", "CREDIT_CARD"] as const;
+export const feeBearers = ["CLIENT", "COMPANY"] as const;
 
 export type BillingPaymentMethod = (typeof billingPaymentMethods)[number];
+export type FeeBearer = (typeof feeBearers)[number];
 
-type ProcessingFeeConfig = {
-  rate: number;
+export type FeeRule = {
+  ratePercent: number;
   fixedFee: number;
-  maxFee?: number;
+  capAmount?: number | null;
 };
 
-export type ProcessingFeeBreakdown = {
+export type ProcessingFeeSettings = {
+  creditCard: Record<FeeBearer, FeeRule>;
+  ach: Record<FeeBearer, FeeRule>;
+};
+
+export type ProcessingFeeComputation = {
   paymentMethod: BillingPaymentMethod;
-  netAmount: number;
-  grossAmount: number;
+  feeBearer: FeeBearer;
+  baseAmount: number;
   feeAmount: number;
 };
 
@@ -19,12 +26,17 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function getConfig(paymentMethod: BillingPaymentMethod): ProcessingFeeConfig {
-  if (paymentMethod === "CREDIT_CARD") {
-    return { rate: 0.029, fixedFee: 0.3 };
-  }
+function asNumber(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
-  return { rate: 0.008, fixedFee: 0, maxFee: 5 };
+function readValue(source: any, flatKey: string, path: string[], fallback: number) {
+  let nested = source;
+  for (const key of path) {
+    nested = nested?.[key];
+  }
+  return asNumber(source?.[flatKey] ?? nested, fallback);
 }
 
 export function isBillingPaymentMethod(
@@ -33,10 +45,18 @@ export function isBillingPaymentMethod(
   return billingPaymentMethods.includes(value as BillingPaymentMethod);
 }
 
+export function isFeeBearer(value: string | null | undefined): value is FeeBearer {
+  return feeBearers.includes(value as FeeBearer);
+}
+
 export function getBillingPaymentMethodLabel(
   paymentMethod: BillingPaymentMethod,
 ) {
   return paymentMethod === "CREDIT_CARD" ? "Credit Card" : "ACH";
+}
+
+export function getFeeBearerLabel(feeBearer: FeeBearer) {
+  return feeBearer === "COMPANY" ? "Company" : "Client";
 }
 
 export function getStripePaymentMethodTypes(
@@ -51,43 +71,237 @@ export function getProcessingFeeDescription(
   return `${getBillingPaymentMethodLabel(paymentMethod)} processing fee`;
 }
 
-export function calculateProcessingFee(
-  netAmount: number,
+export function getDefaultProcessingFeeSettings(): ProcessingFeeSettings {
+  return {
+    creditCard: {
+      COMPANY: { ratePercent: 1.4, fixedFee: 0.3, capAmount: null },
+      CLIENT: { ratePercent: 1.5, fixedFee: 0, capAmount: null },
+    },
+    ach: {
+      COMPANY: { ratePercent: 0.8, fixedFee: 0, capAmount: 5 },
+      CLIENT: { ratePercent: 0, fixedFee: 0, capAmount: 0 },
+    },
+  };
+}
+
+export function buildProcessingFeeSettings(source?: any): ProcessingFeeSettings {
+  const defaults = getDefaultProcessingFeeSettings();
+  return {
+    creditCard: {
+      COMPANY: {
+        ratePercent: readValue(
+          source,
+          "creditCardCompanyRatePercent",
+          ["creditCard", "COMPANY", "ratePercent"],
+          defaults.creditCard.COMPANY.ratePercent,
+        ),
+        fixedFee: readValue(
+          source,
+          "creditCardCompanyFixedFee",
+          ["creditCard", "COMPANY", "fixedFee"],
+          defaults.creditCard.COMPANY.fixedFee,
+        ),
+        capAmount: null,
+      },
+      CLIENT: {
+        ratePercent: readValue(
+          source,
+          "creditCardClientRatePercent",
+          ["creditCard", "CLIENT", "ratePercent"],
+          defaults.creditCard.CLIENT.ratePercent,
+        ),
+        fixedFee: readValue(
+          source,
+          "creditCardClientFixedFee",
+          ["creditCard", "CLIENT", "fixedFee"],
+          defaults.creditCard.CLIENT.fixedFee,
+        ),
+        capAmount: null,
+      },
+    },
+    ach: {
+      COMPANY: {
+        ratePercent: readValue(
+          source,
+          "achCompanyRatePercent",
+          ["ach", "COMPANY", "ratePercent"],
+          defaults.ach.COMPANY.ratePercent,
+        ),
+        fixedFee: 0,
+        capAmount: readValue(
+          source,
+          "achCompanyCapAmount",
+          ["ach", "COMPANY", "capAmount"],
+          defaults.ach.COMPANY.capAmount || 0,
+        ),
+      },
+      CLIENT: {
+        ratePercent: readValue(
+          source,
+          "achClientRatePercent",
+          ["ach", "CLIENT", "ratePercent"],
+          defaults.ach.CLIENT.ratePercent,
+        ),
+        fixedFee: 0,
+        capAmount: readValue(
+          source,
+          "achClientCapAmount",
+          ["ach", "CLIENT", "capAmount"],
+          defaults.ach.CLIENT.capAmount || 0,
+        ),
+      },
+    },
+  };
+}
+
+export function validateProcessingFeeSettingsOverride(
+  baseSettings: ProcessingFeeSettings,
+  overrideSettings: ProcessingFeeSettings,
+) {
+  const fields: Array<[number, number, string]> = [
+    [
+      overrideSettings.creditCard.COMPANY.ratePercent,
+      baseSettings.creditCard.COMPANY.ratePercent,
+      "Credit Card Company Rate",
+    ],
+    [
+      overrideSettings.creditCard.COMPANY.fixedFee,
+      baseSettings.creditCard.COMPANY.fixedFee,
+      "Credit Card Company Fixed Fee",
+    ],
+    [
+      overrideSettings.creditCard.CLIENT.ratePercent,
+      baseSettings.creditCard.CLIENT.ratePercent,
+      "Credit Card Client Rate",
+    ],
+    [
+      overrideSettings.creditCard.CLIENT.fixedFee,
+      baseSettings.creditCard.CLIENT.fixedFee,
+      "Credit Card Client Fixed Fee",
+    ],
+    [
+      overrideSettings.ach.COMPANY.ratePercent,
+      baseSettings.ach.COMPANY.ratePercent,
+      "ACH Company Rate",
+    ],
+    [
+      overrideSettings.ach.COMPANY.capAmount || 0,
+      baseSettings.ach.COMPANY.capAmount || 0,
+      "ACH Company Cap",
+    ],
+    [
+      overrideSettings.ach.CLIENT.ratePercent,
+      baseSettings.ach.CLIENT.ratePercent,
+      "ACH Client Rate",
+    ],
+    [
+      overrideSettings.ach.CLIENT.capAmount || 0,
+      baseSettings.ach.CLIENT.capAmount || 0,
+      "ACH Client Cap",
+    ],
+  ];
+
+  for (const [value, maxValue, label] of fields) {
+    if (value < 0) {
+      throw new Error(`${label} cannot be negative.`);
+    }
+    if (value > maxValue) {
+      throw new Error(`${label} cannot exceed General Settings.`);
+    }
+  }
+}
+
+export function getFeeRule(
+  settings: ProcessingFeeSettings,
   paymentMethod: BillingPaymentMethod,
-): ProcessingFeeBreakdown {
-  const normalizedNetAmount = roundMoney(Math.max(0, netAmount));
-  const { rate, fixedFee, maxFee } = getConfig(paymentMethod);
+  feeBearer: FeeBearer,
+): FeeRule {
+  return paymentMethod === "CREDIT_CARD"
+    ? settings.creditCard[feeBearer]
+    : settings.ach[feeBearer];
+}
 
-  if (normalizedNetAmount <= 0) {
-    return {
-      paymentMethod,
-      netAmount: normalizedNetAmount,
-      grossAmount: normalizedNetAmount,
-      feeAmount: 0,
-    };
+export function calculateConfiguredFee(
+  baseAmount: number,
+  rule: FeeRule,
+): number {
+  const normalizedBase = roundMoney(Math.max(0, baseAmount));
+  let feeAmount = roundMoney(normalizedBase * (rule.ratePercent / 100) + rule.fixedFee);
+  if (typeof rule.capAmount === "number") {
+    feeAmount = roundMoney(Math.min(feeAmount, Math.max(0, rule.capAmount)));
+  }
+  return feeAmount;
+}
+
+export function calculateBearerProcessingAmounts(params: {
+  baseAmount: number;
+  paymentMethod: BillingPaymentMethod;
+  feeBearer: FeeBearer;
+  settings: ProcessingFeeSettings;
+  companyFeeAmountOverride?: number | null;
+}) {
+  const normalizedBase = roundMoney(Math.max(0, params.baseAmount));
+  const clientRule = getFeeRule(params.settings, params.paymentMethod, "CLIENT");
+  const companyRule = getFeeRule(
+    params.settings,
+    params.paymentMethod,
+    "COMPANY",
+  );
+
+  const maxClientFeeAmount = calculateConfiguredFee(normalizedBase, clientRule);
+  const maxCompanyFeeAmount = calculateConfiguredFee(normalizedBase, companyRule);
+  const clientFeeAmount = maxClientFeeAmount;
+  const companyFeeAmount = maxCompanyFeeAmount;
+
+  return {
+    baseAmount: normalizedBase,
+    paymentMethod: params.paymentMethod,
+    feeBearer:
+      clientFeeAmount > 0 ? "CLIENT" : companyFeeAmount > 0 ? "COMPANY" : params.feeBearer,
+    clientFeeAmount,
+    companyFeeAmount,
+    maxClientFeeAmount,
+    maxCompanyFeeAmount,
+    customerInvoiceAmount: roundMoney(normalizedBase + clientFeeAmount),
+  };
+}
+
+export function allocateCompanyFeeAcrossAmounts(
+  amounts: number[],
+  totalCompanyFeeAmount: number,
+): number[] {
+  const roundedFee = roundMoney(Math.max(0, totalCompanyFeeAmount));
+  if (roundedFee <= 0 || amounts.length === 0) {
+    return amounts.map(() => 0);
   }
 
-  let grossAmount = roundMoney((normalizedNetAmount + fixedFee) / (1 - rate));
+  const normalizedAmounts = amounts.map((amount) => roundMoney(Math.max(0, amount)));
+  const subtotal = roundMoney(
+    normalizedAmounts.reduce((sum, amount) => sum + amount, 0),
+  );
 
-  while (true) {
-    let feeAmount = roundMoney(grossAmount * rate + fixedFee);
-    if (typeof maxFee === "number") {
-      feeAmount = Math.min(feeAmount, maxFee);
-      feeAmount = roundMoney(feeAmount);
-    }
-
-    const actualNet = roundMoney(grossAmount - feeAmount);
-    if (actualNet === normalizedNetAmount) {
-      return {
-        paymentMethod,
-        netAmount: normalizedNetAmount,
-        grossAmount,
-        feeAmount,
-      };
-    }
-
-    grossAmount = roundMoney(
-      grossAmount + (actualNet < normalizedNetAmount ? 0.01 : -0.01),
-    );
+  if (subtotal <= 0) {
+    return normalizedAmounts.map(() => 0);
   }
+
+  let allocatedTotal = 0;
+  const allocations = normalizedAmounts.map((amount, index) => {
+    if (index === normalizedAmounts.length - 1) {
+      return 0;
+    }
+    const share = roundMoney((amount / subtotal) * roundedFee);
+    const bounded = roundMoney(Math.min(share, amount));
+    allocatedTotal = roundMoney(allocatedTotal + bounded);
+    return bounded;
+  });
+
+  const remainder = roundMoney(
+    Math.min(
+      roundedFee - allocatedTotal,
+      normalizedAmounts[normalizedAmounts.length - 1],
+    ),
+  );
+  allocations[normalizedAmounts.length - 1] = remainder;
+
+  return allocations;
 }

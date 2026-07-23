@@ -976,7 +976,7 @@ export async function generateInvoicePdfBufferFromDb(
   for (const group of sortedGroups) {
     const { billingRunItem, service, lineItems: grpLineItems } = group;
     const totalPrice = grpLineItems.reduce(
-      (sum, item) => sum + Number(item.totalPrice || 0),
+      (sum, item) => sum + Number(item.totalPrice ?? 0),
       0,
     );
 

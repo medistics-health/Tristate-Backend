@@ -1,6 +1,7 @@
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { buildProcessingFeeSettings } from "../../utils/paymentProcessing";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -24,11 +25,29 @@ function normalizeEmailList(value: unknown) {
     .filter(Boolean))];
 }
 
+function parseNonNegativeNumber(
+  value: unknown,
+  fieldLabel: string,
+  fallback?: number,
+) {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`${fieldLabel} must be a non-negative number.`);
+  }
+
+  return parsed;
+}
+
 export async function getSystemSettings(req: AuthenticatedRequest, res: Response) {
   try {
     let settings = await prisma.systemSettings.findFirst();
 
     if (!settings) {
+      const feeSettings = buildProcessingFeeSettings();
       // Initialize with defaults if none exist
       settings = await prisma.systemSettings.create({
         data: {
@@ -36,6 +55,14 @@ export async function getSystemSettings(req: AuthenticatedRequest, res: Response
           domain: "tristate-mso.com",
           address: "123 Enterprise Way, Suite 500, New Jersey, NJ 07102",
           notifyTo: [],
+          creditCardCompanyRatePercent: feeSettings.creditCard.COMPANY.ratePercent,
+          creditCardCompanyFixedFee: feeSettings.creditCard.COMPANY.fixedFee,
+          creditCardClientRatePercent: feeSettings.creditCard.CLIENT.ratePercent,
+          creditCardClientFixedFee: feeSettings.creditCard.CLIENT.fixedFee,
+          achCompanyRatePercent: feeSettings.ach.COMPANY.ratePercent,
+          achCompanyCapAmount: feeSettings.ach.COMPANY.capAmount || 0,
+          achClientRatePercent: feeSettings.ach.CLIENT.ratePercent,
+          achClientCapAmount: feeSettings.ach.CLIENT.capAmount || 0,
           invoiceDueDays: 15,
           invoiceReminderDays: 5,
         },
@@ -63,6 +90,14 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       supportEmail,
       authorizedSigner,
       notifyTo,
+      creditCardCompanyRatePercent,
+      creditCardCompanyFixedFee,
+      creditCardClientRatePercent,
+      creditCardClientFixedFee,
+      achCompanyRatePercent,
+      achCompanyCapAmount,
+      achClientRatePercent,
+      achClientCapAmount,
       invoiceDueDays,
       invoiceReminderDays,
     } = req.body;
@@ -91,6 +126,40 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
 
     const parsedInvoiceDueDays = invoiceDueDays !== undefined ? parseInt(invoiceDueDays, 10) : 15;
     const parsedInvoiceReminderDays = invoiceReminderDays !== undefined ? parseInt(invoiceReminderDays, 10) : 5;
+    const feeSettings = buildProcessingFeeSettings({
+      creditCardCompanyRatePercent: parseNonNegativeNumber(
+        creditCardCompanyRatePercent,
+        "Credit card company rate percent",
+      ),
+      creditCardCompanyFixedFee: parseNonNegativeNumber(
+        creditCardCompanyFixedFee,
+        "Credit card company fixed fee",
+      ),
+      creditCardClientRatePercent: parseNonNegativeNumber(
+        creditCardClientRatePercent,
+        "Credit card client rate percent",
+      ),
+      creditCardClientFixedFee: parseNonNegativeNumber(
+        creditCardClientFixedFee,
+        "Credit card client fixed fee",
+      ),
+      achCompanyRatePercent: parseNonNegativeNumber(
+        achCompanyRatePercent,
+        "ACH company rate percent",
+      ),
+      achCompanyCapAmount: parseNonNegativeNumber(
+        achCompanyCapAmount,
+        "ACH company cap amount",
+      ),
+      achClientRatePercent: parseNonNegativeNumber(
+        achClientRatePercent,
+        "ACH client rate percent",
+      ),
+      achClientCapAmount: parseNonNegativeNumber(
+        achClientCapAmount,
+        "ACH client cap amount",
+      ),
+    });
 
     if (isNaN(parsedInvoiceDueDays) || parsedInvoiceDueDays <= 0) {
       return res.status(400).json({
@@ -112,6 +181,14 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       supportEmail,
       authorizedSigner: normalizedAuthorizedSigner,
       notifyTo: normalizedNotifyTo,
+      creditCardCompanyRatePercent: feeSettings.creditCard.COMPANY.ratePercent,
+      creditCardCompanyFixedFee: feeSettings.creditCard.COMPANY.fixedFee,
+      creditCardClientRatePercent: feeSettings.creditCard.CLIENT.ratePercent,
+      creditCardClientFixedFee: feeSettings.creditCard.CLIENT.fixedFee,
+      achCompanyRatePercent: feeSettings.ach.COMPANY.ratePercent,
+      achCompanyCapAmount: feeSettings.ach.COMPANY.capAmount ?? 0,
+      achClientRatePercent: feeSettings.ach.CLIENT.ratePercent,
+      achClientCapAmount: feeSettings.ach.CLIENT.capAmount ?? 0,
       invoiceDueDays: parsedInvoiceDueDays,
       invoiceReminderDays: parsedInvoiceReminderDays,
     };
@@ -133,6 +210,11 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       settings,
     });
   } catch (error) {
+    if (error instanceof Error && error.message.includes("must be a non-negative number")) {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
     return res.status(500).json({
       message: "Unable to update settings.",
       error: error instanceof Error ? error.message : error,
