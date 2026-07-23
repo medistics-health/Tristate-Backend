@@ -201,7 +201,7 @@ export async function getInvoiceStripePayoutSummary(
           continue;
         }
         const current = groupedByAccount.get(destination);
-        const amount = toAmount(lineItem.totalPrice);
+        const amount = toAmount(lineItem.externalTotalPrice ?? lineItem.totalPrice);
         if (current) {
           current.amount += amount;
           current.lineItems.push(lineItem);

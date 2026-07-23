@@ -27,7 +27,9 @@ type InvoiceBody = {
   billingPeriodEnd?: string | null;
   subtotalAmount?: number | null;
   paymentMethod?: string | null;
+  feeBearer?: string | null;
   processingFeeAmount?: number | null;
+  companyFeeAmount?: number | null;
   taxAmount?: number | null;
   discountAmount?: number | null;
   stripeInvoiceId?: string | null;
@@ -103,7 +105,9 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
       billingPeriodEnd,
       subtotalAmount,
       paymentMethod,
+      feeBearer,
       processingFeeAmount,
+      companyFeeAmount,
       taxAmount,
       discountAmount,
       stripeInvoiceId,
@@ -186,7 +190,9 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
           : {}),
         ...(subtotalAmount !== undefined ? { subtotalAmount } : {}),
         ...(paymentMethod !== undefined ? { paymentMethod: paymentMethod || null } : {}),
+        ...(feeBearer !== undefined ? { feeBearer: feeBearer || null } : {}),
         ...(processingFeeAmount !== undefined ? { processingFeeAmount } : {}),
+        ...(companyFeeAmount !== undefined ? { companyFeeAmount } : {}),
         ...(taxAmount !== undefined ? { taxAmount } : {}),
         ...(discountAmount !== undefined ? { discountAmount } : {}),
         ...(stripeInvoiceId !== undefined
@@ -355,7 +361,9 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
       billingPeriodEnd,
       subtotalAmount,
       paymentMethod,
+      feeBearer,
       processingFeeAmount,
+      companyFeeAmount,
       taxAmount,
       discountAmount,
       stripeInvoiceId,
@@ -459,7 +467,9 @@ export async function updateInvoice(req: AuthenticatedRequest, res: Response) {
           : {}),
         ...(subtotalAmount !== undefined ? { subtotalAmount } : {}),
         ...(paymentMethod !== undefined ? { paymentMethod: paymentMethod || null } : {}),
+        ...(feeBearer !== undefined ? { feeBearer: feeBearer || null } : {}),
         ...(processingFeeAmount !== undefined ? { processingFeeAmount } : {}),
+        ...(companyFeeAmount !== undefined ? { companyFeeAmount } : {}),
         ...(taxAmount !== undefined ? { taxAmount } : {}),
         ...(discountAmount !== undefined ? { discountAmount } : {}),
         ...(stripeInvoiceId !== undefined
@@ -555,7 +565,20 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
     const [invoices, total] = await Promise.all([
       prisma.invoice.findMany({
         where,
-        include: { practice: true, agreement: true },
+        include: {
+          practice: true,
+          agreement: true,
+          lineItems: {
+            include: {
+              billingRunItem: {
+                select: {
+                  vendorAmount: true,
+                  marginAmount: true,
+                },
+              },
+            },
+          },
+        },
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
@@ -678,7 +701,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
         await stripeRequest("POST", "/v1/invoiceitems", {
           customer: customerId,
           invoice: stripeInvoiceId,
-          amount: Math.round(Number(item.totalPrice) * 100), // amount in cents
+          amount: Math.round(Number(item.totalPrice) * 100),
           currency,
           description:
             item.description ||

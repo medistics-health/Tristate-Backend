@@ -37,6 +37,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
     lineItems: Array<{
       id: string;
       totalPrice: any;
+      externalTotalPrice?: any;
       serviceId: string;
       stripeConnectedAccountId?: string | null;
       service?: {
@@ -65,7 +66,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
       continue;
     }
 
-    const amount = toMinorUnit(lineItem.totalPrice);
+    const amount = toMinorUnit(lineItem.externalTotalPrice ?? lineItem.totalPrice);
     const current = transferTotals.get(destination);
     if (current) {
       current.amount += amount;
