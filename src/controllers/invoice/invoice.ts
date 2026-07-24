@@ -255,7 +255,23 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
       include: {
         practice: true,
         agreement: true,
-        lineItems: true,
+        lineItems: {
+          include: {
+            service: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            billingRunItem: {
+              select: {
+                vendorAmount: true,
+                marginAmount: true,
+              },
+            },
+          },
+        },
         purchaseOrders: true,
         vendorPayables: true,
         paymentAllocations: {
