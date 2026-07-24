@@ -20,10 +20,13 @@ import type {
 } from "../../models/billing/billing";
 import {
   allocateCompanyFeeAcrossAmounts,
+  buildPracticeDefaultProcessingFeeSettings,
+  buildProcessingFeeAllocationSettings,
   buildProcessingFeeSettings,
   calculateBearerProcessingAmounts,
   isBillingPaymentMethod,
   isFeeBearer,
+  materializeProcessingFeeSettings,
 } from "../../utils/paymentProcessing";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
@@ -1648,8 +1651,6 @@ export async function createBillingRun(body: CreateBillingRunBody) {
   const practiceId = body.practiceId?.trim();
   const periodStart = asDate(body.periodStart, "periodStart");
   const periodEnd = asDate(body.periodEnd, "periodEnd");
-  const paymentMethod = body.paymentMethod?.trim().toUpperCase();
-  const feeBearer = body.feeBearer?.trim().toUpperCase();
 
   if (!practiceId || !periodStart || !periodEnd) {
     throw new BillingServiceError(
@@ -1660,13 +1661,6 @@ export async function createBillingRun(body: CreateBillingRunBody) {
 
   if (periodStart > periodEnd) {
     throw new BillingServiceError(400, "periodStart must be before periodEnd.");
-  }
-
-  if (!isBillingPaymentMethod(paymentMethod)) {
-    throw new BillingServiceError(
-      400,
-      "paymentMethod must be ACH or CREDIT_CARD.",
-    );
   }
 
   const readiness = await getBillingReadiness({
@@ -1686,12 +1680,30 @@ export async function createBillingRun(body: CreateBillingRunBody) {
   }
 
   return prisma.$transaction(async (tx) => {
-    await ensurePracticeExists(tx, practiceId);
+    const practice = await tx.practice.findUnique({
+      where: { id: practiceId },
+      select: {
+        id: true,
+        billingPaymentMethod: true,
+        processingFeeConfig: true,
+      },
+    });
+
+    if (!practice) {
+      throw new BillingServiceError(404, "Practice not found.");
+    }
+
     const settings = await tx.systemSettings.findFirst();
-    const baseProcessingFeeConfig = buildProcessingFeeSettings(settings);
-    const processingFeeConfig = body.processingFeeConfig
-      ? buildProcessingFeeSettings(body.processingFeeConfig)
-      : baseProcessingFeeConfig;
+    const paymentMethod = isBillingPaymentMethod(practice.billingPaymentMethod)
+      ? practice.billingPaymentMethod
+      : "ACH";
+    const processingFeeAllocation = practice.processingFeeConfig
+      ? buildProcessingFeeAllocationSettings(practice.processingFeeConfig)
+      : buildPracticeDefaultProcessingFeeSettings(settings);
+    const processingFeeConfig = materializeProcessingFeeSettings(
+      processingFeeAllocation,
+      settings,
+    );
 
     const billingRun = await tx.billingRun.create({
       data: {
@@ -1701,7 +1713,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         status: BillingRunStatus.PENDING,
         notes: body.notes || undefined,
         paymentMethod,
-        feeBearer: isFeeBearer(feeBearer) ? feeBearer : "CLIENT",
+        feeBearer: "CLIENT",
         processingFeeConfig:
           processingFeeConfig as unknown as Prisma.InputJsonValue,
         agreementIds: body.agreementIds || [],

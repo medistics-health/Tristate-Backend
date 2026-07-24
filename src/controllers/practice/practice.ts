@@ -6,6 +6,12 @@ import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
+import {
+  buildPracticeDefaultProcessingFeeSettings,
+  buildProcessingFeeAllocationSettings,
+  buildProcessingFeeSettings,
+  isBillingPaymentMethod,
+} from "../../utils/paymentProcessing";
 
 type GroupNpiInput = {
   groupNpiNumber: string;
@@ -30,6 +36,8 @@ type PracticeBody = {
   stripeCustomerId?: string | null;
   quickbooksCustomerId?: string | null;
   defaultCurrency?: string | null;
+  billingPaymentMethod?: string | null;
+  processingFeeConfig?: unknown;
   groupNpis?: GroupNpiInput[];
 };
 
@@ -220,6 +228,8 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       stripeCustomerId,
       quickbooksCustomerId,
       defaultCurrency,
+      billingPaymentMethod,
+      processingFeeConfig,
       groupNpis,
     } = req.body as PracticeBody;
 
@@ -246,6 +256,15 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
+      });
+    }
+
+    if (
+      billingPaymentMethod &&
+      !isBillingPaymentMethod(billingPaymentMethod.trim().toUpperCase())
+    ) {
+      return res.status(400).json({
+        message: "billingPaymentMethod must be ACH or CREDIT_CARD.",
       });
     }
 
@@ -347,6 +366,10 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    const settings = await prisma.systemSettings.findFirst();
+    const defaultPracticeProcessingFeeConfig =
+      buildPracticeDefaultProcessingFeeSettings(settings);
+
     const practiceData: any = {
       name,
       npi,
@@ -360,6 +383,11 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       billToTaxIdId,
       stripeCustomerId,
       quickbooksCustomerId,
+      billingPaymentMethod: billingPaymentMethod?.trim().toUpperCase() || "ACH",
+      processingFeeConfig:
+        (processingFeeConfig
+          ? buildProcessingFeeAllocationSettings(processingFeeConfig)
+          : defaultPracticeProcessingFeeConfig) as any,
       ...(defaultCurrency !== undefined
         ? { defaultCurrency: defaultCurrency || null }
         : {}),
@@ -472,6 +500,8 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       stripeCustomerId,
       quickbooksCustomerId,
       defaultCurrency,
+      billingPaymentMethod,
+      processingFeeConfig,
       groupNpis,
     } = req.body as PracticeBody;
 
@@ -498,6 +528,15 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
+      });
+    }
+
+    if (
+      billingPaymentMethod &&
+      !isBillingPaymentMethod(billingPaymentMethod.trim().toUpperCase())
+    ) {
+      return res.status(400).json({
+        message: "billingPaymentMethod must be ACH or CREDIT_CARD.",
       });
     }
 
@@ -640,6 +679,18 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         : {}),
       ...(defaultCurrency !== undefined
         ? { defaultCurrency: defaultCurrency || null }
+        : {}),
+      ...(billingPaymentMethod !== undefined
+        ? {
+            billingPaymentMethod:
+              billingPaymentMethod?.trim().toUpperCase() || "ACH",
+          }
+        : {}),
+      ...(processingFeeConfig !== undefined
+        ? {
+            processingFeeConfig:
+              buildProcessingFeeAllocationSettings(processingFeeConfig) as any,
+          }
         : {}),
     };
 

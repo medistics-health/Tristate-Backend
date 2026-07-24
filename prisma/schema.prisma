@@ -115,6 +115,8 @@ model Practice {
   stripeCustomerId      String?                @map("stripe_customer_id")
   quickbooksCustomerId  String?                @map("quickbooks_customer_id")
   defaultCurrency       String?                @default("USD") @map("default_currency")
+  billingPaymentMethod  String?                @default("ACH") @map("billing_payment_method")
+  processingFeeConfig   Json?                  @map("processing_fee_config")
   billToTaxIdId         String?                @map("bill_to_tax_id_id") @db.Uuid
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")

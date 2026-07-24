@@ -235,6 +235,7 @@ export async function getAllInvoiceLineItems(
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 1000;
     const invoiceId = req.query.invoiceId as string;
+    const invoiceNumber = req.query.invoiceNumber as string;
 
     const skip = (page - 1) * limit;
 
@@ -242,6 +243,15 @@ export async function getAllInvoiceLineItems(
 
     if (invoiceId) {
       where.invoiceId = invoiceId;
+    }
+
+    if (invoiceNumber) {
+      where.invoice = {
+        invoiceNumber: {
+          contains: invoiceNumber.trim(),
+          mode: "insensitive",
+        },
+      };
     }
 
     const [lineItems, total] = await Promise.all([

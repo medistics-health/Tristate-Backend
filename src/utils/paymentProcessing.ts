@@ -15,6 +15,12 @@ export type ProcessingFeeSettings = {
   ach: Record<FeeBearer, FeeRule>;
 };
 
+export type ProcessingFeeAllocationSettings = {
+  allocationMode: "PERCENT";
+  creditCard: Record<FeeBearer, FeeRule>;
+  ach: Record<FeeBearer, FeeRule>;
+};
+
 export type ProcessingFeeComputation = {
   paymentMethod: BillingPaymentMethod;
   feeBearer: FeeBearer;
@@ -23,6 +29,10 @@ export type ProcessingFeeComputation = {
 };
 
 function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function roundPercent(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
@@ -80,6 +90,244 @@ export function getDefaultProcessingFeeSettings(): ProcessingFeeSettings {
     ach: {
       COMPANY: { ratePercent: 0.8, fixedFee: 0, capAmount: 5 },
       CLIENT: { ratePercent: 0, fixedFee: 0, capAmount: 0 },
+    },
+  };
+}
+
+function getAllocationShare(value: number, total: number) {
+  if (total <= 0) {
+    return 0;
+  }
+  return roundPercent((value / total) * 100);
+}
+
+function normalizeAllocationPair(
+  first: number,
+  second: number,
+): [number, number] {
+  const total = roundMoney(Math.max(0, first) + Math.max(0, second));
+  if (total <= 0) {
+    return [0, 0];
+  }
+
+  const firstShare = getAllocationShare(Math.max(0, first), total);
+  return [firstShare, roundPercent(100 - firstShare)];
+}
+
+export function getGeneralProcessingFeeTotals(source?: any) {
+  const normalized = buildProcessingFeeSettings(source);
+
+  return {
+    creditCard: {
+      ratePercent: roundMoney(
+        normalized.creditCard.COMPANY.ratePercent +
+          normalized.creditCard.CLIENT.ratePercent,
+      ),
+      fixedFee: roundMoney(
+        normalized.creditCard.COMPANY.fixedFee +
+          normalized.creditCard.CLIENT.fixedFee,
+      ),
+    },
+    ach: {
+      ratePercent: roundMoney(
+        normalized.ach.COMPANY.ratePercent +
+          normalized.ach.CLIENT.ratePercent,
+      ),
+      capAmount: roundMoney(
+        (normalized.ach.COMPANY.capAmount || 0) +
+          (normalized.ach.CLIENT.capAmount || 0),
+      ),
+    },
+  };
+}
+
+export function buildPracticeDefaultProcessingFeeSettings(
+  source?: any,
+): ProcessingFeeAllocationSettings {
+  const actualSettings = buildProcessingFeeSettings(source);
+  return buildProcessingFeeAllocationSettings(actualSettings);
+}
+
+export function buildProcessingFeeAllocationSettings(
+  source?: any,
+): ProcessingFeeAllocationSettings {
+  if (source?.allocationMode === "PERCENT") {
+    return {
+      allocationMode: "PERCENT",
+      creditCard: {
+        COMPANY: {
+          ratePercent: readValue(
+            source,
+            "creditCardCompanyRatePercent",
+            ["creditCard", "COMPANY", "ratePercent"],
+            0,
+          ),
+          fixedFee: readValue(
+            source,
+            "creditCardCompanyFixedFee",
+            ["creditCard", "COMPANY", "fixedFee"],
+            0,
+          ),
+          capAmount: null,
+        },
+        CLIENT: {
+          ratePercent: readValue(
+            source,
+            "creditCardClientRatePercent",
+            ["creditCard", "CLIENT", "ratePercent"],
+            0,
+          ),
+          fixedFee: readValue(
+            source,
+            "creditCardClientFixedFee",
+            ["creditCard", "CLIENT", "fixedFee"],
+            0,
+          ),
+          capAmount: null,
+        },
+      },
+      ach: {
+        COMPANY: {
+          ratePercent: readValue(
+            source,
+            "achCompanyRatePercent",
+            ["ach", "COMPANY", "ratePercent"],
+            0,
+          ),
+          fixedFee: 0,
+          capAmount: readValue(
+            source,
+            "achCompanyCapAmount",
+            ["ach", "COMPANY", "capAmount"],
+            0,
+          ),
+        },
+        CLIENT: {
+          ratePercent: readValue(
+            source,
+            "achClientRatePercent",
+            ["ach", "CLIENT", "ratePercent"],
+            0,
+          ),
+          fixedFee: 0,
+          capAmount: readValue(
+            source,
+            "achClientCapAmount",
+            ["ach", "CLIENT", "capAmount"],
+            0,
+          ),
+        },
+      },
+    };
+  }
+
+  const actualSettings = buildProcessingFeeSettings(source);
+  const [creditRateCompany, creditRateClient] = normalizeAllocationPair(
+    actualSettings.creditCard.COMPANY.ratePercent,
+    actualSettings.creditCard.CLIENT.ratePercent,
+  );
+  const [creditFixedCompany, creditFixedClient] = normalizeAllocationPair(
+    actualSettings.creditCard.COMPANY.fixedFee,
+    actualSettings.creditCard.CLIENT.fixedFee,
+  );
+  const [achRateCompany, achRateClient] = normalizeAllocationPair(
+    actualSettings.ach.COMPANY.ratePercent,
+    actualSettings.ach.CLIENT.ratePercent,
+  );
+  const [achCapCompany, achCapClient] = normalizeAllocationPair(
+    actualSettings.ach.COMPANY.capAmount || 0,
+    actualSettings.ach.CLIENT.capAmount || 0,
+  );
+
+  return {
+    allocationMode: "PERCENT",
+    creditCard: {
+      COMPANY: {
+        ratePercent: creditRateCompany,
+        fixedFee: creditFixedCompany,
+        capAmount: null,
+      },
+      CLIENT: {
+        ratePercent: creditRateClient,
+        fixedFee: creditFixedClient,
+        capAmount: null,
+      },
+    },
+    ach: {
+      COMPANY: {
+        ratePercent: achRateCompany,
+        fixedFee: 0,
+        capAmount: achCapCompany,
+      },
+      CLIENT: {
+        ratePercent: achRateClient,
+        fixedFee: 0,
+        capAmount: achCapClient,
+      },
+    },
+  };
+}
+
+export function materializeProcessingFeeSettings(
+  allocationSettings: ProcessingFeeAllocationSettings,
+  totalsSource?: any,
+): ProcessingFeeSettings {
+  const totals = buildProcessingFeeSettings(totalsSource);
+
+  return {
+    creditCard: {
+      COMPANY: {
+        ratePercent: roundMoney(
+          (totals.creditCard.COMPANY.ratePercent +
+            totals.creditCard.CLIENT.ratePercent) *
+            (allocationSettings.creditCard.COMPANY.ratePercent / 100),
+        ),
+        fixedFee: roundMoney(
+          (totals.creditCard.COMPANY.fixedFee +
+            totals.creditCard.CLIENT.fixedFee) *
+            (allocationSettings.creditCard.COMPANY.fixedFee / 100),
+        ),
+        capAmount: null,
+      },
+      CLIENT: {
+        ratePercent: roundMoney(
+          (totals.creditCard.COMPANY.ratePercent +
+            totals.creditCard.CLIENT.ratePercent) *
+            (allocationSettings.creditCard.CLIENT.ratePercent / 100),
+        ),
+        fixedFee: roundMoney(
+          (totals.creditCard.COMPANY.fixedFee +
+            totals.creditCard.CLIENT.fixedFee) *
+            (allocationSettings.creditCard.CLIENT.fixedFee / 100),
+        ),
+        capAmount: null,
+      },
+    },
+    ach: {
+      COMPANY: {
+        ratePercent: roundMoney(
+          (totals.ach.COMPANY.ratePercent + totals.ach.CLIENT.ratePercent) *
+            (allocationSettings.ach.COMPANY.ratePercent / 100),
+        ),
+        fixedFee: 0,
+        capAmount: roundMoney(
+          ((totals.ach.COMPANY.capAmount || 0) +
+            (totals.ach.CLIENT.capAmount || 0)) *
+            ((allocationSettings.ach.COMPANY.capAmount || 0) / 100),
+        ),
+      },
+      CLIENT: {
+        ratePercent: roundMoney(
+          (totals.ach.COMPANY.ratePercent + totals.ach.CLIENT.ratePercent) *
+            (allocationSettings.ach.CLIENT.ratePercent / 100),
+        ),
+        fixedFee: 0,
+        capAmount: roundMoney(
+          ((totals.ach.COMPANY.capAmount || 0) +
+            (totals.ach.CLIENT.capAmount || 0)) *
+            ((allocationSettings.ach.CLIENT.capAmount || 0) / 100),
+        ),
+      },
     },
   };
 }
