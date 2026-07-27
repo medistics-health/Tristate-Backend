@@ -1,3 +1,4 @@
+import axios from "axios";
 import { Response } from "express";
 import {
   InsuranceCarrierType,
@@ -57,6 +58,14 @@ type InsurancePlanCreateBody = {
   plans?: InsurancePlanInput[];
 };
 
+type ClaimPayerListBody = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  services?: string[];
+  type?: string;
+};
+
 const carrierTypeLabels: Record<InsuranceCarrierType, string> = {
   COMMERCIAL: "Commercial",
   GOVERNMENT: "Government",
@@ -99,6 +108,8 @@ const telecomSystemOptions = new Set([
   "Email",
   "Website",
 ]);
+
+const CLAIM_PAYER_LIST_URL = "https://www.claim.md/app/payers-list";
 
 function normalizeKey(value: string) {
   return value
@@ -521,6 +532,49 @@ export async function listInsurancePlanOptions(
     return res.status(500).json({
       message: "Unable to fetch insurance plan options.",
       error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function listClaimPayers(
+  req: AuthenticatedRequest,
+  res: Response,
+) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const body = (req.body || {}) as ClaimPayerListBody;
+    const response = await axios.post(
+      CLAIM_PAYER_LIST_URL,
+      {
+        page: body.page ?? 0,
+        pageSize: body.pageSize ?? 20,
+        search: body.search ?? "",
+        services: Array.isArray(body.services) ? body.services : [],
+        type: body.type ?? "",
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      },
+    );
+
+    return res.status(200).json(response.data);
+  } catch (error) {
+    const status = axios.isAxiosError(error)
+      ? error.response?.status || 500
+      : 500;
+    return res.status(status).json({
+      message: "Unable to fetch payer list.",
+      error: axios.isAxiosError(error)
+        ? error.response?.data || error.message
+        : error instanceof Error
+          ? error.message
+          : error,
     });
   }
 }

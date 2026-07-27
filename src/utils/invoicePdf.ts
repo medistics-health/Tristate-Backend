@@ -138,6 +138,14 @@ function formatPricingTerm(pricingModel?: string): string {
     case "MONTHLY_MINIMUM":
       return "Monthly Minimum";
     default:
+      if (
+        modelUpper.includes("%") ||
+        modelUpper.includes("+") ||
+        modelUpper.includes("MAX") ||
+        modelUpper.includes("FEE")
+      ) {
+        return pricingModel;
+      }
       return pricingModel
         .replace(/_/g, " ")
         .toLowerCase()
@@ -429,6 +437,7 @@ export interface InvoiceData {
   totalAmount: number;
   subtotalAmount: number | null;
   processingFeeAmount?: number | null;
+  processingFeeSnapshot?: any;
   paymentMethod?: string | null;
   taxAmount: number | null;
   discountAmount: number | null;
@@ -1121,13 +1130,37 @@ export async function generateInvoicePdfBufferFromDb(
 
   const processingFeeAmount = Number(invoice.processingFeeAmount || 0);
   if (processingFeeAmount > 0) {
-    const paymentMethodLabel =
-      invoice.paymentMethod === "CREDIT_CARD" ? "Credit Card" : "ACH";
+    const isCc = invoice.paymentMethod === "CREDIT_CARD";
+    const paymentMethodLabel = isCc ? "Credit Card" : "ACH";
+    const feeConfig =
+      invoice.processingFeeSnapshot ||
+      (invoice as any).processingFeeSnapshot ||
+      (invoice as any).billingRun?.processingFeeConfig ||
+      (invoice.lineItems || []).find((li: any) => li.billingRunItem?.billingRun?.processingFeeConfig)
+        ?.billingRunItem?.billingRun?.processingFeeConfig;
+    const clientRule = isCc ? feeConfig?.creditCard?.CLIENT : feeConfig?.ach?.CLIENT;
+
+    let feeDetail = "";
+    if (clientRule) {
+      if (isCc) {
+        const parts = [];
+        if (clientRule.ratePercent > 0) parts.push(`${clientRule.ratePercent}%`);
+        if (clientRule.fixedFee > 0) parts.push(`$${clientRule.fixedFee.toFixed(2)}`);
+        if (parts.length > 0) feeDetail = ` (${parts.join(" + ")})`;
+      } else {
+        const parts = [];
+        if (clientRule.ratePercent > 0) parts.push(`${clientRule.ratePercent}%`);
+        if (clientRule.capAmount > 0) parts.push(`$${clientRule.capAmount.toFixed(2)} max`);
+        if (parts.length > 0) feeDetail = ` (${parts.join(" / ")})`;
+      }
+    }
+
     lineItems.push({
-      description: `${paymentMethodLabel} processing fee`,
+      description: `${paymentMethodLabel} processing fee${feeDetail}`,
       quantity: 1,
       unitPrice: processingFeeAmount,
       totalPrice: processingFeeAmount,
+      hasDetails: false,
     });
   }
 
@@ -1167,6 +1200,7 @@ export async function generateInvoicePdfBufferFromDb(
       invoice.processingFeeAmount != null
         ? Number(invoice.processingFeeAmount)
         : null,
+    processingFeeSnapshot: (invoice as any).processingFeeSnapshot || (invoice as any).billingRun?.processingFeeConfig,
     paymentMethod: invoice.paymentMethod || null,
     taxAmount: invoice.taxAmount != null ? Number(invoice.taxAmount) : null,
     discountAmount:

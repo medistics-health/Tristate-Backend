@@ -7,6 +7,7 @@ import {
 import {
   createInsuranceCarrier,
   createInsurancePlans,
+  listClaimPayers,
   deleteInsuranceCarrier,
   deleteInsurancePlan,
   listInsuranceCarrierOptions,
@@ -23,6 +24,7 @@ insuranceRouter.use(verifyAuthToken);
 insuranceRouter.get("/carriers", listInsuranceCarriers);
 insuranceRouter.get("/carriers/options", listInsuranceCarrierOptions);
 insuranceRouter.get("/plans/options", listInsurancePlanOptions);
+insuranceRouter.post("/payers/list", listClaimPayers);
 insuranceRouter.post(
   "/carriers",
   requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
