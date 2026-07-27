@@ -191,18 +191,38 @@ async function buildBillingRunInvoicePreview(run: any) {
       0,
     ),
   );
+  const processingFeeSnapshot = buildProcessingFeeSettings(run.processingFeeConfig);
   const processingAmounts = calculateBearerProcessingAmounts({
     baseAmount: subtotalAmount,
     paymentMethod: isBillingPaymentMethod(run.paymentMethod)
       ? run.paymentMethod
       : "ACH",
     feeBearer: isFeeBearer(run.feeBearer) ? run.feeBearer : "CLIENT",
-    settings: buildProcessingFeeSettings(run.processingFeeConfig),
+    settings: processingFeeSnapshot,
   });
 
   if (processingAmounts.clientFeeAmount > 0) {
+    const isCc = run.paymentMethod === "CREDIT_CARD";
+    const paymentMethodLabel = isCc ? "Credit Card" : "ACH";
+    const clientRule = isCc ? processingFeeSnapshot?.creditCard?.CLIENT : processingFeeSnapshot?.ach?.CLIENT;
+
+    let feeDetail = "";
+    if (clientRule) {
+      if (isCc) {
+        const parts = [];
+        if (clientRule.ratePercent > 0) parts.push(`${clientRule.ratePercent}%`);
+        if (clientRule.fixedFee > 0) parts.push(`$${clientRule.fixedFee.toFixed(2)}`);
+        if (parts.length > 0) feeDetail = ` (${parts.join(" + ")})`;
+      } else {
+        const parts = [];
+        if (clientRule.ratePercent > 0) parts.push(`${clientRule.ratePercent}%`);
+        if (clientRule.capAmount != null && clientRule.capAmount > 0) parts.push(`$${clientRule.capAmount.toFixed(2)} max`);
+        if (parts.length > 0) feeDetail = ` (${parts.join(" / ")})`;
+      }
+    }
+
     lineItems.push({
-      description: getProcessingFeeDescription(processingAmounts.paymentMethod),
+      description: `${paymentMethodLabel} processing fee${feeDetail}`,
       quantity: 1,
       unitPrice: processingAmounts.clientFeeAmount,
       totalPrice: processingAmounts.clientFeeAmount,
@@ -241,7 +261,8 @@ async function buildBillingRunInvoicePreview(run: any) {
     totalAmount: processingAmounts.customerInvoiceAmount,
     subtotalAmount: subtotalAmount,
     processingFeeAmount: processingAmounts.clientFeeAmount,
-    paymentMethod: getBillingPaymentMethodLabel(processingAmounts.paymentMethod),
+    processingFeeSnapshot,
+    paymentMethod: run.paymentMethod || processingAmounts.paymentMethod,
     feeBearer: getFeeBearerLabel(processingAmounts.feeBearer),
     companyFeeAmount: processingAmounts.companyFeeAmount,
     taxAmount: 0,
