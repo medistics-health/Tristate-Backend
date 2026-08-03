@@ -39,6 +39,7 @@ import {
   isBillingPaymentMethod,
   isFeeBearer,
 } from "../../utils/paymentProcessing";
+import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
 
 function toStripeMinorUnit(amount: number | string) {
   return Math.round(Number(amount) * 100);
@@ -52,16 +53,23 @@ async function ensureStripeCustomerForPractice(practice: {
   id: string;
   name: string;
   stripeCustomerId?: string | null;
+  persons?: Array<{ person?: { email?: string | null } | null }> | null;
   company?: { email?: string | null } | null;
 }) {
   const fallbackEmail =
-    practice.company?.email ||
+    getPrimaryPracticeEmail(practice) ||
     `billing@${practice.name.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
   const existingCustomerId = practice.stripeCustomerId?.trim();
 
   if (existingCustomerId) {
     try {
       await stripeRequest("GET", `/v1/customers/${existingCustomerId}`);
+      const primaryEmail = await getPrimaryPracticeEmail(practice);
+      await stripeRequest("POST", `/v1/customers/${existingCustomerId}`, {
+        name: practice.name,
+        email: primaryEmail || undefined,
+        metadata: { practiceId: practice.id },
+      });
       return existingCustomerId;
     } catch (error: any) {
       const message = String(error?.message || "");
@@ -231,6 +239,7 @@ async function buildBillingRunInvoicePreview(run: any) {
   }
 
   const logoBuffer = await getLogoBuffer();
+  const primaryEmail = await getPrimaryPracticeEmail(run.practice);
 
   const practiceInfo = {
     name: run.practice?.name || "Tristate MSO",
@@ -238,7 +247,7 @@ async function buildBillingRunInvoicePreview(run: any) {
     city: run.practice?.company?.city || "",
     state: run.practice?.company?.state || "",
     zipCode: run.practice?.company?.zipCode || "",
-    email: run.practice?.company?.email || "",
+    email: primaryEmail || "",
     phone: run.practice?.company?.phone || "",
     location: (() => {
       const primaryLocation = selectPrimaryOnboardingLocation(run.practice);
@@ -280,7 +289,16 @@ async function syncFinalizeAndSendInvoice(invoiceId: string) {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
-      practice: { include: { company: true } },
+      practice: {
+        include: {
+          company: true,
+          persons: {
+            include: {
+              person: true,
+            },
+          },
+        },
+      },
       lineItems: { include: { service: true } },
     },
   });

@@ -14,6 +14,7 @@ import {
   getStripePaymentMethodTypes,
   isBillingPaymentMethod,
 } from "../../utils/paymentProcessing";
+import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
 
 type InvoiceBody = {
   practiceId?: string;
@@ -58,16 +59,24 @@ async function ensureStripeCustomerForPractice(practice: {
   id: string;
   name: string;
   stripeCustomerId?: string | null;
+  persons?: Array<{ person?: { email?: string | null } | null }> | null;
   company?: { email?: string | null } | null;
 }) {
+  const primaryEmail = await getPrimaryPracticeEmail(practice);
   const fallbackEmail =
-    practice.company?.email ||
+    primaryEmail ||
     `billing@${practice.name.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
   const existingCustomerId = practice.stripeCustomerId?.trim();
 
   if (existingCustomerId) {
     try {
       await stripeRequest("GET", `/v1/customers/${existingCustomerId}`);
+      const primaryEmail = await getPrimaryPracticeEmail(practice);
+      await stripeRequest("POST", `/v1/customers/${existingCustomerId}`, {
+        name: practice.name,
+        email: primaryEmail || undefined,
+        metadata: { practiceId: practice.id },
+      });
       return existingCustomerId;
     } catch (error: any) {
       const message = String(error?.message || "");
@@ -823,8 +832,11 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       ) || [];
 
   let recipientEmails = [...new Set(emails)];
-  if (recipientEmails.length === 0 && invoice.practice.company?.email) {
-    recipientEmails.push(invoice.practice.company.email);
+  if (recipientEmails.length === 0) {
+    const primaryEmail = await getPrimaryPracticeEmail(invoice.practice);
+    if (primaryEmail) {
+      recipientEmails.push(primaryEmail);
+    }
   }
 
   if (recipientEmails.length > 0 && hostedUrl) {
