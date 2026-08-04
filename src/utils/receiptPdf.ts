@@ -2,6 +2,11 @@ import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
 import { getLogoBuffer } from "./logoHelper";
+import {
+  formatBillingLineItemDescription,
+  formatGroupedBillingLineItemDescription,
+  orderBillingLineItemsForDisplay,
+} from "./billingLineItemDescription";
 
 function formatDate(dateStr?: string | Date | null): string {
   if (!dateStr) return "N/A";
@@ -96,6 +101,7 @@ interface PdfRow {
   amount: string;
   isBold?: boolean;
   isDivider?: boolean;
+  hasTopDivider?: boolean;
 }
 
 function formatPricingTerm(pricingModel?: string): string {
@@ -233,6 +239,9 @@ function calculateRowsForLineItem(
       rate: formatCurrency(lineItem.unitPrice, currencySymbol),
       qty: String(lineItem.quantity),
       amount: formatCurrency(lineItem.totalPrice, currencySymbol),
+      hasTopDivider:
+        /^credit card processing fee/i.test(serviceName) ||
+        /^ach processing fee/i.test(serviceName),
     });
     return rows;
   }
@@ -404,6 +413,17 @@ function calculateRowHeight(row: PdfRow, doc: any): number {
     width: 130,
   });
   return Math.max(serviceHeight, pricingTermHeight, 12) + 8;
+}
+
+function isCredentialingLineItem(lineItem: any) {
+  return Boolean(
+    lineItem?.service?.code === "CREDENTIALING_CHARGE" ||
+      /^credentialing/i.test(String(lineItem?.description || "")),
+  );
+}
+
+function collapseCredentialingLineItemsForDisplay(lineItems: any[]) {
+  return lineItems;
 }
 
 export interface ReceiptLineItem {
@@ -777,7 +797,12 @@ export function generateReceiptPdfBuffer(
       y += 20;
 
       // Filter and display line items
-      const lineItems = receiptData.lineItems || [];
+      const orderedLineItems = orderBillingLineItemsForDisplay(
+        receiptData.lineItems || [],
+      );
+      const lineItems = collapseCredentialingLineItemsForDisplay(
+        orderedLineItems,
+      );
 
       if (lineItems.length === 0) {
         doc.font(bodyFont).fontSize(9).fillColor("#9CA3AF");
@@ -833,6 +858,15 @@ export function generateReceiptPdfBuffer(
             width: 60,
             align: "right",
           });
+
+          if (row.hasTopDivider) {
+            doc
+              .moveTo(40, y - 2)
+              .lineTo(555, y - 2)
+              .strokeColor("#E5E7EB")
+              .lineWidth(0.5)
+              .stroke();
+          }
 
           if (row.isDivider) {
             doc
@@ -934,6 +968,7 @@ export async function generateReceiptPdfBufferFromDb(
       lineItems: {
         include: {
           service: true,
+          billingRunItemComponent: true,
           billingRunItem: {
             include: {
               vendor: true,
@@ -1051,18 +1086,24 @@ export async function generateReceiptPdfBufferFromDb(
 
     // Components
     const components = grpLineItems.map((line: any) => {
-      // Find matching BillingRunItemComponent
-      const dbComp = (billingRunItem.components || []).find(
-        (c: any) =>
-          c.description === line.description ||
-          c.componentType === line.description ||
-          (line.description &&
-            c.componentType &&
-            line.description.includes(c.componentType)) ||
-          (line.description &&
-            c.componentType &&
-            c.componentType.includes(line.description)),
-      );
+      const dbComp =
+        line.billingRunItemComponent ||
+        (line.billingRunItemComponentId
+          ? (billingRunItem.components || []).find(
+              (c: any) => c.id === line.billingRunItemComponentId,
+            )
+          : undefined) ||
+        (billingRunItem.components || []).find(
+          (c: any) =>
+            c.description === line.description ||
+            c.componentType === line.description ||
+            (line.description &&
+              c.componentType &&
+              line.description.includes(c.componentType)) ||
+            (line.description &&
+              c.componentType &&
+              c.componentType.includes(line.description)),
+        );
 
       const rateVal =
         dbComp?.rate != null ? Number(dbComp.rate) : Number(line.unitPrice);
@@ -1115,7 +1156,12 @@ export async function generateReceiptPdfBufferFromDb(
     });
 
     lineItems.push({
-      description: service.name,
+      description: formatBillingLineItemDescription({
+        description: billingRunItem.description || service.name,
+        service,
+        components: billingRunItem.components || [],
+        updatedAt: billingRunItem.updatedAt,
+      }) || service.name,
       quantity: 1,
       unitPrice: totalPrice,
       totalPrice,
@@ -1149,7 +1195,10 @@ export async function generateReceiptPdfBufferFromDb(
   // Map manual items
   for (const item of manualItems) {
     lineItems.push({
-      description: item.description || item.service?.name || "Service",
+      description:
+        item.billingRunItemComponent?.description ||
+        item.description ||
+        formatBillingLineItemDescription(item),
       quantity: item.quantity || 1,
       unitPrice: Number(item.unitPrice || 0),
       totalPrice: Number(item.totalPrice || 0),

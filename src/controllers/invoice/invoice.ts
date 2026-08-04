@@ -14,6 +14,8 @@ import {
   getStripePaymentMethodTypes,
   isBillingPaymentMethod,
 } from "../../utils/paymentProcessing";
+import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
+import { formatBillingLineItemDescription } from "../../utils/billingLineItemDescription";
 
 type InvoiceBody = {
   practiceId?: string;
@@ -58,16 +60,24 @@ async function ensureStripeCustomerForPractice(practice: {
   id: string;
   name: string;
   stripeCustomerId?: string | null;
+  persons?: Array<{ person?: { email?: string | null } | null }> | null;
   company?: { email?: string | null } | null;
 }) {
+  const primaryEmail = await getPrimaryPracticeEmail(practice);
   const fallbackEmail =
-    practice.company?.email ||
+    primaryEmail ||
     `billing@${practice.name.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
   const existingCustomerId = practice.stripeCustomerId?.trim();
 
   if (existingCustomerId) {
     try {
       await stripeRequest("GET", `/v1/customers/${existingCustomerId}`);
+      const primaryEmail = await getPrimaryPracticeEmail(practice);
+      await stripeRequest("POST", `/v1/customers/${existingCustomerId}`, {
+        name: practice.name,
+        email: primaryEmail || undefined,
+        metadata: { practiceId: practice.id },
+      });
       return existingCustomerId;
     } catch (error: any) {
       const message = String(error?.message || "");
@@ -586,6 +596,7 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
           agreement: true,
           lineItems: {
             include: {
+              billingRunItemComponent: true,
               billingRunItem: {
                 select: {
                   vendorAmount: true,
@@ -719,11 +730,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
           invoice: stripeInvoiceId,
           amount: Math.round(Number(item.totalPrice) * 100),
           currency,
-          description:
-            item.description ||
-            item.service?.code ||
-            item.service?.name ||
-            "Service Item",
+          description: formatBillingLineItemDescription(item),
           metadata: {
             localInvoiceId: invoice.id,
             localInvoiceLineItemId: item.id,
@@ -823,8 +830,11 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
       ) || [];
 
   let recipientEmails = [...new Set(emails)];
-  if (recipientEmails.length === 0 && invoice.practice.company?.email) {
-    recipientEmails.push(invoice.practice.company.email);
+  if (recipientEmails.length === 0) {
+    const primaryEmail = await getPrimaryPracticeEmail(invoice.practice);
+    if (primaryEmail) {
+      recipientEmails.push(primaryEmail);
+    }
   }
 
   if (recipientEmails.length > 0 && hostedUrl) {
@@ -927,7 +937,11 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
                     border-bottom: 1px solid #e5edf4;
                   "
                 >
-                  ${item.description || item.service?.code || item.service?.name || "Service Item"}
+                  ${formatBillingLineItemDescription({
+                    description: item.description,
+                    service: item.service,
+                    components: [],
+                  }) || item.description || item.service?.code || item.service?.name || "Service Item"}
                 </td>
                 <td
                   align="right"

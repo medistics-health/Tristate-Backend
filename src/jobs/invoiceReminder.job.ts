@@ -1,6 +1,7 @@
 import { InvoiceStatus } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { sendOutlookEmail } from "../utils/outlook";
+import { getPrimaryPracticeEmail } from "../utils/practiceEmail";
 
 const DEFAULT_INTERVAL_MINUTES = 60;
 
@@ -67,8 +68,11 @@ export async function processInvoiceReminders() {
         }
       }
 
-      if (invoice.practice.company?.email && invoice.practice.company.email.includes("@")) {
-        emails.push(invoice.practice.company.email.trim());
+      if (emails.length === 0) {
+        const primaryEmail = await getPrimaryPracticeEmail(invoice.practice);
+        if (primaryEmail) {
+          emails.push(primaryEmail);
+        }
       }
     }
     const uniqueEmails = [...new Set(emails)];

@@ -37,6 +37,7 @@ type PracticeBody = {
   quickbooksCustomerId?: string | null;
   defaultCurrency?: string | null;
   billingPaymentMethod?: string | null;
+  credentialingChargeAmount?: number | string | null;
   processingFeeConfig?: unknown;
   groupNpis?: GroupNpiInput[];
 };
@@ -229,6 +230,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       quickbooksCustomerId,
       defaultCurrency,
       billingPaymentMethod,
+      credentialingChargeAmount,
       processingFeeConfig,
       groupNpis,
     } = req.body as PracticeBody;
@@ -265,6 +267,23 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
     ) {
       return res.status(400).json({
         message: "billingPaymentMethod must be ACH or CREDIT_CARD.",
+      });
+    }
+
+    const parsedCredentialingChargeAmount =
+      credentialingChargeAmount !== undefined &&
+      credentialingChargeAmount !== null &&
+      credentialingChargeAmount !== ""
+        ? Number(credentialingChargeAmount)
+        : undefined;
+
+    if (
+      parsedCredentialingChargeAmount !== undefined &&
+      (!Number.isFinite(parsedCredentialingChargeAmount) ||
+        parsedCredentialingChargeAmount < 0)
+    ) {
+      return res.status(400).json({
+        message: "credentialingChargeAmount must be a non-negative number.",
       });
     }
 
@@ -384,6 +403,14 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       stripeCustomerId,
       quickbooksCustomerId,
       billingPaymentMethod: billingPaymentMethod?.trim().toUpperCase() || "ACH",
+      ...(credentialingChargeAmount !== undefined
+        ? {
+            credentialingChargeAmount:
+              parsedCredentialingChargeAmount !== undefined
+                ? parsedCredentialingChargeAmount
+                : null,
+          }
+        : {}),
       processingFeeConfig:
         (processingFeeConfig
           ? buildProcessingFeeAllocationSettings(processingFeeConfig)
@@ -501,6 +528,7 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       quickbooksCustomerId,
       defaultCurrency,
       billingPaymentMethod,
+      credentialingChargeAmount,
       processingFeeConfig,
       groupNpis,
     } = req.body as PracticeBody;
@@ -537,6 +565,23 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
     ) {
       return res.status(400).json({
         message: "billingPaymentMethod must be ACH or CREDIT_CARD.",
+      });
+    }
+
+    const parsedCredentialingChargeAmount =
+      credentialingChargeAmount !== undefined &&
+      credentialingChargeAmount !== null &&
+      credentialingChargeAmount !== ""
+        ? Number(credentialingChargeAmount)
+        : undefined;
+
+    if (
+      parsedCredentialingChargeAmount !== undefined &&
+      (!Number.isFinite(parsedCredentialingChargeAmount) ||
+        parsedCredentialingChargeAmount < 0)
+    ) {
+      return res.status(400).json({
+        message: "credentialingChargeAmount must be a non-negative number.",
       });
     }
 
@@ -684,6 +729,14 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         ? {
             billingPaymentMethod:
               billingPaymentMethod?.trim().toUpperCase() || "ACH",
+          }
+        : {}),
+      ...(credentialingChargeAmount !== undefined
+        ? {
+            credentialingChargeAmount:
+              parsedCredentialingChargeAmount !== undefined
+                ? parsedCredentialingChargeAmount
+                : null,
           }
         : {}),
       ...(processingFeeConfig !== undefined

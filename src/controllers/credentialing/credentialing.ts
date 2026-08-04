@@ -275,7 +275,7 @@ function getPriorityLabel(value: CredentialingPriority) {
   }
 }
 
-function getChannelLabel(value: CredentialingCommunicationChannel) {
+function getChannelLabel(value?: CredentialingCommunicationChannel | string) {
   switch (value) {
     case CredentialingCommunicationChannel.PHONE:
       return "Phone";
@@ -287,14 +287,16 @@ function getChannelLabel(value: CredentialingCommunicationChannel) {
       return "Fax";
     case CredentialingCommunicationChannel.MAIL:
       return "Mail";
+    default:
+      return String(value || "");
   }
 }
 
-function getDirectionLabel(value: CredentialingDirection) {
+function getDirectionLabel(value?: CredentialingDirection | string) {
   return value === CredentialingDirection.INBOUND ? "Inbound" : "Outbound";
 }
 
-function getDocumentTypeLabel(value: CredentialingDocumentType) {
+function getDocumentTypeLabel(value: CredentialingDocumentType | string) {
   switch (value) {
     case CredentialingDocumentType.MEDICAL_LICENSE:
       return "Medical License";
@@ -310,6 +312,8 @@ function getDocumentTypeLabel(value: CredentialingDocumentType) {
       return "Insurance Certificate";
     case CredentialingDocumentType.OTHER_DOCUMENTS:
       return "Other Documents";
+    default:
+      return String(value || "Other Documents");
   }
 }
 
@@ -440,6 +444,11 @@ function mapRequest(request: any) {
     activity: Array.isArray(request.activityLogs)
       ? request.activityLogs.map(mapActivity)
       : [],
+    credentialingChargeBilledAt: request.credentialingChargeBilledAt
+      ? request.credentialingChargeBilledAt.toISOString()
+      : null,
+    credentialingChargeInvoiceLineItemId:
+      request.credentialingChargeInvoiceLineItemId || null,
     createdAt: formatFriendlyDate(request.createdAt),
     updatedAt: formatFriendlyDate(request.updatedAt),
   };
@@ -760,20 +769,40 @@ async function buildActivityEntries(
   previous: any | null,
   nextPayload: CredentialingBody,
   actorName: string,
+  documentDetails: string[] = [],
+  followUpDetails: string[] = [],
 ) {
   const entries: Prisma.CredentialingActivityLogCreateManyInput[] = [];
   const now = new Date();
 
-  if (!previous) {
+  function pushEntry(
+    action: string,
+    detailsParts: string[],
+    activityType: CredentialingActivityType = CredentialingActivityType.EDITED,
+  ) {
+    if (!detailsParts.length) {
+      return;
+    }
+
     entries.push({
       credentialingRequestId: requestId,
-      activityType: CredentialingActivityType.CREATED,
-      action: "Created Credentialing",
-      details: `Credentialing request created for ${nextPayload.providerName || nextPayload.practiceName || "practice"}.`,
+      activityType,
+      action,
+      details: detailsParts.join("; "),
       actorName,
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  if (!previous) {
+    const detailsParts = [
+      `Credentialing request created for ${nextPayload.providerName || nextPayload.practiceName || "practice"}.`,
+      ...documentDetails,
+      ...followUpDetails,
+    ];
+
+    pushEntry("Created Credentialing", detailsParts, CredentialingActivityType.CREATED);
     return entries;
   }
 
@@ -799,58 +828,52 @@ async function buildActivityEntries(
     formatChangedField("Internal Notes", previous.internalNotes || "", nextPayload.internalNotes || ""),
   ].filter((entry): entry is string => Boolean(entry));
 
-  if (changedFields.length) {
-    entries.push({
-      credentialingRequestId: requestId,
-      activityType: CredentialingActivityType.EDITED,
-      action: "Edited Record",
-      details: changedFields.join("; "),
-      actorName,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
+  const detailsParts = [...changedFields, ...documentDetails, ...followUpDetails];
+
+  pushEntry("Edited Record", changedFields);
+  pushEntry("Document Updated", documentDetails);
+  pushEntry("Follow-up Logged", followUpDetails);
 
   return entries;
 }
 
-function buildDocumentActivityEntries(
-  requestId: string,
-  documents: Prisma.CredentialingDocumentCreateManyInput[],
-  actorName: string,
-) {
-  const now = new Date();
+function normalizeActivityText(value?: string | null) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
 
-  return documents.map((document) => ({
-    credentialingRequestId: requestId,
-    activityType: CredentialingActivityType.DOCUMENT_UPLOADED,
-    action: "Uploaded Document",
-    details: [
-      `Type: ${getDocumentTypeLabel(document.documentType)}`,
-      `File: ${document.fileName}`,
+function buildDocumentDetailLines(
+  documents: Array<{
+    documentType?: CredentialingDocumentType | string;
+    fileName?: string;
+    expiryDate?: Date | string | null;
+  }>,
+) {
+  return documents.map((document) =>
+    [
+      `Document: ${getDocumentTypeLabel(document.documentType || CredentialingDocumentType.OTHER_DOCUMENTS)}`,
+      `File: ${document.fileName || "Unnamed Document"}`,
       document.expiryDate ? `Expiry: ${formatActivityDateOnly(document.expiryDate)}` : null,
     ]
       .filter(Boolean)
       .join("; "),
-    actorName,
-    createdAt: now,
-    updatedAt: now,
-  }));
+  );
 }
 
-function buildFollowUpActivityEntries(
-  requestId: string,
-  followUps: Prisma.CredentialingFollowUpLogCreateManyInput[],
-  actorName: string,
+function buildFollowUpDetailLines(
+  followUps: Array<{
+    dateTime?: Date | string;
+    channel?: CredentialingCommunicationChannel | string;
+    direction?: CredentialingDirection | string;
+    referenceNumber?: string | null;
+    summary?: string | null;
+    nextAction?: string | null;
+  }>,
 ) {
   const now = new Date();
 
-  return followUps.map((followUp) => ({
-    credentialingRequestId: requestId,
-    activityType: CredentialingActivityType.FOLLOW_UP_LOGGED,
-    action: "Logged Follow-up Communication",
-    details: [
-      `Date: ${formatActivityDateOnly(followUp.dateTime)}`,
+  return followUps.map((followUp) =>
+    [
+      `Follow-up: ${formatActivityDateOnly(followUp.dateTime || now)}`,
       `Channel: ${getChannelLabel(followUp.channel)}`,
       `Direction: ${getDirectionLabel(followUp.direction)}`,
       followUp.referenceNumber ? `Reference: ${followUp.referenceNumber}` : null,
@@ -859,10 +882,137 @@ function buildFollowUpActivityEntries(
     ]
       .filter(Boolean)
       .join("; "),
-    actorName,
-    createdAt: now,
-    updatedAt: now,
-  }));
+  );
+}
+
+function normalizeDocumentSignature(document: {
+  documentType?: string | CredentialingDocumentType | null;
+  fileName?: string | null;
+  fileSize?: number | null;
+  mimeType?: string | null;
+  expiryDate?: Date | string | null;
+}) {
+  return [
+    normalizeKey(String(document.documentType || "")),
+    normalizeActivityText(document.fileName),
+    String(document.fileSize ?? ""),
+    normalizeActivityText(document.mimeType),
+    formatActivityDateOnly(document.expiryDate),
+  ].join("|");
+}
+
+function normalizeFollowUpSignature(followUp: {
+  dateTime?: Date | string | null;
+  channel?: string | CredentialingCommunicationChannel | null;
+  direction?: string | CredentialingDirection | null;
+  referenceNumber?: string | null;
+  summary?: string | null;
+  nextAction?: string | null;
+}) {
+  return [
+    formatActivityDateOnly(followUp.dateTime),
+    normalizeKey(String(followUp.channel || "")),
+    normalizeKey(String(followUp.direction || "")),
+    normalizeActivityText(followUp.referenceNumber),
+    normalizeActivityText(followUp.summary),
+    normalizeActivityText(followUp.nextAction),
+  ].join("|");
+}
+
+function getChangedDocumentEntries(
+  existingDocuments: Array<{
+    id: string;
+    documentType: CredentialingDocumentType;
+    fileName: string;
+    fileUrl: string | null;
+    fileSize: number | null;
+    mimeType: string | null;
+    expiryDate: Date | null;
+  }>,
+  incomingDocuments: Array<{
+    id?: string;
+    documentType?: string;
+    fileName?: string;
+    fileUrl?: string | null;
+    fileBase64?: string;
+    fileSize?: number | null;
+    mimeType?: string | null;
+    expiryDate?: string | null;
+    uploadedByName?: string | null;
+  }>,
+) {
+  const existingById = new Map(existingDocuments.map((document) => [document.id, document]));
+
+  return incomingDocuments.filter((document) => {
+    const incomingId = document.id?.trim();
+    if (!incomingId) {
+      return true;
+    }
+
+    const existing = existingById.get(incomingId);
+    if (!existing) {
+      return true;
+    }
+
+    return (
+      normalizeDocumentSignature(existing) !==
+      normalizeDocumentSignature({
+        documentType: document.documentType || existing.documentType,
+        fileName: document.fileName || existing.fileName,
+        fileSize: document.fileSize ?? existing.fileSize,
+        mimeType: document.mimeType ?? existing.mimeType,
+        expiryDate: document.expiryDate || existing.expiryDate,
+      })
+    );
+  });
+}
+
+function getChangedFollowUpEntries(
+  existingFollowUps: Array<{
+    id: string;
+    dateTime: Date;
+    channel: CredentialingCommunicationChannel;
+    direction: CredentialingDirection;
+    referenceNumber: string | null;
+    summary: string;
+    nextAction: string | null;
+  }>,
+  incomingFollowUps: Array<{
+    id?: string;
+    dateTime?: string;
+    channel?: string;
+    direction?: string;
+    referenceNumber?: string | null;
+    summary?: string;
+    nextAction?: string | null;
+    loggedByName?: string | null;
+  }>,
+) {
+  const existingById = new Map(existingFollowUps.map((followUp) => [followUp.id, followUp]));
+
+  return incomingFollowUps.filter((followUp) => {
+    const incomingId = followUp.id?.trim();
+    if (!incomingId) {
+      return true;
+    }
+
+    const existing = existingById.get(incomingId);
+    if (!existing) {
+      return true;
+    }
+
+    return (
+      normalizeFollowUpSignature(existing) !==
+      normalizeFollowUpSignature({
+        dateTime: followUp.dateTime || existing.dateTime,
+        channel: followUp.channel || existing.channel,
+        direction: followUp.direction || existing.direction,
+        referenceNumber: followUp.referenceNumber ?? existing.referenceNumber,
+        summary: followUp.summary ?? existing.summary,
+        nextAction: followUp.nextAction ?? existing.nextAction,
+      })
+    );
+  });
 }
 
 function buildCredentialingData(
@@ -1362,10 +1512,16 @@ export async function createCredentialingRequest(
       loggedByName,
       currentUserId,
     );
-    const activityCreates = [
-      ...buildDocumentActivityEntries(requestId, documentCreates, actorName),
-      ...buildFollowUpActivityEntries(requestId, followUpCreates, actorName),
-    ];
+    const documentDetails = buildDocumentDetailLines(documentCreates);
+    const followUpDetails = buildFollowUpDetailLines(followUpCreates);
+    const activityEntries = await buildActivityEntries(
+      requestId,
+      null,
+      body,
+      actorName,
+      documentDetails,
+      followUpDetails,
+    );
 
     let credentialingRequest: string;
     try {
@@ -1378,23 +1534,21 @@ export async function createCredentialingRequest(
           },
         });
 
-        await tx.credentialingActivityLog.create({
-          data: {
-            credentialingRequestId: created.id,
-            activityType: CredentialingActivityType.CREATED,
-            action: "Created Credentialing",
-            details: `Credentialing request created for ${body.providerName || body.practiceName || "practice"}.`,
-            actorName,
-            createdByUserId: currentUserId,
-          },
-        });
+        if (activityEntries.length) {
+          await tx.credentialingActivityLog.createMany({
+            data: activityEntries.map((entry) => ({
+              ...entry,
+              credentialingRequestId: created.id,
+              createdByUserId: currentUserId,
+            })),
+          });
+        }
 
         await writeCredentialingChildren(
           tx,
           created.id,
           documentCreates,
           followUpCreates,
-          activityCreates,
         );
 
         return created.id;
@@ -1513,10 +1667,18 @@ export async function updateCredentialingRequest(
       loggedByName,
       currentUserId,
     );
-    const activityCreates = [
-      ...buildDocumentActivityEntries(existing.id, documentCreates, actorName),
-      ...buildFollowUpActivityEntries(existing.id, followUpCreates, actorName),
-    ];
+    const changedDocuments = getChangedDocumentEntries(existing.documents, body.documents || []);
+    const changedFollowUps = getChangedFollowUpEntries(existing.followUpLogs, body.followUpLogs || []);
+    const documentDetails = buildDocumentDetailLines(changedDocuments);
+    const followUpDetails = buildFollowUpDetailLines(changedFollowUps);
+    const activityEntries = await buildActivityEntries(
+      existing.id,
+      existing,
+      body,
+      actorName,
+      documentDetails,
+      followUpDetails,
+    );
     try {
       await prisma.$transaction(async (tx) => {
         await tx.credentialingDocument.deleteMany({
@@ -1535,16 +1697,13 @@ export async function updateCredentialingRequest(
           },
         });
 
-        const activityEntries = await buildActivityEntries(
-          existing.id,
-          existing,
-          body,
-          actorName,
-        );
-
         if (activityEntries.length) {
           await tx.credentialingActivityLog.createMany({
-            data: activityEntries,
+            data: activityEntries.map((entry) => ({
+              ...entry,
+              credentialingRequestId: existing.id,
+              createdByUserId: currentUserId,
+            })),
           });
         }
 
@@ -1553,7 +1712,6 @@ export async function updateCredentialingRequest(
           existing.id,
           documentCreates,
           followUpCreates,
-          activityCreates,
         );
       });
     } catch (error) {

@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "credentialing_requests_practice_id_status_credentialing_charge_" RENAME TO "credentialing_requests_practice_id_status_credentialing_cha_idx";

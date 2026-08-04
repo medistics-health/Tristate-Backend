@@ -20,6 +20,7 @@ import {
   getStripePaymentMethodTypes,
   isBillingPaymentMethod,
 } from "../../utils/paymentProcessing";
+import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
 
 function normalizeCurrency(currency?: string | null) {
   return (currency || "USD").toLowerCase();
@@ -406,6 +407,11 @@ async function upsertStripeCustomerForPractice(practiceId: string) {
   const practice = await prisma.practice.findUnique({
     where: { id: practiceId },
     include: {
+      persons: {
+        include: {
+          person: true,
+        },
+      },
       company: true,
       taxId: true,
       billToTaxId: true,
@@ -419,13 +425,24 @@ async function upsertStripeCustomerForPractice(practiceId: string) {
   if (practice.stripeCustomerId) {
     const customer = await stripe.customers.retrieve(practice.stripeCustomerId);
     if (!("deleted" in customer && customer.deleted)) {
+      const primaryEmail = await getPrimaryPracticeEmail(practice);
+      await stripe.customers.update(practice.stripeCustomerId, {
+        name: practice.name,
+        email: primaryEmail || undefined,
+        metadata: {
+          practiceId: practice.id,
+          companyId: practice.companyId || "",
+          taxIdId: practice.taxIdId || "",
+          billToTaxIdId: practice.billToTaxIdId || "",
+        },
+      });
       return { practice, customer };
     }
   }
 
   const customer = await stripe.customers.create({
     name: practice.name,
-    email: practice.company?.email || undefined,
+    email: (await getPrimaryPracticeEmail(practice)) || undefined,
     metadata: {
       practiceId: practice.id,
       companyId: practice.companyId || "",
@@ -1332,8 +1349,11 @@ async function processStripeWebhookEvent(event: any) {
             }
           }
 
-          if (practice.company?.email && practice.company.email.includes("@")) {
-            emails.push(practice.company.email.trim());
+          if (emails.length === 0) {
+            const primaryEmail = await getPrimaryPracticeEmail(practice);
+            if (primaryEmail) {
+              emails.push(primaryEmail);
+            }
           }
         }
         const uniqueEmails = [...new Set(emails)];

@@ -2,6 +2,8 @@ import {
   ApprovalDecisionStatus,
   ApprovalEntityType,
   BillingRunStatus,
+  CredentialingRequestStatus,
+  CredentialingRequestType,
   InvoiceStatus,
   PaymentStatus,
   PricingModel,
@@ -28,6 +30,7 @@ import {
   isFeeBearer,
   materializeProcessingFeeSettings,
 } from "../../utils/paymentProcessing";
+import { formatBillingLineItemDescription } from "../../utils/billingLineItemDescription";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -65,8 +68,9 @@ type ComputedPricingResult = {
 };
 
 type CalculatedRunItem = {
-  agreementServiceTermId: string;
-  agreementId: string;
+  billingKind: "AGREEMENT" | "CREDENTIALING";
+  agreementServiceTermId: string | null;
+  agreementId: string | null;
   serviceId: string;
   vendorId: string | null;
   clientAmount: number;
@@ -78,6 +82,7 @@ type CalculatedRunItem = {
   sourceSnapshot: Prisma.InputJsonObject;
   exceptionFlags: string[];
   releasePolicy: ReleasePolicy;
+  credentialingRequestId?: string;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -130,6 +135,87 @@ function asNumber(
 
 function normalizeCurrency(currency?: string | null) {
   return (currency || "USD").toUpperCase();
+}
+
+const CREDENTIALING_CHARGE_SERVICE_CODE = "CREDENTIALING_CHARGE";
+const CREDENTIALING_CHARGE_SERVICE_NAME = "Credentialing";
+const CREDENTIALING_SERVICE_NAME_ALIASES = ["Credentialing", "Credentialing Charge"];
+
+async function ensureCredentialingChargeService(db: DbClient) {
+  const existing = await db.service.findFirst({
+    where: {
+      OR: [
+        { code: CREDENTIALING_CHARGE_SERVICE_CODE },
+        { name: { in: CREDENTIALING_SERVICE_NAME_ALIASES } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return existing.id;
+  }
+
+  const created = await db.service.create({
+    data: {
+      name: CREDENTIALING_CHARGE_SERVICE_NAME,
+      code: CREDENTIALING_CHARGE_SERVICE_CODE,
+      category: "Credentialing",
+      isActive: true,
+    },
+    select: { id: true },
+  });
+
+  return created.id;
+}
+
+function getPersonDisplayName(person?: { firstName?: string | null; lastName?: string | null } | null) {
+  const fullName = [person?.firstName, person?.lastName].filter(Boolean).join(" ").trim();
+  return fullName || "";
+}
+
+function getCredentialingChargeDescription(request: {
+  credentialingId: string;
+  requestType?: CredentialingRequestType | string | null;
+  providerName?: string | null;
+  provider?: { firstName?: string | null; lastName?: string | null } | null;
+  status: CredentialingRequestStatus;
+  updatedAt?: Date | string | null;
+}) {
+  const requestTypeLabel = (() => {
+    switch (request.requestType) {
+      case CredentialingRequestType.NEW_CREDENTIALING:
+        return "New Credentialing";
+      case CredentialingRequestType.RE_CREDENTIALING:
+        return "Re-credentialing";
+      case CredentialingRequestType.DEMOGRAPHIC_UPDATE:
+        return "Demographic Update";
+      case CredentialingRequestType.ADD_LOCATION:
+        return "Add Location";
+      default:
+        return String(request.requestType || "-");
+    }
+  })();
+  const statusLabel =
+    request.status === CredentialingRequestStatus.CONTRACTED_DIRECT
+      ? "Contracted - Direct"
+      : "Contracted - IPA/Delegated";
+  const lastUpdated =
+    request.updatedAt instanceof Date
+      ? request.updatedAt
+      : request.updatedAt
+        ? new Date(request.updatedAt)
+        : null;
+  const formattedLastUpdated =
+    lastUpdated && !Number.isNaN(lastUpdated.getTime())
+      ? new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }).format(lastUpdated)
+      : "-";
+
+  return `Credentialing: ${request.credentialingId}, Type: ${requestTypeLabel}, Status: ${statusLabel}, Date: ${formattedLastUpdated}`;
 }
 
 function roundMoney(value: number) {
@@ -1704,7 +1790,6 @@ export async function createBillingRun(body: CreateBillingRunBody) {
       processingFeeAllocation,
       settings,
     );
-
     const billingRun = await tx.billingRun.create({
       data: {
         practiceId,
@@ -1717,6 +1802,10 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         processingFeeConfig:
           processingFeeConfig as unknown as Prisma.InputJsonValue,
         agreementIds: body.agreementIds || [],
+        selectedCredentialingRequestIds:
+          body.selectedCredentialingRequestIds === undefined
+            ? Prisma.DbNull
+            : (body.selectedCredentialingRequestIds as unknown as Prisma.InputJsonValue),
       },
     });
 
@@ -1729,7 +1818,11 @@ export async function createBillingRun(body: CreateBillingRunBody) {
     }
 
     if (body.autoCalculate) {
-      await calculateBillingRun(billingRun.id, tx);
+      await calculateBillingRun(
+        billingRun.id,
+        tx,
+        body.credentialingChargeAmounts || undefined,
+      );
     }
 
     return tx.billingRun.findUnique({
@@ -1744,6 +1837,116 @@ export async function createBillingRun(body: CreateBillingRunBody) {
       },
     });
   }, { timeout: 30000 });
+}
+
+async function buildCredentialingChargeRunItems(
+  db: DbClient,
+  run: {
+    practiceId: string;
+    selectedCredentialingRequestIds?: Prisma.JsonValue | null;
+    practice: {
+      defaultCurrency?: string | null;
+      credentialingChargeAmount?: Prisma.Decimal | number | string | null;
+    };
+  },
+  credentialingChargeAmounts?: Record<string, number | string | null>,
+) {
+  const defaultChargeAmount = Number(run.practice.credentialingChargeAmount || 0);
+  if (!Number.isFinite(defaultChargeAmount) || defaultChargeAmount <= 0) {
+    return [];
+  }
+
+  const credentialingServiceId = await ensureCredentialingChargeService(db);
+  const selectedCredentialingRequestIds = Array.isArray(
+    run.selectedCredentialingRequestIds,
+  )
+    ? run.selectedCredentialingRequestIds.filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      )
+    : null;
+  const credentialingRequests = await db.credentialingRequest.findMany({
+    where: {
+      practiceId: run.practiceId,
+      status: {
+        in: [
+          CredentialingRequestStatus.CONTRACTED_DIRECT,
+          CredentialingRequestStatus.CONTRACTED_IPA_DELEGATED,
+        ],
+      },
+      credentialingChargeBilledAt: null,
+      ...(selectedCredentialingRequestIds
+        ? { id: { in: selectedCredentialingRequestIds } }
+        : {}),
+    },
+    include: {
+      provider: true,
+    },
+  });
+
+  const currency = normalizeCurrency(run.practice.defaultCurrency);
+
+  return credentialingRequests.map<CalculatedRunItem>((request) => {
+    const requestChargeAmountRaw = credentialingChargeAmounts?.[request.id];
+    const requestChargeAmount =
+      requestChargeAmountRaw !== undefined &&
+      requestChargeAmountRaw !== null &&
+      requestChargeAmountRaw !== ""
+        ? Number(requestChargeAmountRaw)
+        : defaultChargeAmount;
+    const chargeAmount =
+      Number.isFinite(requestChargeAmount) && requestChargeAmount >= 0
+        ? requestChargeAmount
+        : defaultChargeAmount;
+
+    return {
+    billingKind: "CREDENTIALING",
+    agreementServiceTermId: null,
+    agreementId: null,
+    serviceId: credentialingServiceId,
+    vendorId: null,
+    clientAmount: roundMoney(chargeAmount),
+    vendorAmount: null,
+    marginAmount: roundMoney(chargeAmount),
+    currency,
+    components: [
+      {
+        componentType: "CREDENTIALING_CHARGE",
+        description: getCredentialingChargeDescription(request),
+        quantity: 1,
+        rate: chargeAmount,
+        amount: roundMoney(chargeAmount),
+        metadata: {
+          credentialingRequestId: request.id,
+          credentialingId: request.credentialingId,
+          requestType: request.requestType,
+          providerName:
+            request.providerName?.trim() || getPersonDisplayName(request.provider),
+          status: request.status,
+          updatedAt:
+            request.updatedAt instanceof Date
+              ? request.updatedAt.toISOString()
+              : request.updatedAt,
+        },
+      },
+    ],
+    formulaSnapshot: {
+      billingKind: "CREDENTIALING",
+      chargeAmount: roundMoney(chargeAmount),
+      credentialingRequestId: request.id,
+      credentialingId: request.credentialingId,
+      practiceId: run.practiceId,
+    },
+    sourceSnapshot: {
+      billingKind: "CREDENTIALING",
+      credentialingRequestId: request.id,
+      credentialingId: request.credentialingId,
+      requestType: request.requestType,
+    },
+    exceptionFlags: [],
+    releasePolicy: ReleasePolicy.ON_CLIENT_PAYMENT,
+    credentialingRequestId: request.id,
+    };
+  });
 }
 
 export async function upsertBillingRunSnapshots(
@@ -1906,13 +2109,23 @@ export async function getBillingRun(billingRunId: string) {
   return run;
 }
 
-export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
+export async function calculateBillingRun(
+  billingRunId: string,
+  tx?: DbClient,
+  credentialingChargeAmounts?: Record<string, number | string | null>,
+) {
   const db = tx ?? prisma;
 
   const run = await db.billingRun.findUnique({
     where: { id: billingRunId },
     include: {
       inputSnapshots: true,
+      practice: {
+        select: {
+          defaultCurrency: true,
+          credentialingChargeAmount: true,
+        },
+      },
     },
   });
 
@@ -2015,6 +2228,7 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
     };
 
     return {
+      billingKind: "AGREEMENT",
       agreementServiceTermId: term.id,
       agreementId: term.agreementId,
       serviceId: term.serviceId,
@@ -2040,11 +2254,18 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
     };
   });
 
+  const credentialingItems = await buildCredentialingChargeRunItems(db, run, credentialingChargeAmounts);
+  calculatedItems.push(...credentialingItems);
+
   const MAX_DECIMAL_LIMIT = 9999999999.99;
   for (let i = 0; i < calculatedItems.length; i++) {
     const item = calculatedItems[i];
     const term = runTerms[i];
-    const serviceName = term?.service?.name || "Unknown Service";
+    const serviceName =
+      term?.service?.name ||
+      (item.billingKind === "CREDENTIALING"
+        ? CREDENTIALING_CHARGE_SERVICE_NAME
+        : "Unknown Service");
 
     if (Math.abs(item.clientAmount) > MAX_DECIMAL_LIMIT) {
       throw new BillingServiceError(
@@ -2084,8 +2305,9 @@ export async function calculateBillingRun(billingRunId: string, tx?: DbClient) {
           billingRunId,
           practiceId: run.practiceId,
           serviceId: item.serviceId,
+          credentialingRequestId: item.credentialingRequestId || undefined,
           vendorId: item.vendorId || undefined,
-          agreementServiceTermId: item.agreementServiceTermId,
+          agreementServiceTermId: item.agreementServiceTermId ?? undefined,
           clientAmount: decimal(item.clientAmount),
           vendorAmount:
             item.vendorAmount !== null ? decimal(item.vendorAmount) : undefined,
@@ -2316,16 +2538,17 @@ export async function postBillingRun(billingRunId: string, userId: string) {
 
     const lineItemDrafts: Array<{
       serviceId: string;
-      stripeConnectedAccountId: string;
+      stripeConnectedAccountId?: string | null;
       quantity: number;
       unitPrice: number;
       totalPrice: number;
       description: string;
       billingRunItemId?: string;
       billingRunItemComponentId?: string;
-      agreementServiceTermId?: string;
+      agreementServiceTermId?: string | null;
       billingPeriodStart: Date;
       billingPeriodEnd: Date;
+      credentialingRequestId?: string;
     }> = [];
 
     for (const item of run.items) {
@@ -2354,24 +2577,26 @@ export async function postBillingRun(billingRunId: string, userId: string) {
           quantity !== 0 ? roundMoney(amount / quantity) : amount;
         const stripeConnectedAccountId = item.service?.stripeConnectedAccountId?.trim();
 
-        if (!stripeConnectedAccountId) {
-          throw new Error(
-            `Service ${item.serviceId} is missing a Stripe connected account mapping.`,
-          );
-        }
+        const formattedDescription = formatBillingLineItemDescription({
+          description: component.description || item.service?.name || "Service",
+          service: item.service,
+          components: [component as any],
+          updatedAt: item.updatedAt,
+        });
 
         lineItemDrafts.push({
           serviceId: item.serviceId,
-          stripeConnectedAccountId,
+          stripeConnectedAccountId: stripeConnectedAccountId || null,
           quantity: Math.max(1, Math.round(quantity)),
           unitPrice,
           totalPrice: amount,
-          description: component.description || item.service.name,
+          description: formattedDescription || component.description || item.service.name,
           billingRunItemId: item.id,
           billingRunItemComponentId: component.id || undefined,
-          agreementServiceTermId: item.agreementServiceTermId || undefined,
+          agreementServiceTermId: item.agreementServiceTermId ?? undefined,
           billingPeriodStart: run.periodStart,
           billingPeriodEnd: run.periodEnd,
+          credentialingRequestId: item.credentialingRequestId ?? undefined,
         });
       }
     }
@@ -2381,6 +2606,11 @@ export async function postBillingRun(billingRunId: string, userId: string) {
       processingAmounts.companyFeeAmount,
     );
 
+    const credentialingChargeUpdates: Array<{
+      credentialingRequestId: string;
+      invoiceLineItemId: string;
+    }> = [];
+
     for (const [index, item] of lineItemDrafts.entries()) {
       const companyFeeDeductionAmount = companyDeductions[index] || 0;
       const externalTotalPrice = roundMoney(
@@ -2389,11 +2619,11 @@ export async function postBillingRun(billingRunId: string, userId: string) {
       const externalUnitPrice =
         item.quantity > 0 ? roundMoney(externalTotalPrice / item.quantity) : 0;
 
-      await tx.invoiceLineItem.create({
+      const invoiceLineItem = await tx.invoiceLineItem.create({
         data: {
           invoiceId: invoice.id,
           serviceId: item.serviceId,
-          stripeConnectedAccountId: item.stripeConnectedAccountId,
+          stripeConnectedAccountId: item.stripeConnectedAccountId || undefined,
           quantity: item.quantity,
           unitPrice: decimal(item.unitPrice),
           totalPrice: decimal(item.totalPrice),
@@ -2403,11 +2633,33 @@ export async function postBillingRun(billingRunId: string, userId: string) {
           description: item.description,
           billingRunItemId: item.billingRunItemId,
           billingRunItemComponentId: item.billingRunItemComponentId,
-          agreementServiceTermId: item.agreementServiceTermId,
+          agreementServiceTermId: item.agreementServiceTermId ?? undefined,
           billingPeriodStart: item.billingPeriodStart,
           billingPeriodEnd: item.billingPeriodEnd,
         },
+        select: { id: true },
       });
+
+      if (item.credentialingRequestId) {
+        credentialingChargeUpdates.push({
+          credentialingRequestId: item.credentialingRequestId,
+          invoiceLineItemId: invoiceLineItem.id,
+        });
+      }
+    }
+
+    if (credentialingChargeUpdates.length > 0) {
+      await Promise.all(
+        credentialingChargeUpdates.map((entry) =>
+          tx.credentialingRequest.update({
+            where: { id: entry.credentialingRequestId },
+            data: {
+              credentialingChargeBilledAt: new Date(),
+              credentialingChargeInvoiceLineItemId: entry.invoiceLineItemId,
+            },
+          }),
+        ),
+      );
     }
 
     createdInvoices.push(invoice);

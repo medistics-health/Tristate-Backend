@@ -16,6 +16,8 @@ export type CreateBillingRunBody = {
   autoCalculate?: boolean;
   snapshots?: BillingSnapshotInput[];
   agreementIds?: string[];
+  selectedCredentialingRequestIds?: string[];
+  credentialingChargeAmounts?: Record<string, number | string | null>;
 };
 
 export type UpsertBillingSnapshotsBody = {
