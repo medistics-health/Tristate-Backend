@@ -286,6 +286,32 @@ export async function listOutlookEmails(contactEmail: string) {
   }
 }
 
+export async function listOutlookSentEmails(senderOverride?: string) {
+  try {
+    const client = await getAuthenticatedClient();
+    const senderEmail =
+      senderOverride?.trim() || process.env.MS_SENDER_EMAIL;
+
+    if (!senderEmail) {
+      throw new Error("MS_SENDER_EMAIL is not defined in environment variables");
+    }
+
+    const response = await client
+      .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
+      .select(
+        "id,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,internetMessageId",
+      )
+      .orderby("sentDateTime DESC")
+      .top(100)
+      .get();
+
+    return response.value ?? [];
+  } catch (error) {
+    console.error("Error listing sent emails via Microsoft Graph:", error);
+    throw error;
+  }
+}
+
 export async function deleteOutlookEmail(messageId: string) {
   try {
     const client = await getAuthenticatedClient();
