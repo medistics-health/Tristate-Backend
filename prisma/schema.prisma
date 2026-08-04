@@ -558,6 +558,7 @@ model BillingRun {
   paymentMethod    String                 @map("payment_method")
   feeBearer        String                 @default("CLIENT") @map("fee_bearer")
   companyFeeAmountOverride Decimal?       @map("company_fee_amount_override") @db.Decimal(12, 2)
+  credentialingChargeAmountOverride Decimal? @map("credentialing_charge_amount_override") @db.Decimal(12, 2)
   processingFeeConfig Json?               @map("processing_fee_config")
   createdAt        DateTime               @default(now()) @map("created_at")
   updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at")
@@ -567,6 +568,7 @@ model BillingRun {
   practice         Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   vendorPayables   VendorPayable[]
   agreementIds     String[]               @default([]) @map("agreement_ids")
+  selectedCredentialingRequestIds Json?   @map("selected_credentialing_request_ids")
 
   @@index([practiceId])
   @@index([approvedByUserId])

@@ -15,6 +15,7 @@ import {
   isBillingPaymentMethod,
 } from "../../utils/paymentProcessing";
 import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
+import { formatBillingLineItemDescription } from "../../utils/billingLineItemDescription";
 
 type InvoiceBody = {
   practiceId?: string;
@@ -595,6 +596,7 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
           agreement: true,
           lineItems: {
             include: {
+              billingRunItemComponent: true,
               billingRunItem: {
                 select: {
                   vendorAmount: true,
@@ -728,11 +730,7 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
           invoice: stripeInvoiceId,
           amount: Math.round(Number(item.totalPrice) * 100),
           currency,
-          description:
-            item.description ||
-            item.service?.code ||
-            item.service?.name ||
-            "Service Item",
+          description: formatBillingLineItemDescription(item),
           metadata: {
             localInvoiceId: invoice.id,
             localInvoiceLineItemId: item.id,
@@ -939,7 +937,11 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
                     border-bottom: 1px solid #e5edf4;
                   "
                 >
-                  ${item.description || item.service?.code || item.service?.name || "Service Item"}
+                  ${formatBillingLineItemDescription({
+                    description: item.description,
+                    service: item.service,
+                    components: [],
+                  }) || item.description || item.service?.code || item.service?.name || "Service Item"}
                 </td>
                 <td
                   align="right"

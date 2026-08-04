@@ -30,6 +30,10 @@ import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceip
 import { generateInvoicePdfBuffer, formatDate, selectPrimaryOnboardingLocation } from "../../utils/invoicePdf";
 import { getLogoBuffer } from "../../utils/logoHelper";
 import {
+  formatBillingLineItemDescription,
+  orderBillingLineItemsForDisplay,
+} from "../../utils/billingLineItemDescription";
+import {
   buildProcessingFeeSettings,
   calculateBearerProcessingAmounts,
   getFeeBearerLabel,
@@ -174,7 +178,7 @@ async function buildBillingRunInvoicePreview(run: any) {
     const totalPrice = Number(item.clientAmount || 0);
 
     lineItems.push({
-      description: item.service?.name || "Service",
+      description: formatBillingLineItemDescription(item),
       quantity: 1,
       unitPrice: totalPrice,
       totalPrice,
@@ -279,7 +283,7 @@ async function buildBillingRunInvoicePreview(run: any) {
     currency,
     billingPeriodStart: run.periodStart,
     billingPeriodEnd: run.periodEnd,
-    lineItems,
+    lineItems: orderBillingLineItemsForDisplay(lineItems),
     practiceInfo,
     logoBuffer,
   };
