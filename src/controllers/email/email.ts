@@ -1,6 +1,10 @@
 import { Response } from "express";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
-import { sendOutlookEmail, listOutlookEmails } from "../../utils/outlook";
+import {
+  sendOutlookEmail,
+  listOutlookEmails,
+  listOutlookSentEmails,
+} from "../../utils/outlook";
 import { prisma } from "../../lib/prisma";
 
 type SendEmailBody = {
@@ -98,6 +102,31 @@ export async function getEmailHistory(
   } catch (error) {
     return res.status(500).json({
       message: "Unable to fetch email history.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function getSentEmails(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    const sender =
+      typeof req.query.sender === "string" && req.query.sender.trim()
+        ? req.query.sender.trim()
+        : undefined;
+
+    const emails = await listOutlookSentEmails(sender);
+
+    return res.status(200).json({
+      message: "Sent emails fetched successfully.",
+      emails,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch sent emails.",
       error: error instanceof Error ? error.message : error,
     });
   }
