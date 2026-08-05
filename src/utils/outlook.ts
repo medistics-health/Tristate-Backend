@@ -286,26 +286,58 @@ export async function listOutlookEmails(contactEmail: string) {
   }
 }
 
-export async function listOutlookSentEmails(senderOverride?: string) {
+type ListSentEmailOptions = {
+  senderOverride?: string;
+  recipientEmail?: string;
+  sentFrom?: string;
+  sentTo?: string;
+};
+
+export async function listOutlookSentEmails(options: ListSentEmailOptions = {}) {
   try {
     const client = await getAuthenticatedClient();
     const senderEmail =
-      senderOverride?.trim() || process.env.MS_SENDER_EMAIL;
+      options.senderOverride?.trim() || process.env.MS_SENDER_EMAIL;
 
     if (!senderEmail) {
       throw new Error("MS_SENDER_EMAIL is not defined in environment variables");
     }
 
-    const response = await client
+    const request = client
       .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
       .select(
         "id,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,internetMessageId",
       )
       .orderby("sentDateTime DESC")
-      .top(100)
-      .get();
+      .top(100);
 
-    return response.value ?? [];
+    const filterParts: string[] = [];
+    if (options.sentFrom) {
+      filterParts.push(`sentDateTime ge ${options.sentFrom}`);
+    }
+    if (options.sentTo) {
+      filterParts.push(`sentDateTime le ${options.sentTo}`);
+    }
+    if (filterParts.length > 0) {
+      request.filter(filterParts.join(" and "));
+    }
+
+    const response = await request.get();
+    const messages = (response.value ?? []) as Array<{
+      toRecipients?: Array<{ emailAddress?: { address?: string } }>;
+    }>;
+
+    const recipientFilter = options.recipientEmail?.trim().toLowerCase();
+    if (!recipientFilter) {
+      return messages;
+    }
+
+    return messages.filter((message) =>
+      (message.toRecipients ?? []).some((recipient) => {
+        const address = recipient.emailAddress?.address?.trim().toLowerCase();
+        return address === recipientFilter;
+      }),
+    );
   } catch (error) {
     console.error("Error listing sent emails via Microsoft Graph:", error);
     throw error;
