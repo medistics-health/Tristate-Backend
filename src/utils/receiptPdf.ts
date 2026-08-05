@@ -177,6 +177,10 @@ function cleanComponentType(compType: string, serviceName: string): string {
   // Strip ending parentheses like (Collections), (Encounters), (Patients)
   cleaned = cleaned.replace(/\s*\([^)]*\)\s*$/, "").trim();
 
+  if (!cleaned || cleaned === serviceName.trim()) {
+    return "";
+  }
+
   const upper = cleaned.toUpperCase();
   if (
     upper.includes("PERCENT_COLLECTIONS") ||
@@ -242,6 +246,7 @@ function calculateRowsForLineItem(
       hasTopDivider:
         /^credit card processing fee/i.test(serviceName) ||
         /^ach processing fee/i.test(serviceName),
+      isDivider: true,
     });
     return rows;
   }
@@ -295,6 +300,69 @@ function calculateRowsForLineItem(
       }
 
       const adjustment = (lineItem.totalPrice || 0) - baseAmount;
+      const hasSummaryRow =
+        matchedInputs.length > 1 || Math.abs(adjustment) >= 0.01;
+
+      if (hasSummaryRow) {
+        if (Math.abs(adjustment) >= 0.01) {
+          const adjustmentLabel =
+            adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
+          rows.push({
+            service: "",
+            pricingTerm: adjustmentLabel,
+            rate: "",
+            qty: "",
+            amount: formatCurrency(adjustment, currencySymbol),
+          });
+        }
+
+        rows.push({
+          service: "",
+          pricingTerm: "",
+          rate: "",
+          qty: "",
+          amount: formatCurrency(lineItem.totalPrice || 0, currencySymbol),
+          isBold: true,
+          isDivider: true,
+        });
+      }
+
+      if (rows.length > 0 && !rows[rows.length - 1].isDivider) {
+        rows[rows.length - 1].isDivider = true;
+      }
+
+      return rows;
+    }
+  }
+
+  if (pricingModel === "HYBRID" || pricingModel === "PER_CPT_CODE") {
+    let baseAmount = 0;
+    let isFirstComp = true;
+    for (const comp of components) {
+      baseAmount += comp.clientValue || 0;
+      let compLabel = cleanComponentType(comp.type || "", serviceName);
+      if (pricingModel === "PER_CPT_CODE") {
+        compLabel = comp.cptCode
+          ? `Per CPT Code (${comp.cptCode})`
+          : "Per CPT Code";
+      }
+
+      rows.push({
+        service: isFirstComp ? serviceName : "",
+        pricingTerm: compLabel || formatPricingTerm(pricingModel) || "-",
+        rate: formatRate(comp.rate, comp.type || pricingModel, currencySymbol),
+        qty:
+          comp.quantity != null && comp.quantity > 0
+            ? String(comp.quantity)
+            : "",
+        amount: formatCurrency(comp.clientValue || 0, currencySymbol),
+      });
+      isFirstComp = false;
+    }
+
+    const adjustment = (lineItem.totalPrice || 0) - baseAmount;
+    const hasSummaryRow = rows.length > 1 || Math.abs(adjustment) >= 0.01;
+    if (hasSummaryRow) {
       if (Math.abs(adjustment) >= 0.01) {
         const adjustmentLabel =
           adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
@@ -316,54 +384,11 @@ function calculateRowsForLineItem(
         isBold: true,
         isDivider: true,
       });
-
-      return rows;
-    }
-  }
-
-  if (pricingModel === "HYBRID" || pricingModel === "PER_CPT_CODE") {
-    let baseAmount = 0;
-    let isFirstComp = true;
-    for (const comp of components) {
-      baseAmount += comp.clientValue || 0;
-      let compLabel = cleanComponentType(comp.type || "", serviceName);
-
-      if (pricingModel === "PER_CPT_CODE" && comp.cptCode) {
-        compLabel = comp.cptCode;
-      }
-
-      rows.push({
-        service: isFirstComp ? serviceName : "",
-        pricingTerm: compLabel,
-        rate: formatRate(comp.rate, comp.type || pricingModel, currencySymbol),
-        qty: String(comp.quantity != null ? comp.quantity : ""),
-        amount: formatCurrency(comp.clientValue || 0, currencySymbol),
-      });
-      isFirstComp = false;
     }
 
-    const adjustment = (lineItem.totalPrice || 0) - baseAmount;
-    if (Math.abs(adjustment) >= 0.01) {
-      const adjustmentLabel =
-        adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
-      rows.push({
-        service: "",
-        pricingTerm: adjustmentLabel,
-        rate: "",
-        qty: "",
-        amount: formatCurrency(adjustment, currencySymbol),
-      });
+    if (rows.length > 0 && !rows[rows.length - 1].isDivider) {
+      rows[rows.length - 1].isDivider = true;
     }
-
-    rows.push({
-      service: "",
-      pricingTerm: "",
-      rate: "",
-      qty: "",
-      amount: formatCurrency(lineItem.totalPrice || 0, currencySymbol),
-      isBold: true,
-      isDivider: true,
-    });
   } else {
     const comp = components[0];
     const rateVal = comp?.rate != null ? comp.rate : lineItem.unitPrice || 0;
@@ -374,9 +399,9 @@ function calculateRowsForLineItem(
 
     rows.push({
       service: serviceName,
-      pricingTerm: formatPricingTerm(pricingModel),
+      pricingTerm: formatPricingTerm(pricingModel) || "-",
       rate: formatRate(rateVal, pricingModel, currencySymbol),
-      qty: String(qtyVal),
+      qty: qtyVal > 0 ? String(qtyVal) : "",
       amount: formatCurrency(baseAmount, currencySymbol),
     });
 
@@ -391,17 +416,21 @@ function calculateRowsForLineItem(
         qty: "",
         amount: formatCurrency(adjustment, currencySymbol),
       });
+
+      rows.push({
+        service: "",
+        pricingTerm: "",
+        rate: "",
+        qty: "",
+        amount: formatCurrency(lineItem.totalPrice || 0, currencySymbol),
+        isBold: true,
+        isDivider: true,
+      });
     }
 
-    rows.push({
-      service: "",
-      pricingTerm: "",
-      rate: "",
-      qty: "",
-      amount: formatCurrency(lineItem.totalPrice || 0, currencySymbol),
-      isBold: true,
-      isDivider: true,
-    });
+    if (rows.length > 0 && !rows[rows.length - 1].isDivider) {
+      rows[rows.length - 1].isDivider = true;
+    }
   }
 
   return rows;
@@ -410,7 +439,7 @@ function calculateRowsForLineItem(
 function calculateRowHeight(row: PdfRow, doc: any): number {
   const serviceHeight = doc.heightOfString(row.service || "", { width: 170 });
   const pricingTermHeight = doc.heightOfString(row.pricingTerm || "", {
-    width: 130,
+    width: 90,
   });
   return Math.max(serviceHeight, pricingTermHeight, 12) + 8;
 }
@@ -784,6 +813,7 @@ export function generateReceiptPdfBuffer(
 
       const drawTableHeader = (posY: number) => {
         doc.rect(40, posY - 5, 515, 20).fill("#F3F4F6");
+        doc.strokeColor("#D1D5DB").lineWidth(1).rect(40, posY - 5, 515, 20).stroke();
         doc.fillColor("#4B5563");
         doc.font(boldTextFont).fontSize(8);
         doc.text("SERVICES", 44, posY, { width: 170 });
@@ -863,17 +893,17 @@ export function generateReceiptPdfBuffer(
             doc
               .moveTo(40, y - 2)
               .lineTo(555, y - 2)
-              .strokeColor("#E5E7EB")
-              .lineWidth(0.5)
+              .strokeColor("#6B7280")
+              .lineWidth(1.25)
               .stroke();
           }
 
           if (row.isDivider) {
             doc
-              .moveTo(40, y + rowHeight - 2)
-              .lineTo(555, y + rowHeight - 2)
-              .strokeColor("#E5E7EB")
-              .lineWidth(0.5)
+              .moveTo(40, y + rowHeight - 0.75)
+              .lineTo(555, y + rowHeight - 0.75)
+              .strokeColor("#6B7280")
+              .lineWidth(1.25)
               .stroke();
           }
 

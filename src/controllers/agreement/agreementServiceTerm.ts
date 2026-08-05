@@ -302,7 +302,7 @@ function getPricingTermApprovalData(
       ? Number(((grossMargin / clientAmount) * 100).toFixed(2))
       : 0;
 
-  let requiresApproval = marginPct < 20;
+  let requiresApproval = clientAmount > 0 ? marginPct < 20 : false;
 
   if (pricingModel === PricingModel.HYBRID) {
     const components = Array.isArray(pricingConfig.components)
@@ -320,8 +320,12 @@ function getPricingTermApprovalData(
       const cVal = parseNumericValue(cComp?.value);
       const vVal = vComp ? parseNumericValue(vComp.value) : 0;
 
+      if (cVal <= 0) {
+        continue;
+      }
+
       const compMargin = cVal - vVal;
-      const compMarginPct = cVal > 0 ? (compMargin / cVal) * 100 : 0;
+      const compMarginPct = (compMargin / cVal) * 100;
       if (compMarginPct < 20) {
         anyCompBelow20 = true;
         break;

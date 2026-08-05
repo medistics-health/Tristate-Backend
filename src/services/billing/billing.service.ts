@@ -1852,9 +1852,10 @@ async function buildCredentialingChargeRunItems(
   credentialingChargeAmounts?: Record<string, number | string | null>,
 ) {
   const defaultChargeAmount = Number(run.practice.credentialingChargeAmount || 0);
-  if (!Number.isFinite(defaultChargeAmount) || defaultChargeAmount <= 0) {
-    return [];
-  }
+  const safeDefaultChargeAmount =
+    Number.isFinite(defaultChargeAmount) && defaultChargeAmount >= 0
+      ? defaultChargeAmount
+      : 0;
 
   const credentialingServiceId = await ensureCredentialingChargeService(db);
   const selectedCredentialingRequestIds = Array.isArray(
@@ -1892,11 +1893,11 @@ async function buildCredentialingChargeRunItems(
       requestChargeAmountRaw !== null &&
       requestChargeAmountRaw !== ""
         ? Number(requestChargeAmountRaw)
-        : defaultChargeAmount;
+        : safeDefaultChargeAmount;
     const chargeAmount =
       Number.isFinite(requestChargeAmount) && requestChargeAmount >= 0
         ? requestChargeAmount
-        : defaultChargeAmount;
+        : safeDefaultChargeAmount;
 
     return {
     billingKind: "CREDENTIALING",
@@ -2243,7 +2244,7 @@ export async function calculateBillingRun(
           : [
               {
                 componentType: "ZERO_AMOUNT",
-                description: `${term.service.name} calculation placeholder`,
+                description: `${term.service.name}`,
                 amount: 0,
               },
             ],
