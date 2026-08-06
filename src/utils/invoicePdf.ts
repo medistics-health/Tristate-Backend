@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
 import { getLogoBuffer } from "./logoHelper";
+import { getPrimaryPracticeEmail } from "./practiceEmail";
 import {
   formatBillingLineItemDescription,
   formatGroupedBillingLineItemDescription,
@@ -207,11 +208,10 @@ function cleanComponentType(compType: string, serviceName: string): string {
 }
 
 function formatRate(
-  rate: number,
+  rate?: number | null,
   pricingModel?: string,
   currencySymbol: string = "USD",
 ): string {
-  if (rate == null) return "";
   const modelUpper = (pricingModel || "").toUpperCase();
   if (
     modelUpper.includes("PERCENT") ||
@@ -221,12 +221,12 @@ function formatRate(
     modelUpper.includes("SUCCESS") ||
     modelUpper === "SUCCESS_FEE"
   ) {
+    if (rate == null) return "0%";
     const val =
       rate <= 1 && rate > 0 ? parseFloat((rate * 100).toFixed(4)) : rate;
     return `${val}%`;
   }
-  // Remove suffixes like /unit, /encounter, etc. Show only currency or percentage.
-  return formatCurrency(rate, currencySymbol);
+  return formatCurrency(rate || 0, currencySymbol);
 }
 
 function calculateRowsForLineItem(
@@ -349,14 +349,16 @@ function calculateRowsForLineItem(
           : "Per CPT Code";
       }
 
+      const compQty =
+        comp.quantity != null && comp.quantity > 0
+          ? comp.quantity
+          : 1;
+
       rows.push({
         service: isFirstComp ? serviceName : "",
         pricingTerm: compLabel || formatPricingTerm(pricingModel) || "-",
         rate: formatRate(comp.rate, comp.type || pricingModel, currencySymbol),
-        qty:
-          comp.quantity != null && comp.quantity > 0
-            ? String(comp.quantity)
-            : "",
+        qty: String(compQty),
         amount: formatCurrency(comp.clientValue || 0, currencySymbol),
       });
       isFirstComp = false;
@@ -394,8 +396,8 @@ function calculateRowsForLineItem(
   } else {
     const comp = components[0];
     const rateVal = comp?.rate != null ? comp.rate : lineItem.unitPrice || 0;
-    const qtyVal =
-      comp?.quantity != null ? comp.quantity : lineItem.quantity || 0;
+    const rawQty = comp?.quantity != null ? comp.quantity : lineItem.quantity;
+    const qtyVal = rawQty != null && rawQty > 0 ? rawQty : 1;
     const baseAmount =
       comp?.clientValue != null ? comp.clientValue : qtyVal * rateVal;
 
@@ -403,7 +405,7 @@ function calculateRowsForLineItem(
       service: serviceName,
       pricingTerm: formatPricingTerm(pricingModel) || "-",
       rate: formatRate(rateVal, pricingModel, currencySymbol),
-      qty: qtyVal > 0 ? String(qtyVal) : "",
+      qty: String(qtyVal),
       amount: formatCurrency(baseAmount, currencySymbol),
     });
 
@@ -932,16 +934,8 @@ export function generateInvoicePdfBuffer(
         .lineWidth(1)
         .stroke();
 
-      // Company footer details
-      y += 15;
-      doc.font(bodyFont).fontSize(8).fillColor("#6B7280");
-      doc.text(companyEmail, 40, y);
-      if (companyPhone) {
-        doc.text(companyPhone, 40, y + 12);
-      }
-
       // Copyright footer
-      y += 30;
+      y += 15;
       doc.font(bodyFont).fontSize(8).fillColor("#9CA3AF");
       doc.text(
         `© ${new Date().getFullYear()} ${companyName}. All rights reserved. This invoice was generated on ${formatDate(new Date())}.`,
@@ -1263,13 +1257,15 @@ export async function generateInvoicePdfBufferFromDb(
     });
   }
 
+  const primaryEmail = await getPrimaryPracticeEmail(invoice.practice);
+
   const practiceInfo = {
     name: invoice.practice?.name || "Tristate MSO",
     address: invoice.practice?.company?.address || "",
     city: invoice.practice?.company?.city || "",
     state: invoice.practice?.company?.state || "",
     zipCode: invoice.practice?.company?.zipCode || "",
-    email: invoice.practice?.company?.email || "",
+    email: primaryEmail || invoice.practice?.company?.email || "",
     phone: invoice.practice?.company?.phone || "",
     location: (() => {
       const primaryLocation = selectPrimaryOnboardingLocation(invoice.practice);

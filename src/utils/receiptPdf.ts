@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
 import { getLogoBuffer } from "./logoHelper";
+import { getPrimaryPracticeEmail } from "./practiceEmail";
 import {
   formatBillingLineItemDescription,
   formatGroupedBillingLineItemDescription,
@@ -935,16 +936,8 @@ export function generateReceiptPdfBuffer(
         .lineWidth(1)
         .stroke();
 
-      // Company footer details
-      y += 15;
-      doc.font(bodyFont).fontSize(8).fillColor("#6B7280");
-      doc.text(companyEmail, 40, y);
-      if (companyPhone) {
-        doc.text(companyPhone, 40, y + 12);
-      }
-
       // Receipt note
-      y += 30;
+      y += 15;
       doc.font(bodyFont).fontSize(8).fillColor("#9CA3AF");
       doc.text(
         `This is a payment receipt for Invoice ${invoiceNumber}. Payment was processed via ${paymentMethodText} on ${paidDate}.`,
@@ -1271,13 +1264,15 @@ export async function generateReceiptPdfBufferFromDb(
     });
   }
 
+  const primaryEmail = await getPrimaryPracticeEmail(invoice.practice);
+
   const practiceInfo = {
     name: invoice.practice?.name || "Tristate MSO",
     address: invoice.practice?.company?.address || "",
     city: invoice.practice?.company?.city || "",
     state: invoice.practice?.company?.state || "",
     zipCode: invoice.practice?.company?.zipCode || "",
-    email: invoice.practice?.company?.email || "",
+    email: primaryEmail || invoice.practice?.company?.email || "",
     phone: invoice.practice?.company?.phone || "",
     location: (() => {
       const primaryLocation = selectPrimaryOnboardingLocation(invoice.practice);

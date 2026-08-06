@@ -115,7 +115,6 @@ async function buildBillingRunInvoicePreview(run: any) {
     if (!start && !end) return "—";
     return `${formatDate(start)} - ${formatDate(end)}`;
   };
-
   const lineItems: any[] = [];
   const sortedItems = [...(run.items || [])].sort((a, b) => {
     const priorityA = a.agreementServiceTerm?.priority ?? 1;
@@ -145,6 +144,26 @@ async function buildBillingRunInvoicePreview(run: any) {
     );
 
     const components = (item.components || []).map((comp: any) => {
+      let vendorValue: number | undefined;
+      try {
+        if (
+          formulaSnap.vendorPricing?.components &&
+          Array.isArray(formulaSnap.vendorPricing.components)
+        ) {
+          const clientComps = Array.isArray(formulaSnap.components)
+            ? formulaSnap.components
+            : [];
+          const compName = comp.description || comp.componentType;
+          const cIdx = clientComps.findIndex(
+            (c: any) => c.type === compName,
+          );
+          if (cIdx !== -1 && formulaSnap.vendorPricing.components[cIdx]) {
+            vendorValue =
+              parseFloat(formulaSnap.vendorPricing.components[cIdx].value) || 0;
+          }
+        }
+      } catch (e) {}
+
       let cptCode = "";
       try {
         if (comp.metadata) {
@@ -156,6 +175,7 @@ async function buildBillingRunInvoicePreview(run: any) {
       return {
         type: comp.description || comp.componentType || item.service?.name || "Component",
         clientValue: Number(comp.amount || 0),
+        vendorValue,
         rate: comp.rate != null ? Number(comp.rate) : undefined,
         quantity: comp.quantity != null ? Number(comp.quantity) : undefined,
         cptCode,
@@ -267,10 +287,18 @@ async function buildBillingRunInvoicePreview(run: any) {
     })(),
   };
 
+  let dueDays = 15;
+  try {
+    const settings = await prisma.systemSettings.findFirst();
+    if (settings?.invoiceDueDays) {
+      dueDays = settings.invoiceDueDays;
+    }
+  } catch (e) {}
+
   return {
-    invoiceNumber: `Preview-${run.id.slice(0, 8).toUpperCase()}`,
+    invoiceNumber: "DRAFT-PREVIEW",
     invoiceDate: new Date(),
-    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    dueDate: new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000),
     totalAmount: processingAmounts.customerInvoiceAmount,
     subtotalAmount: subtotalAmount,
     processingFeeAmount: processingAmounts.clientFeeAmount,
