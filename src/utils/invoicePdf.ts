@@ -37,14 +37,16 @@ function formatCityStateZip(
   return [cityState, zipCode].filter(Boolean).join(" ").trim();
 }
 
-function buildLocationLines(location?: {
-  locationName?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
-} | null): string[] {
+function buildLocationLines(
+  location?: {
+    locationName?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  } | null,
+): string[] {
   if (!location) return [];
 
   return [
@@ -67,10 +69,10 @@ export function selectPrimaryOnboardingLocation(practice: any) {
 
   const onboardingPractice =
     latestOnboarding?.practices?.find((practiceEntry: any) => {
-      const practiceName = String(practice?.name || "").trim().toLowerCase();
-      const onboardingPracticeName = String(
-        practiceEntry?.practiceName || "",
-      )
+      const practiceName = String(practice?.name || "")
+        .trim()
+        .toLowerCase();
+      const onboardingPracticeName = String(practiceEntry?.practiceName || "")
         .trim()
         .toLowerCase();
       return (
@@ -85,7 +87,9 @@ export function selectPrimaryOnboardingLocation(practice: any) {
   return (
     onboardingPractice.locations.find(
       (location: any) => location?.isPrimaryLocation,
-    ) || onboardingPractice.locations[0] || null
+    ) ||
+    onboardingPractice.locations[0] ||
+    null
   );
 }
 
@@ -239,7 +243,9 @@ function calculateRowsForLineItem(
       rate: formatCurrency(lineItem.unitPrice, currencySymbol),
       qty: String(lineItem.quantity),
       amount: formatCurrency(lineItem.totalPrice, currencySymbol),
-      hasTopDivider: /^credit card processing fee/i.test(serviceName) || /^ach processing fee/i.test(serviceName),
+      hasTopDivider:
+        /^credit card processing fee/i.test(serviceName) ||
+        /^ach processing fee/i.test(serviceName),
       isDivider: true,
     });
     return rows;
@@ -300,7 +306,9 @@ function calculateRowsForLineItem(
       if (hasSummaryRow) {
         if (Math.abs(adjustment) >= 0.01) {
           const adjustmentLabel =
-            adjustment > 0 ? "Minimum Fee Adjustment" : "Maximum Fee Adjustment";
+            adjustment > 0
+              ? "Minimum Fee Adjustment"
+              : "Maximum Fee Adjustment";
           rows.push({
             service: "",
             pricingTerm: adjustmentLabel,
@@ -441,7 +449,7 @@ function calculateRowHeight(row: PdfRow, doc: any): number {
 function isCredentialingLineItem(lineItem: any) {
   return Boolean(
     lineItem?.service?.code === "CREDENTIALING_CHARGE" ||
-      /^credentialing/i.test(String(lineItem?.description || "")),
+    /^credentialing/i.test(String(lineItem?.description || "")),
   );
 }
 
@@ -577,7 +585,9 @@ export function generateInvoicePdfBuffer(
 
       // 2. Company Info (Left Side) & Company Logo (Right Side)
       const companyName = invoiceData.practiceInfo.name || "Tristate MSO";
-      const locationLines = buildLocationLines(invoiceData.practiceInfo.location);
+      const locationLines = buildLocationLines(
+        invoiceData.practiceInfo.location,
+      );
       const fallbackAddressLines = [
         invoiceData.practiceInfo.address,
         formatCityStateZip(
@@ -597,7 +607,8 @@ export function generateInvoicePdfBuffer(
       // Draw Company Info on the Left
       doc.font(mediumTextFont).text(companyName, 40, 35);
       let headerY = 48;
-      const headerLines = locationLines.length > 0 ? locationLines : fallbackAddressLines;
+      const headerLines =
+        locationLines.length > 0 ? locationLines : fallbackAddressLines;
       for (const line of headerLines) {
         doc.font(bodyFont).text(line, 40, headerY);
         headerY += 13;
@@ -747,7 +758,11 @@ export function generateInvoicePdfBuffer(
 
       const drawTableHeader = (posY: number) => {
         doc.rect(40, posY - 5, 515, 20).fill("#F3F4F6");
-        doc.strokeColor("#D1D5DB").lineWidth(1).rect(40, posY - 5, 515, 20).stroke();
+        doc
+          .strokeColor("#D1D5DB")
+          .lineWidth(1)
+          .rect(40, posY - 5, 515, 20)
+          .stroke();
         doc.fillColor("#4B5563");
         doc.font(boldTextFont).fontSize(8);
         doc.text("SERVICES", 44, posY, { width: 170 });
@@ -764,9 +779,8 @@ export function generateInvoicePdfBuffer(
       const orderedLineItems = orderBillingLineItemsForDisplay(
         invoiceData.lineItems || [],
       );
-      const lineItems = collapseCredentialingLineItemsForDisplay(
-        orderedLineItems,
-      );
+      const lineItems =
+        collapseCredentialingLineItemsForDisplay(orderedLineItems);
 
       if (lineItems.length === 0) {
         // Show placeholder if no line items
@@ -865,41 +879,41 @@ export function generateInvoicePdfBuffer(
       const currencySymbol = invoiceData.currency?.toUpperCase() || "USD";
 
       // Only show SUBTOTAL if it's different from total or if there are tax/discount
-      if (
-        subtotalAmount !== totalAmount ||
-        taxAmount !== 0 ||
-        discountAmount !== 0
-      ) {
-        doc.font(boldTextFont).fontSize(9.5).fillColor("#374151");
-        doc.text("SUBTOTAL", summaryX, y);
-        doc.text(formatCurrency(subtotalAmount, currencySymbol), valueX, y, {
-          width: valueWidth,
-          align: "right",
-        });
-        y += 16;
+      // if (
+      //   subtotalAmount !== totalAmount ||
+      //   taxAmount !== 0 ||
+      //   discountAmount !== 0
+      // ) {
+      //   doc.font(boldTextFont).fontSize(9.5).fillColor("#374151");
+      //   doc.text("SUBTOTAL", summaryX, y);
+      //   doc.text(formatCurrency(subtotalAmount, currencySymbol), valueX, y, {
+      //     width: valueWidth,
+      //     align: "right",
+      //   });
+      //   y += 16;
 
-        if (discountAmount > 0) {
-          doc.font(bodyFont).fontSize(9.5).fillColor("#10B981");
-          doc.text("DISCOUNT", summaryX, y);
-          doc.text(
-            `-${formatCurrency(discountAmount, currencySymbol)}`,
-            valueX,
-            y,
-            { width: valueWidth, align: "right" },
-          );
-          y += 16;
-        }
+      //   if (discountAmount > 0) {
+      //     doc.font(bodyFont).fontSize(9.5).fillColor("#10B981");
+      //     doc.text("DISCOUNT", summaryX, y);
+      //     doc.text(
+      //       `-${formatCurrency(discountAmount, currencySymbol)}`,
+      //       valueX,
+      //       y,
+      //       { width: valueWidth, align: "right" },
+      //     );
+      //     y += 16;
+      //   }
 
-        if (taxAmount > 0) {
-          doc.font(bodyFont).fontSize(9.5).fillColor("#374151");
-          doc.text("TAX", summaryX, y);
-          doc.text(formatCurrency(taxAmount, currencySymbol), valueX, y, {
-            width: valueWidth,
-            align: "right",
-          });
-          y += 16;
-        }
-      }
+      //   if (taxAmount > 0) {
+      //     doc.font(bodyFont).fontSize(9.5).fillColor("#374151");
+      //     doc.text("TAX", summaryX, y);
+      //     doc.text(formatCurrency(taxAmount, currencySymbol), valueX, y, {
+      //       width: valueWidth,
+      //       align: "right",
+      //     });
+      //     y += 16;
+      //   }
+      // }
 
       // GRAND TOTAL (highlighted)
       doc.font(boldTextFont).fontSize(12).fillColor("#111827");
@@ -1156,12 +1170,13 @@ export async function generateInvoicePdfBufferFromDb(
     });
 
     lineItems.push({
-      description: formatBillingLineItemDescription({
-        description: billingRunItem.description || service.name,
-        service,
-        components: billingRunItem.components || [],
-        updatedAt: billingRunItem.updatedAt,
-      }) || service.name,
+      description:
+        formatBillingLineItemDescription({
+          description: billingRunItem.description || service.name,
+          service,
+          components: billingRunItem.components || [],
+          updatedAt: billingRunItem.updatedAt,
+        }) || service.name,
       quantity: 1,
       unitPrice: totalPrice,
       totalPrice,
@@ -1213,21 +1228,28 @@ export async function generateInvoicePdfBufferFromDb(
       invoice.processingFeeSnapshot ||
       (invoice as any).processingFeeSnapshot ||
       (invoice as any).billingRun?.processingFeeConfig ||
-      (invoice.lineItems || []).find((li: any) => li.billingRunItem?.billingRun?.processingFeeConfig)
-        ?.billingRunItem?.billingRun?.processingFeeConfig;
-    const clientRule = isCc ? feeConfig?.creditCard?.CLIENT : feeConfig?.ach?.CLIENT;
+      (invoice.lineItems || []).find(
+        (li: any) => li.billingRunItem?.billingRun?.processingFeeConfig,
+      )?.billingRunItem?.billingRun?.processingFeeConfig;
+    const clientRule = isCc
+      ? feeConfig?.creditCard?.CLIENT
+      : feeConfig?.ach?.CLIENT;
 
     let feeDetail = "";
     if (clientRule) {
       if (isCc) {
         const parts = [];
-        if (clientRule.ratePercent > 0) parts.push(`${clientRule.ratePercent}%`);
-        if (clientRule.fixedFee > 0) parts.push(`$${clientRule.fixedFee.toFixed(2)}`);
+        if (clientRule.ratePercent > 0)
+          parts.push(`${clientRule.ratePercent}%`);
+        if (clientRule.fixedFee > 0)
+          parts.push(`$${clientRule.fixedFee.toFixed(2)}`);
         if (parts.length > 0) feeDetail = ` (${parts.join(" + ")})`;
       } else {
         const parts = [];
-        if (clientRule.ratePercent > 0) parts.push(`${clientRule.ratePercent}%`);
-        if (clientRule.capAmount > 0) parts.push(`$${clientRule.capAmount.toFixed(2)} max`);
+        if (clientRule.ratePercent > 0)
+          parts.push(`${clientRule.ratePercent}%`);
+        if (clientRule.capAmount > 0)
+          parts.push(`$${clientRule.capAmount.toFixed(2)} max`);
         if (parts.length > 0) feeDetail = ` (${parts.join(" / ")})`;
       }
     }
@@ -1277,7 +1299,9 @@ export async function generateInvoicePdfBufferFromDb(
       invoice.processingFeeAmount != null
         ? Number(invoice.processingFeeAmount)
         : null,
-    processingFeeSnapshot: (invoice as any).processingFeeSnapshot || (invoice as any).billingRun?.processingFeeConfig,
+    processingFeeSnapshot:
+      (invoice as any).processingFeeSnapshot ||
+      (invoice as any).billingRun?.processingFeeConfig,
     paymentMethod: invoice.paymentMethod || null,
     taxAmount: invoice.taxAmount != null ? Number(invoice.taxAmount) : null,
     discountAmount:

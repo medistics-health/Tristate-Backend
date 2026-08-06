@@ -123,6 +123,18 @@ export function formatBillingLineItemDescription(item: BillingRunItemLike) {
     parts.push(`Date: ${updatedAt}`);
   }
 
+  // Optionally include provider name and insurance plan from metadata
+  const providerName = typeof metadata?.provider === "string" ? metadata.provider : typeof metadata?.providerName === "string" ? metadata.providerName : undefined;
+  const insurancePlan = typeof metadata?.insuranceCompany === "string" ? metadata.insuranceCompany : typeof metadata?.insurancePlan === "string" ? metadata.insurancePlan : undefined;
+
+  if (providerName) {
+    parts.push(`Provider: ${providerName}`);
+  }
+
+  if (insurancePlan) {
+    parts.push(`Insurance Plan: ${insurancePlan}`);
+  }
+
   return parts.join(", ");
 }
 

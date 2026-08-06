@@ -1916,18 +1916,21 @@ async function buildCredentialingChargeRunItems(
         quantity: 1,
         rate: chargeAmount,
         amount: roundMoney(chargeAmount),
-        metadata: {
-          credentialingRequestId: request.id,
-          credentialingId: request.credentialingId,
-          requestType: request.requestType,
-          providerName:
-            request.providerName?.trim() || getPersonDisplayName(request.provider),
-          status: request.status,
-          updatedAt:
-            request.updatedAt instanceof Date
-              ? request.updatedAt.toISOString()
-              : request.updatedAt,
-        },
+            metadata: {
+              credentialingRequestId: request.id,
+              credentialingId: request.credentialingId,
+              requestType: request.requestType,
+              providerName:
+                request.providerName?.trim() || getPersonDisplayName(request.provider),
+              // include insurance payer/plan so invoice/receipt generators can display it
+              insuranceCompany: request.insurancePayerName || undefined,
+              insurancePlan: request.insurancePayerName || undefined,
+              status: request.status,
+              updatedAt:
+                request.updatedAt instanceof Date
+                  ? request.updatedAt.toISOString()
+                  : request.updatedAt,
+            },
       },
     ],
     formulaSnapshot: {
@@ -2437,6 +2440,22 @@ export async function approveBillingRun(billingRunId: string, userId: string) {
       },
     });
 
+    const credentialingRequestIds = run.items
+      .map((item) => item.credentialingRequestId)
+      .filter((id): id is string => Boolean(id));
+
+    if (credentialingRequestIds.length > 0) {
+      await tx.credentialingRequest.updateMany({
+        where: {
+          id: { in: credentialingRequestIds },
+          credentialingChargeBilledAt: null,
+        },
+        data: {
+          credentialingChargeBilledAt: new Date(),
+        },
+      });
+    }
+
     await tx.approvalDecision.create({
       data: {
         entityType: ApprovalEntityType.BILLING_RUN,
@@ -2655,7 +2674,6 @@ export async function postBillingRun(billingRunId: string, userId: string) {
           tx.credentialingRequest.update({
             where: { id: entry.credentialingRequestId },
             data: {
-              credentialingChargeBilledAt: new Date(),
               credentialingChargeInvoiceLineItemId: entry.invoiceLineItemId,
             },
           }),
