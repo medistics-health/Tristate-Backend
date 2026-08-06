@@ -321,6 +321,12 @@ function getPricingTermApprovalData(
       const vVal = vComp ? parseNumericValue(vComp.value) : 0;
 
       if (cVal <= 0) {
+        // If the client is charging $0 for a component while the vendor costs are positive,
+        // this should still require approval because the component is loss-making.
+        if (vVal > 0) {
+          anyCompBelow20 = true;
+          break;
+        }
         continue;
       }
 
