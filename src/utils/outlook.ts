@@ -309,7 +309,7 @@ export async function listOutlookSentEmails(options: ListSentEmailOptions = {}) 
         "id,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,internetMessageId",
       )
       .orderby("sentDateTime DESC")
-      .top(100);
+      .top(1000);
 
     const filterParts: string[] = [];
     if (options.sentFrom) {
