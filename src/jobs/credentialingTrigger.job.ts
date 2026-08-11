@@ -284,8 +284,8 @@ export function startCredentialingTriggerJob() {
   // Run immediately on server start
   void run();
 
-  // Run every day at 8:00 AM UTC
-  const cronSchedule = process.env.CREDENTIALING_TRIGGER_CRON || "0 8 * * *";
+  // Run every day at 11:00 AM UTC
+  const cronSchedule = process.env.CREDENTIALING_TRIGGER_CRON || "0 11 * * *";
   cron.schedule(
     cronSchedule,
     () => {
