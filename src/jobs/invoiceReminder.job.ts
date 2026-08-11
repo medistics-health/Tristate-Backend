@@ -91,6 +91,11 @@ export async function processInvoiceReminders() {
 
       // Send overdue email if not sent yet
       if (!invoice.dueReminderOverdueSent) {
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { dueReminderOverdueSent: true },
+        });
+
         if (uniqueEmails.length > 0) {
           const emailSubject = `URGENT: Invoice #${invoiceNum} is OVERDUE`;
           const emailBody = `
@@ -102,7 +107,6 @@ export async function processInvoiceReminders() {
               <li><strong>Due Date:</strong> ${formatUTCDate(dueDate)} (OVERDUE)</li>
               <li><strong>Total Amount:</strong> $${Number(invoice.totalAmount).toFixed(2)}</li>
             </ul>
-            <p>Please log in to your portal or click the link below to settle the outstanding balance as soon as possible.</p>
             ${invoice.stripeHostedInvoiceUrl ? `<p><a href="${invoice.stripeHostedInvoiceUrl}" style="background-color: #e53e3e; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Pay Invoice Now</a></p>` : ""}
             <p>If you have already paid this invoice, please disregard this reminder.</p>
             <p>Best regards,<br/>The Tristate Team</p>
@@ -116,16 +120,17 @@ export async function processInvoiceReminders() {
             }
           }
         }
-        await prisma.invoice.update({
-          where: { id: invoice.id },
-          data: { dueReminderOverdueSent: true },
-        });
         console.log(`[invoice-reminder] Overdue email reminder sent for Invoice #${invoiceNum}.`);
       }
     } 
     // 2. Check for upcoming reminder email (e.g. 5 days before due)
     else if (daysToDue <= reminderDays) {
       if (!invoice.dueReminder5DaysSent) {
+        await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: { dueReminder5DaysSent: true },
+        });
+
         if (uniqueEmails.length > 0) {
           const emailSubject = `Reminder: Invoice #${invoiceNum} is due in ${reminderDays} days`;
           const emailBody = `
@@ -151,10 +156,6 @@ export async function processInvoiceReminders() {
             }
           }
         }
-        await prisma.invoice.update({
-          where: { id: invoice.id },
-          data: { dueReminder5DaysSent: true },
-        });
         console.log(`[invoice-reminder] Upcoming ${reminderDays}-day email reminder sent for Invoice #${invoiceNum}.`);
       }
     }

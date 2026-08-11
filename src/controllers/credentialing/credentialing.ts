@@ -55,7 +55,6 @@ type CredentialingBody = {
   payerProviderId?: string | null;
   startDate?: string | null;
   submissionDate?: string | null;
-  approvalDate?: string | null;
   effectiveDate?: string | null;
   expirationDate?: string | null;
   nextFollowUpDate?: string | null;
@@ -66,6 +65,8 @@ type CredentialingBody = {
   lineOfBusiness?: string[];
   priority?: string;
   internalNotes?: string | null;
+  notes?: string | null;
+  enrollmentId?: string | null;
   assignedToUserId?: string | null;
   assignedToUserName?: string | null;
   documents?: CredentialingDocumentInput[];
@@ -202,7 +203,8 @@ function getActorName(req: AuthenticatedRequest) {
   return req.user.userName || req.user.email || "System";
 }
 
-function getStatusLabel(status: CredentialingRequestStatus) {
+function getStatusLabel(status?: CredentialingRequestStatus | string | null) {
+  if (!status) return "Not Started";
   switch (status) {
     case CredentialingRequestStatus.NOT_STARTED:
       return "Not Started";
@@ -224,6 +226,8 @@ function getStatusLabel(status: CredentialingRequestStatus) {
       return "Re-credentialing Due";
     case CredentialingRequestStatus.TERMINATED:
       return "Terminated";
+    default:
+      return String(status);
   }
 }
 
@@ -379,7 +383,7 @@ function mapActivity(activity: {
   return {
     id: activity.id,
     action: activity.action,
-    details: activity.details || "",
+    details: (activity.details || "").replace(/\[reminderKey:[^\]]+\]\s*/g, "").trim(),
     actor: activity.actorName || "Admin",
     createdAt: formatFriendlyDate(activity.createdAt),
   };
@@ -417,7 +421,6 @@ function mapRequest(request: any) {
     payerProviderId: request.payerProviderId || "",
     startDate: formatFriendlyDate(request.startDate),
     submissionDate: formatFriendlyDate(request.submissionDate),
-    approvalDate: formatFriendlyDate(request.approvalDate),
     effectiveDate: formatFriendlyDate(request.effectiveDate),
     expirationDate: formatFriendlyDate(request.expirationDate),
     nextFollowUpDate: formatFriendlyDate(request.nextFollowUpDate),
@@ -430,6 +433,8 @@ function mapRequest(request: any) {
       : [],
     priority: getPriorityLabel(request.priority),
     internalNotes: request.internalNotes || "",
+    notes: request.notes || "",
+    enrollmentId: request.enrollmentId || "",
     assignedToUserId: request.assignedToUserId || "",
     assignedUserId: request.assignedToUserId || "",
     assignedUser: assignedToUserName,
@@ -466,6 +471,8 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
       { insurancePayerName: { contains: search, mode: "insensitive" } },
       { providerName: { contains: search, mode: "insensitive" } },
       { internalNotes: { contains: search, mode: "insensitive" } },
+      { notes: { contains: search, mode: "insensitive" } },
+      { enrollmentId: { contains: search, mode: "insensitive" } },
       {
         practice: {
           name: { contains: search, mode: "insensitive" },
@@ -798,6 +805,7 @@ async function buildActivityEntries(
   if (!previous) {
     const detailsParts = [
       `Credentialing request created for ${nextPayload.providerName || nextPayload.practiceName || "practice"}.`,
+      `Status: ${getStatusLabel(nextPayload.status) || nextPayload.status || "Not Started"}`,
       ...documentDetails,
       ...followUpDetails,
     ];
@@ -826,6 +834,8 @@ async function buildActivityEntries(
     formatChangedField("Address Verified", getVerificationLabel(previous.addressVerified), nextPayload.addressVerified),
     formatChangedField("Lines of Business", previous.lineOfBusiness || [], nextPayload.lineOfBusiness || []),
     formatChangedField("Internal Notes", previous.internalNotes || "", nextPayload.internalNotes || ""),
+    formatChangedField("Notes", previous.notes || "", nextPayload.notes || ""),
+    formatChangedField("Enrollment ID", previous.enrollmentId || "", nextPayload.enrollmentId || ""),
   ].filter((entry): entry is string => Boolean(entry));
 
   const detailsParts = [...changedFields, ...documentDetails, ...followUpDetails];
@@ -1064,7 +1074,6 @@ function buildCredentialingData(
     payerProviderId: body.payerProviderId?.trim() || null,
     startDate: body.startDate ? new Date(body.startDate) : null,
     submissionDate: body.submissionDate ? new Date(body.submissionDate) : null,
-    approvalDate: body.approvalDate ? new Date(body.approvalDate) : null,
     effectiveDate: body.effectiveDate ? new Date(body.effectiveDate) : null,
     expirationDate: body.expirationDate ? new Date(body.expirationDate) : null,
     nextFollowUpDate: body.nextFollowUpDate ? new Date(body.nextFollowUpDate) : null,
@@ -1079,6 +1088,8 @@ function buildCredentialingData(
       : [],
     priority,
     internalNotes: body.internalNotes?.trim() || null,
+    notes: body.notes?.trim() || null,
+    enrollmentId: body.enrollmentId?.trim() || null,
     assignedToUserId: refs.assignedResolvedId,
     createdByUserId: currentUserId,
     updatedByUserId: currentUserId,
@@ -1362,10 +1373,17 @@ export async function getCredentialingDashboard(
 
     const recentlyExpiring = [...records]
       .map((record) => {
-        const expiration = record.expirationDate ? new Date(record.expirationDate) : null;
-        const daysLeft = expiration
-          ? Math.ceil((expiration.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-          : null;
+        const upcomingDates = [
+          record.expirationDate ? new Date(record.expirationDate) : null,
+          record.nextFollowUpDate ? new Date(record.nextFollowUpDate) : null,
+          record.reCredentialingDueDate ? new Date(record.reCredentialingDueDate) : null,
+        ].filter((d): d is Date => Boolean(d));
+
+        const daysLeftList = upcomingDates.map((d) =>
+          Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+        );
+
+        const daysLeft = daysLeftList.length > 0 ? Math.min(...daysLeftList) : null;
         return {
           ...record,
           daysLeft,

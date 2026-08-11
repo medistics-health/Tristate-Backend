@@ -65,6 +65,7 @@ export async function getSystemSettings(req: AuthenticatedRequest, res: Response
           achClientCapAmount: feeSettings.ach.CLIENT.capAmount || 0,
           invoiceDueDays: 15,
           invoiceReminderDays: 5,
+          credentialingReminderDays: 5,
         },
       });
     }
@@ -100,6 +101,7 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       achClientCapAmount,
       invoiceDueDays,
       invoiceReminderDays,
+      credentialingReminderDays,
     } = req.body;
 
     const normalizedAuthorizedSigner = normalizeOptionalEmail(authorizedSigner);
@@ -126,6 +128,7 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
 
     const parsedInvoiceDueDays = invoiceDueDays !== undefined ? parseInt(invoiceDueDays, 10) : 15;
     const parsedInvoiceReminderDays = invoiceReminderDays !== undefined ? parseInt(invoiceReminderDays, 10) : 5;
+    const parsedCredentialingReminderDays = credentialingReminderDays !== undefined ? parseInt(credentialingReminderDays, 10) : 5;
     const feeSettings = buildProcessingFeeSettings({
       creditCardCompanyRatePercent: parseNonNegativeNumber(
         creditCardCompanyRatePercent,
@@ -173,6 +176,12 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       });
     }
 
+    if (isNaN(parsedCredentialingReminderDays) || parsedCredentialingReminderDays <= 0) {
+      return res.status(400).json({
+        message: "Credentialing reminder days must be a positive integer.",
+      });
+    }
+
     const existing = await prisma.systemSettings.findFirst();
     const data = {
       organizationName,
@@ -191,6 +200,7 @@ export async function updateSystemSettings(req: AuthenticatedRequest, res: Respo
       achClientCapAmount: feeSettings.ach.CLIENT.capAmount ?? 0,
       invoiceDueDays: parsedInvoiceDueDays,
       invoiceReminderDays: parsedInvoiceReminderDays,
+      credentialingReminderDays: parsedCredentialingReminderDays,
     };
 
     let settings;
