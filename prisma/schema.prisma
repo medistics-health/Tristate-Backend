@@ -1317,6 +1317,7 @@ model SystemSettings {
   achClientCapAmount Decimal @default(0.00) @map("ach_client_cap_amount") @db.Decimal(12, 2)
   invoiceDueDays       Int      @default(15) @map("invoice_due_days")
   invoiceReminderDays  Int      @default(5) @map("invoice_reminder_days")
+  credentialingReminderDays Int @default(5) @map("credentialing_reminder_days")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
@@ -1395,7 +1396,6 @@ model CredentialingRequest {
   payerProviderId        String?                       @map("payer_provider_id")
   startDate              DateTime?                     @map("start_date")
   submissionDate         DateTime?                     @map("submission_date")
-  approvalDate           DateTime?                     @map("approval_date")
   effectiveDate          DateTime?                     @map("effective_date")
   expirationDate         DateTime?                     @map("expiration_date")
   nextFollowUpDate       DateTime?                     @map("next_follow_up_date")
@@ -1406,6 +1406,8 @@ model CredentialingRequest {
   lineOfBusiness         String[]                      @map("lines_of_business")
   priority               CredentialingPriority          @default(MEDIUM)
   internalNotes          String?                       @map("internal_notes")
+  notes                  String?                       @map("notes")
+  enrollmentId           String?                       @map("enrollment_id")
   assignedToUserId       String?                       @map("assigned_to_user_id") @db.Uuid
   createdByUserId        String?                       @map("created_by_user_id") @db.Uuid
   updatedByUserId        String?                       @map("updated_by_user_id") @db.Uuid
