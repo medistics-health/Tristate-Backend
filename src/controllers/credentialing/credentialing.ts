@@ -806,11 +806,15 @@ async function buildActivityEntries(
     const detailsParts = [
       `Credentialing request created for ${nextPayload.providerName || nextPayload.practiceName || "practice"}.`,
       `Status: ${getStatusLabel(nextPayload.status) || nextPayload.status || "Not Started"}`,
-      ...documentDetails,
-      ...followUpDetails,
     ];
 
     pushEntry("Created Credentialing", detailsParts, CredentialingActivityType.CREATED);
+    if (documentDetails.length) {
+      pushEntry("Document Uploaded", documentDetails, CredentialingActivityType.DOCUMENT_UPLOADED);
+    }
+    if (followUpDetails.length) {
+      pushEntry("Follow-up Logged", followUpDetails, CredentialingActivityType.FOLLOW_UP_LOGGED);
+    }
     return entries;
   }
 
@@ -838,11 +842,15 @@ async function buildActivityEntries(
     formatChangedField("Enrollment ID", previous.enrollmentId || "", nextPayload.enrollmentId || ""),
   ].filter((entry): entry is string => Boolean(entry));
 
-  const detailsParts = [...changedFields, ...documentDetails, ...followUpDetails];
-
-  pushEntry("Edited Record", changedFields);
-  pushEntry("Document Updated", documentDetails);
-  pushEntry("Follow-up Logged", followUpDetails);
+  if (changedFields.length) {
+    pushEntry("Edited Record", changedFields, CredentialingActivityType.EDITED);
+  }
+  if (documentDetails.length) {
+    pushEntry("Document Uploaded", documentDetails, CredentialingActivityType.DOCUMENT_UPLOADED);
+  }
+  if (followUpDetails.length) {
+    pushEntry("Follow-up Logged", followUpDetails, CredentialingActivityType.FOLLOW_UP_LOGGED);
+  }
 
   return entries;
 }
@@ -859,13 +867,7 @@ function buildDocumentDetailLines(
   }>,
 ) {
   return documents.map((document) =>
-    [
-      `Document: ${getDocumentTypeLabel(document.documentType || CredentialingDocumentType.OTHER_DOCUMENTS)}`,
-      `File: ${document.fileName || "Unnamed Document"}`,
-      document.expiryDate ? `Expiry: ${formatActivityDateOnly(document.expiryDate)}` : null,
-    ]
-      .filter(Boolean)
-      .join("; "),
+    document.fileName ? `File: ${document.fileName}` : "Document Uploaded",
   );
 }
 
@@ -879,20 +881,15 @@ function buildFollowUpDetailLines(
     nextAction?: string | null;
   }>,
 ) {
-  const now = new Date();
-
-  return followUps.map((followUp) =>
-    [
-      `Follow-up: ${formatActivityDateOnly(followUp.dateTime || now)}`,
-      `Channel: ${getChannelLabel(followUp.channel)}`,
-      `Direction: ${getDirectionLabel(followUp.direction)}`,
-      followUp.referenceNumber ? `Reference: ${followUp.referenceNumber}` : null,
+  return followUps.map((followUp) => {
+    const parts = [
       followUp.summary ? `Summary: ${followUp.summary}` : null,
+      followUp.referenceNumber ? `Reference: ${followUp.referenceNumber}` : null,
       followUp.nextAction ? `Next Action: ${followUp.nextAction}` : null,
-    ]
-      .filter(Boolean)
-      .join("; "),
-  );
+    ].filter(Boolean);
+
+    return parts.length > 0 ? parts.join("; ") : "Follow-up Logged";
+  });
 }
 
 function normalizeDocumentSignature(document: {
