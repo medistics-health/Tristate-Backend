@@ -148,7 +148,7 @@ type OnboardingPracticeBody = {
 
 type OnboardingDocumentBody = {
   id?: string;
-  documentType?: string[];
+  documentType?: string[] | string;
   fileName?: string;
   fileUrl?: string;
   required?: boolean;
@@ -177,6 +177,18 @@ type OnboardingBillingBody = {
   additionalNotes?: string;
 };
 
+type OnboardingPayerPortalLoginBody = {
+  payerName?: string;
+  portalUrl?: string;
+  username?: string;
+  password?: string;
+  designatedContactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  status?: string;
+  notes?: string;
+};
+
 type OnboardingCredentialingBody = {
   credentialingNeeded?: boolean;
   credentialingFor?: string[];
@@ -187,6 +199,7 @@ type OnboardingCredentialingBody = {
   designatedPortalContactPhone?: string;
   irsDocument147c?: string;
   desiredInsurancePlans?: string;
+  payerPortalLogins?: OnboardingPayerPortalLoginBody[];
   caqhMaintained?: boolean;
   currentCredentialingIssues?: string[];
   medicarePtanAvailable?: string;
@@ -344,6 +357,35 @@ const onboardingInclude = {
   practice: true,
   person: true,
 } as const;
+
+const allowedDocumentTypes = new Set<string>(Object.values(DocumentTypes));
+
+function normalizeDocumentTypes(
+  value?: string[] | string,
+): DocumentTypes[] {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  const normalized = values
+    .map((entry) => String(entry ?? "").trim())
+    .filter((entry) => allowedDocumentTypes.has(entry)) as DocumentTypes[];
+  return normalized.length > 0 ? normalized : [DocumentTypes.OTHER];
+}
+
+function normalizePayerPortalLogins(
+  value?: OnboardingPayerPortalLoginBody[] | null,
+) {
+  if (!Array.isArray(value)) return [];
+  return value.map((login) => ({
+    payerName: login?.payerName ?? "",
+    portalUrl: login?.portalUrl ?? "",
+    username: login?.username ?? "",
+    password: login?.password ?? "",
+    designatedContactName: login?.designatedContactName ?? "",
+    contactEmail: login?.contactEmail ?? "",
+    contactPhone: login?.contactPhone ?? "",
+    status: login?.status ?? "NOT_STARTED",
+    notes: login?.notes ?? "",
+  }));
+}
 
 class PracticeOnboardingConflictError extends Error {
   constructor(practiceId: string) {
@@ -694,7 +736,7 @@ async function createOnboardingRecord(body: OnboardingBody) {
       documents: body.documents
         ? {
             create: body.documents.map((d) => ({
-              documentType: d.documentType || [],
+              documentType: normalizeDocumentTypes(d.documentType),
               fileName: d.fileName,
               fileUrl: d.fileUrl,
               required: d.required,
@@ -743,6 +785,9 @@ async function createOnboardingRecord(body: OnboardingBody) {
                 body.credentialing.designatedPortalContactPhone,
               irsDocument147c: body.credentialing.irsDocument147c,
               desiredInsurancePlans: body.credentialing.desiredInsurancePlans,
+              payerPortalLogins: normalizePayerPortalLogins(
+                body.credentialing.payerPortalLogins,
+              ),
               caqhMaintained: body.credentialing.caqhMaintained,
               currentCredentialingIssues: body.credentialing
                 .currentCredentialingIssues as any,
@@ -1546,7 +1591,7 @@ export async function updateOnboarding(
           ? {
               deleteMany: {},
               create: body.documents.map((d) => ({
-                documentType: (d.documentType || []) as any,
+                documentType: normalizeDocumentTypes(d.documentType),
                 fileName: d.fileName,
                 fileUrl: d.fileUrl,
                 required: d.required,
@@ -1620,6 +1665,9 @@ export async function updateOnboarding(
                   irsDocument147c: body.credentialing.irsDocument147c,
                   desiredInsurancePlans:
                     body.credentialing.desiredInsurancePlans,
+                  payerPortalLogins: normalizePayerPortalLogins(
+                    body.credentialing.payerPortalLogins,
+                  ),
                   caqhMaintained: body.credentialing.caqhMaintained,
                   currentCredentialingIssues: body.credentialing
                     .currentCredentialingIssues as any,
@@ -1646,6 +1694,9 @@ export async function updateOnboarding(
                   irsDocument147c: body.credentialing.irsDocument147c,
                   desiredInsurancePlans:
                     body.credentialing.desiredInsurancePlans,
+                  payerPortalLogins: normalizePayerPortalLogins(
+                    body.credentialing.payerPortalLogins,
+                  ),
                   caqhMaintained: body.credentialing.caqhMaintained,
                   currentCredentialingIssues: body.credentialing
                     .currentCredentialingIssues as any,
