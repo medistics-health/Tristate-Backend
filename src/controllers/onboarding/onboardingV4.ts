@@ -89,6 +89,8 @@ type OnboardingProviderBody = {
   nppesUsername?: string;
   nppesPassword?: string;
   railroadMedicareIndividual?: string;
+  railroadMedicareGroup?: string;
+  cliaNumber?: string;
   copyOfBoardCertification?: string;
   copyOfProfessionalLiabilityInsurance?: string;
   copyOfBachelorsDegree?: string;
@@ -704,6 +706,8 @@ async function createOnboardingRecord(body: OnboardingBody) {
                       nppesUsername: pr.nppesUsername,
                       nppesPassword: pr.nppesPassword,
                       railroadMedicareIndividual: pr.railroadMedicareIndividual,
+                      railroadMedicareGroup: pr.railroadMedicareGroup,
+                      cliaNumber: pr.cliaNumber,
                       copyOfBoardCertification: pr.copyOfBoardCertification,
                       copyOfProfessionalLiabilityInsurance:
                         pr.copyOfProfessionalLiabilityInsurance,
@@ -1558,6 +1562,8 @@ export async function updateOnboarding(
                         nppesPassword: pr.nppesPassword,
                         railroadMedicareIndividual:
                           pr.railroadMedicareIndividual,
+                        railroadMedicareGroup: pr.railroadMedicareGroup,
+                        cliaNumber: pr.cliaNumber,
                         copyOfBoardCertification: pr.copyOfBoardCertification,
                         copyOfProfessionalLiabilityInsurance:
                           pr.copyOfProfessionalLiabilityInsurance,

@@ -1054,6 +1054,8 @@ model OnboardingProvider {
   nppesUsername          String?            @map("nppes_username")
   nppesPassword          String?            @map("nppes_password")
   railroadMedicareIndividual String?        @map("railroad_medicare_individual")
+  railroadMedicareGroup  String?            @map("railroad_medicare_group")
+  cliaNumber             String?            @map("clia_number")
   copyOfBoardCertification String?          @map("copy_of_board_certification")
   copyOfProfessionalLiabilityInsurance String? @map("copy_of_professional_liability_insurance")
   copyOfBachelorsDegree  String?            @map("copy_of_bachelors_degree")

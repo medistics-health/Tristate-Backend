@@ -698,10 +698,6 @@ export function generateOnboardingPdfBuffer(
           value: formatDate(practice.practiceWorkStartDate),
         },
         {
-          label: "Railroad Medicare (Group)",
-          value: practice.railroadMedicareGroup,
-        },
-        {
           label: "Number of Providers",
           value: practice.approximateNumberOfProviders,
         },
@@ -867,10 +863,6 @@ export function generateOnboardingPdfBuffer(
                     label: "Medicaid ID (Individual)",
                     value: provider.medicaidIdIndividual,
                   },
-                  {
-                    label: "Railroad Medicare (Individual)",
-                    value: provider.railroadMedicareIndividual,
-                  },
                 ] as Field[])
               : []),
             {
@@ -879,6 +871,14 @@ export function generateOnboardingPdfBuffer(
             },
             { label: "NPPES Username", value: provider.nppesUsername },
             { label: "NPPES Password", value: provider.nppesPassword },
+            {
+              label: "Railroad Medicare (Individual)",
+              value: provider.railroadMedicareIndividual,
+            },
+            {
+              label: "Railroad Medicare (Group)",
+              value: provider.railroadMedicareGroup,
+            },
           ],
         );
 

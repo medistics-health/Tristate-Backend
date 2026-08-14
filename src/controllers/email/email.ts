@@ -18,7 +18,25 @@ type SentEmailQuery = {
   toEmail?: string;
   sentFrom?: string;
   sentTo?: string;
+  search?: string;
+  page?: string;
+  limit?: string;
 };
+
+const SENT_EMAIL_DEFAULT_PAGE = 1;
+const SENT_EMAIL_DEFAULT_LIMIT = 25;
+const SENT_EMAIL_MAX_LIMIT = 100;
+
+function parsePositiveInt(
+  rawValue: string | undefined,
+  fallback: number,
+  max: number,
+) {
+  if (!rawValue?.trim()) return fallback;
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, max);
+}
 
 function parseDateQueryValue(rawValue: string, boundary: "start" | "end"): Date | null {
   const trimmedValue = rawValue.trim();
@@ -174,16 +192,42 @@ export async function getSentEmails(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const emails = await listOutlookSentEmails({
+    const search =
+      typeof query.search === "string" && query.search.trim()
+        ? query.search.trim()
+        : undefined;
+    const page = parsePositiveInt(
+      query.page,
+      SENT_EMAIL_DEFAULT_PAGE,
+      Number.MAX_SAFE_INTEGER,
+    );
+    const limit = parsePositiveInt(
+      query.limit,
+      SENT_EMAIL_DEFAULT_LIMIT,
+      SENT_EMAIL_MAX_LIMIT,
+    );
+
+    const result = await listOutlookSentEmails({
       senderOverride: sender,
       recipientEmail: toEmail,
       sentFrom: sentFromIso,
       sentTo: sentToIso,
+      search,
+      page,
+      limit,
     });
+
+    const totalPages = Math.max(1, Math.ceil(result.total / result.limit) || 1);
 
     return res.status(200).json({
       message: "Sent emails fetched successfully.",
-      emails,
+      emails: result.messages,
+      pagination: {
+        page: result.page,
+        limit: result.limit,
+        total: result.total,
+        totalPages,
+      },
     });
   } catch (error) {
     return res.status(500).json({
