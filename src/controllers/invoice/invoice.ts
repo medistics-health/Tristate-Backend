@@ -566,6 +566,10 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 1000;
     const search = (req.query.search as string) || "";
     const status = (req.query.status as string) || "";
+    const practiceId = (req.query.practiceId as string) || "";
+    const paymentMethod = (req.query.paymentMethod as string) || "";
+    const dateFrom = (req.query.dateFrom as string) || "";
+    const dateTo = (req.query.dateTo as string) || "";
 
     const skip = (page - 1) * limit;
 
@@ -576,6 +580,26 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
         ...where.practice,
         name: { contains: search, mode: "insensitive" },
       };
+    }
+
+    if (practiceId) {
+      where.practiceId = practiceId;
+    }
+
+    if (paymentMethod) {
+      where.paymentMethod = paymentMethod;
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        where.createdAt.gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
+      }
     }
 
     if (status) {

@@ -561,6 +561,10 @@ export async function listBillingRunsHandler(
       limit: Number(req.query.limit) || 10,
       practiceId: (req.query.practiceId as string) || undefined,
       status: parsedStatus || undefined,
+      paymentMethod: (req.query.paymentMethod as string) || undefined,
+      search: (req.query.search as string) || undefined,
+      dateFrom: (req.query.dateFrom as string) || undefined,
+      dateTo: (req.query.dateTo as string) || undefined,
     });
 
     return res.status(200).json({

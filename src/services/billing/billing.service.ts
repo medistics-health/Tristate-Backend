@@ -1996,6 +1996,10 @@ export async function listBillingRuns(params: {
   limit?: number;
   practiceId?: string;
   status?: BillingRunStatus;
+  paymentMethod?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }) {
   const page = params.page && params.page > 0 ? params.page : 1;
   const limit = params.limit && params.limit > 0 ? params.limit : 10;
@@ -2007,6 +2011,25 @@ export async function listBillingRuns(params: {
   }
   if (params.status) {
     where.status = params.status;
+  }
+  if (params.paymentMethod) {
+    where.paymentMethod = params.paymentMethod;
+  }
+  if (params.search) {
+    where.practice = {
+      name: { contains: params.search, mode: "insensitive" },
+    };
+  }
+  if (params.dateFrom || params.dateTo) {
+    where.createdAt = {};
+    if (params.dateFrom) {
+      where.createdAt.gte = new Date(params.dateFrom);
+    }
+    if (params.dateTo) {
+      const toDate = new Date(params.dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      where.createdAt.lte = toDate;
+    }
   }
 
   const [runs, total] = await Promise.all([
