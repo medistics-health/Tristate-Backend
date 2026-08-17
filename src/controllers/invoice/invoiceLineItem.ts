@@ -234,8 +234,13 @@ export async function getAllInvoiceLineItems(
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 1000;
+    const search = (req.query.search as string) || "";
+    const dateFrom = (req.query.dateFrom as string) || "";
+    const dateTo = (req.query.dateTo as string) || "";
     const invoiceId = req.query.invoiceId as string;
     const invoiceNumber = req.query.invoiceNumber as string;
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const skip = (page - 1) * limit;
 
@@ -245,20 +250,48 @@ export async function getAllInvoiceLineItems(
       where.invoiceId = invoiceId;
     }
 
-    if (invoiceNumber) {
+    if (invoiceNumber || search) {
+      const numQuery = (invoiceNumber || search).trim();
       where.invoice = {
         invoiceNumber: {
-          contains: invoiceNumber.trim(),
+          contains: numQuery,
           mode: "insensitive",
         },
       };
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        where.createdAt.gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
+      }
+    }
+
+    let orderBy: any = { createdAt: sortOrder };
+    if (sortBy === "invoiceLabel" || sortBy === "invoice") {
+      orderBy = { invoice: { invoiceNumber: sortOrder } };
+    } else if (sortBy === "serviceName" || sortBy === "service") {
+      orderBy = { service: { name: sortOrder } };
+    } else if (sortBy === "quantity") {
+      orderBy = { quantity: sortOrder };
+    } else if (sortBy === "unitPrice") {
+      orderBy = { unitPrice: sortOrder };
+    } else if (sortBy === "totalPrice") {
+      orderBy = { totalPrice: sortOrder };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: sortOrder };
     }
 
     const [lineItems, total] = await Promise.all([
       prisma.invoiceLineItem.findMany({
         where,
         include: { invoice: true, service: true },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),

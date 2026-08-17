@@ -570,6 +570,8 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
     const paymentMethod = (req.query.paymentMethod as string) || "";
     const dateFrom = (req.query.dateFrom as string) || "";
     const dateTo = (req.query.dateTo as string) || "";
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const skip = (page - 1) * limit;
 
@@ -612,6 +614,19 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
       where.status = status as InvoiceStatus;
     }
 
+    let orderBy: any = { createdAt: sortOrder };
+    if (sortBy === "practiceName" || sortBy === "practice") {
+      orderBy = { practice: { name: sortOrder } };
+    } else if (sortBy === "totalAmount" || sortBy === "grossInvoiceTotal") {
+      orderBy = { totalAmount: sortOrder };
+    } else if (sortBy === "status") {
+      orderBy = { status: sortOrder };
+    } else if (sortBy === "dueDate") {
+      orderBy = { dueDate: sortOrder };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: sortOrder };
+    }
+
     const [invoices, total] = await Promise.all([
       prisma.invoice.findMany({
         where,
@@ -630,7 +645,7 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
             },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),

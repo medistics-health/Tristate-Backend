@@ -565,6 +565,8 @@ export async function listBillingRunsHandler(
       search: (req.query.search as string) || undefined,
       dateFrom: (req.query.dateFrom as string) || undefined,
       dateTo: (req.query.dateTo as string) || undefined,
+      sortBy: (req.query.sortBy as string) || undefined,
+      sortOrder: (req.query.sortOrder as string) || undefined,
     });
 
     return res.status(200).json({

@@ -215,19 +215,26 @@ export async function getAllAudits(req: AuthenticatedRequest, res: Response) {
     }
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 1000;
-    // const search = (req.query.search as string) || "";
+    const search = (req.query.search as string) || "";
     const type = (req.query.type as string) || "";
+    const practiceId = (req.query.practiceId as string) || "";
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const skip = (page - 1) * limit;
 
     const where: any = {};
 
-    // if (search) {
-    //   where.practice = {
-    //     ...where.practice,
-    //     name: { contains: search, mode: "insensitive" },
-    //   };
-    // }
+    if (practiceId) {
+      where.practiceId = practiceId;
+    }
+
+    if (search) {
+      where.OR = [
+        { practice: { name: { contains: search, mode: "insensitive" } } },
+        { deal: { name: { contains: search, mode: "insensitive" } } },
+      ];
+    }
 
     if (type) {
       if (!isAuditType(type)) {
@@ -239,11 +246,24 @@ export async function getAllAudits(req: AuthenticatedRequest, res: Response) {
       where.type = type as AuditType;
     }
 
+    let orderBy: any = { createdAt: sortOrder };
+    if (sortBy === "type") {
+      orderBy = { type: sortOrder };
+    } else if (sortBy === "score") {
+      orderBy = { score: sortOrder };
+    } else if (sortBy === "practiceName" || sortBy === "practice") {
+      orderBy = { practice: { name: sortOrder } };
+    } else if (sortBy === "dealName" || sortBy === "deal") {
+      orderBy = { deal: { name: sortOrder } };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: sortOrder };
+    }
+
     const [audits, total] = await Promise.all([
       prisma.audit.findMany({
         where,
         include: { practice: true, deal: true },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),
