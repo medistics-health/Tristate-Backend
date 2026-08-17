@@ -9,7 +9,7 @@ import {
   getOnboarding,
   updateOnboarding,
   deleteOnboarding,
-} from "../controllers/onboarding/onboardingV3";
+} from "../controllers/onboarding/onboardingV4";
 import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 
 const router = Router();

@@ -291,9 +291,106 @@ type ListSentEmailOptions = {
   recipientEmail?: string;
   sentFrom?: string;
   sentTo?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
 };
 
-export async function listOutlookSentEmails(options: ListSentEmailOptions = {}) {
+export type SentEmailsPage = {
+  messages: unknown[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+const SENT_EMAIL_SELECT =
+  "id,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,internetMessageId";
+const SENT_EMAIL_MAX_PAGE_SIZE = 100;
+const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+function extractEmails(value: string) {
+  return [...value.matchAll(EMAIL_PATTERN)].map((match) => match[0].toLowerCase());
+}
+
+function sanitizeSearchTerm(rawValue: string) {
+  return rawValue
+    .replace(EMAIL_PATTERN, " ")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .replace(/\b(?:AND|OR|NOT)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildKeywordSearch(options: ListSentEmailOptions) {
+  const rawSearch = options.search?.trim() ?? "";
+  const recipient = options.recipientEmail?.trim().toLowerCase();
+  const term = rawSearch ? sanitizeSearchTerm(rawSearch) : "";
+  const emails = new Set<string>(extractEmails(rawSearch));
+  if (recipient) {
+    emails.add(recipient);
+  }
+
+  const parts: string[] = [];
+  if (term) {
+    parts.push(term);
+  }
+  for (const email of emails) {
+    parts.push(`"${email}"`);
+  }
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+function getMessageSentDate(message: unknown) {
+  const sentDateTime = (message as { sentDateTime?: string }).sentDateTime;
+  if (!sentDateTime) return null;
+  const parsed = new Date(sentDateTime);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function matchesSentDateRange(
+  message: unknown,
+  sentFrom?: string,
+  sentTo?: string,
+) {
+  if (!sentFrom && !sentTo) return true;
+  const sentDate = getMessageSentDate(message);
+  if (!sentDate) return false;
+  if (sentFrom && sentDate < new Date(sentFrom)) return false;
+  if (sentTo && sentDate > new Date(sentTo)) return false;
+  return true;
+}
+
+function buildSentEmailDateFilter(options: ListSentEmailOptions) {
+  const filterParts: string[] = [];
+  if (options.sentFrom) {
+    filterParts.push(`sentDateTime ge ${options.sentFrom}`);
+  }
+  if (options.sentTo) {
+    filterParts.push(`sentDateTime le ${options.sentTo}`);
+  }
+  return filterParts.length > 0 ? filterParts.join(" and ") : undefined;
+}
+
+type GraphMessagesResponse = {
+  value?: unknown[];
+  "@odata.count"?: number;
+  "@odata.nextLink"?: string;
+};
+
+function resolveMessagesTotal(
+  response: GraphMessagesResponse,
+  loadedBefore: number,
+  loadedNow: number,
+) {
+  if (typeof response["@odata.count"] === "number") {
+    return response["@odata.count"];
+  }
+  return loadedBefore + loadedNow + (response["@odata.nextLink"] ? 1 : 0);
+}
+
+export async function listOutlookSentEmails(
+  options: ListSentEmailOptions = {},
+): Promise<SentEmailsPage> {
   try {
     const client = await getAuthenticatedClient();
     const senderEmail =
@@ -303,41 +400,82 @@ export async function listOutlookSentEmails(options: ListSentEmailOptions = {}) 
       throw new Error("MS_SENDER_EMAIL is not defined in environment variables");
     }
 
-    const request = client
-      .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
-      .select(
-        "id,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,internetMessageId",
-      )
-      .orderby("sentDateTime DESC")
-      .top(1000);
-
-    const filterParts: string[] = [];
-    if (options.sentFrom) {
-      filterParts.push(`sentDateTime ge ${options.sentFrom}`);
-    }
-    if (options.sentTo) {
-      filterParts.push(`sentDateTime le ${options.sentTo}`);
-    }
-    if (filterParts.length > 0) {
-      request.filter(filterParts.join(" and "));
-    }
-
-    const response = await request.get();
-    const messages = (response.value ?? []) as Array<{
-      toRecipients?: Array<{ emailAddress?: { address?: string } }>;
-    }>;
-
-    const recipientFilter = options.recipientEmail?.trim().toLowerCase();
-    if (!recipientFilter) {
-      return messages;
-    }
-
-    return messages.filter((message) =>
-      (message.toRecipients ?? []).some((recipient) => {
-        const address = recipient.emailAddress?.address?.trim().toLowerCase();
-        return address === recipientFilter;
-      }),
+    const page = Math.max(1, Math.floor(options.page ?? 1));
+    const limit = Math.min(
+      SENT_EMAIL_MAX_PAGE_SIZE,
+      Math.max(1, Math.floor(options.limit ?? 25)),
     );
+    const skip = (page - 1) * limit;
+    const keywordSearch = buildKeywordSearch(options);
+    const dateFilter = keywordSearch
+      ? undefined
+      : buildSentEmailDateFilter(options);
+
+    let request = client
+      .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
+      .select(SENT_EMAIL_SELECT)
+      .top(limit)
+      .count(true)
+      .header("ConsistencyLevel", "eventual");
+
+    if (keywordSearch) {
+      request = request.search(keywordSearch);
+    } else {
+      request = request.orderby("sentDateTime DESC").skip(skip);
+      if (dateFilter) {
+        request = request.filter(dateFilter);
+      }
+    }
+
+    let response = (await request.get()) as GraphMessagesResponse;
+
+    if (!keywordSearch) {
+      const messages = response.value ?? [];
+      const total = resolveMessagesTotal(response, skip, messages.length);
+      return { messages, total, page, limit };
+    }
+
+    const needsDateMatch = Boolean(options.sentFrom || options.sentTo);
+    const matched: unknown[] = [];
+    let skippedMatches = 0;
+    let scannedCount = 0;
+    let hasMore = Boolean(response["@odata.nextLink"]);
+
+    while (true) {
+      const pageValues = response.value ?? [];
+      scannedCount += pageValues.length;
+      const eligible = needsDateMatch
+        ? pageValues.filter((message) =>
+            matchesSentDateRange(message, options.sentFrom, options.sentTo),
+          )
+        : pageValues;
+
+      for (const message of eligible) {
+        if (skippedMatches < skip) {
+          skippedMatches += 1;
+          continue;
+        }
+        matched.push(message);
+        if (matched.length >= limit) {
+          break;
+        }
+      }
+
+      hasMore = Boolean(response["@odata.nextLink"]);
+      if (matched.length >= limit || !response["@odata.nextLink"]) {
+        break;
+      }
+      response = (await client.api(response["@odata.nextLink"]).get()) as GraphMessagesResponse;
+    }
+
+    const countedTotal = response["@odata.count"];
+    const total = needsDateMatch
+      ? skippedMatches + matched.length + (hasMore && matched.length >= limit ? 1 : 0)
+      : typeof countedTotal === "number"
+        ? countedTotal
+        : scannedCount + (hasMore ? 1 : 0);
+
+    return { messages: matched.slice(0, limit), total, page, limit };
   } catch (error) {
     console.error("Error listing sent emails via Microsoft Graph:", error);
     throw error;

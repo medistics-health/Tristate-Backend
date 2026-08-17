@@ -1054,6 +1054,8 @@ model OnboardingProvider {
   nppesUsername          String?            @map("nppes_username")
   nppesPassword          String?            @map("nppes_password")
   railroadMedicareIndividual String?        @map("railroad_medicare_individual")
+  railroadMedicareGroup  String?            @map("railroad_medicare_group")
+  cliaNumber             String?            @map("clia_number")
   copyOfBoardCertification String?          @map("copy_of_board_certification")
   copyOfProfessionalLiabilityInsurance String? @map("copy_of_professional_liability_insurance")
   copyOfBachelorsDegree  String?            @map("copy_of_bachelors_degree")
@@ -1140,6 +1142,7 @@ model OnboardingCredentialing {
   designatedPortalContactPhone String?             @map("designated_portal_contact_phone")
   irsDocument147c            String?               @map("irs_document_147c")
   desiredInsurancePlans      String?               @map("desired_insurance_plans")
+  payerPortalLogins          Json?                 @map("payer_portal_logins")
   caqhMaintained             Boolean?              @map("caqh_maintained")
   currentCredentialingIssues CredentialingIssues[] @map("current_credentialing_issues")
   medicarePtanAvailable      String?               @map("medicare_ptan_available")
@@ -1691,6 +1694,19 @@ enum OwnershipType {
 
 enum DocumentTypes {
   W9
+  VOID_CHECK
+  BANK_ACCOUNT_LETTER
+  IRS_LETTER_147C
+  IN_NETWORK_INSURANCE_ROSTER
+  INSURANCE_ENROLLMENT_LIST
+  BOARD_CERTIFICATION
+  PLI
+  DRIVER_LICENSE
+  SOCIAL_SECURITY_CARD
+  PASSPORT_SIZED_PHOTO
+  RESUME_CV
+  BACHELOR_DEGREE
+  MASTER_DEGREE
   SIGNED_AGREEMENT
   BAA
   COI

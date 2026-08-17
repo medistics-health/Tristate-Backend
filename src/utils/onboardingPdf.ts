@@ -698,10 +698,6 @@ export function generateOnboardingPdfBuffer(
           value: formatDate(practice.practiceWorkStartDate),
         },
         {
-          label: "Railroad Medicare (Group)",
-          value: practice.railroadMedicareGroup,
-        },
-        {
           label: "Number of Providers",
           value: practice.approximateNumberOfProviders,
         },
@@ -867,10 +863,6 @@ export function generateOnboardingPdfBuffer(
                     label: "Medicaid ID (Individual)",
                     value: provider.medicaidIdIndividual,
                   },
-                  {
-                    label: "Railroad Medicare (Individual)",
-                    value: provider.railroadMedicareIndividual,
-                  },
                 ] as Field[])
               : []),
             {
@@ -879,6 +871,14 @@ export function generateOnboardingPdfBuffer(
             },
             { label: "NPPES Username", value: provider.nppesUsername },
             { label: "NPPES Password", value: provider.nppesPassword },
+            {
+              label: "Railroad Medicare (Individual)",
+              value: provider.railroadMedicareIndividual,
+            },
+            {
+              label: "Railroad Medicare (Group)",
+              value: provider.railroadMedicareGroup,
+            },
           ],
         );
 
@@ -1143,13 +1143,18 @@ function addOperationsSections(
           value: documentValue(credentialing.approvedInsurancesTracker),
           span: 2,
         },
-        ...(credentialing.caqhMaintained
-          ? ([
-              { label: "Designated Portal Contact Name", value: credentialing.designatedPortalContactName },
-              { label: "Designated Portal Contact Email", value: credentialing.designatedPortalContactEmail },
-              { label: "Designated Portal Contact Phone", value: credentialing.designatedPortalContactPhone },
-            ] as Field[])
-          : []),
+        {
+          label: "Portal Designated Contact Name",
+          value: credentialing.designatedPortalContactName,
+        },
+        {
+          label: "Portal Designated Contact Email",
+          value: credentialing.designatedPortalContactEmail,
+        },
+        {
+          label: "Portal Designated Contact Phone",
+          value: credentialing.designatedPortalContactPhone,
+        },
         {
           label: "IRS Document - Letter 147C",
           value: documentValue(credentialing.irsDocument147c),
@@ -1157,6 +1162,33 @@ function addOperationsSections(
         {
           label: "Desired Insurance Plans",
           value: credentialing.desiredInsurancePlans,
+          span: 2,
+        },
+        {
+          label: "Payer Portal Logins",
+          value: Array.isArray(credentialing.payerPortalLogins)
+            ? credentialing.payerPortalLogins
+                .filter(
+                  (login: any) =>
+                    login?.payerName ||
+                    login?.portalUrl ||
+                    login?.username ||
+                    login?.designatedContactName,
+                )
+                .map((login: any, index: number) => {
+                  const parts = [
+                    login?.payerName,
+                    login?.portalUrl,
+                    login?.username ? `user: ${login.username}` : "",
+                    login?.designatedContactName
+                      ? `contact: ${login.designatedContactName}`
+                      : "",
+                    login?.status,
+                  ].filter(Boolean);
+                  return `${index + 1}. ${parts.join(" | ")}`;
+                })
+                .join("\n")
+            : "",
           span: 2,
         },
         { label: "CAQH Maintained", value: credentialing.caqhMaintained },
