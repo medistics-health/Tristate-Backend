@@ -1904,6 +1904,12 @@ export async function getAgreementServiceTerms(
     const agreementId = req.query.agreementId as string;
     const agreementVersionId = req.query.agreementVersionId as string;
     const serviceId = req.query.serviceId as string;
+    const search = (req.query.search as string) || "";
+    const pricingModel = req.query.pricingModel as string;
+    const vendorId = req.query.vendorId as string;
+    const approvalStatus = req.query.approvalStatus as string;
+    const sortBy = (req.query.sortBy as string) || "priority";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "desc" ? "desc" : "asc";
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 1000;
@@ -1913,6 +1919,52 @@ export async function getAgreementServiceTerms(
     if (agreementId) where.agreementId = agreementId;
     if (agreementVersionId) where.agreementVersionId = agreementVersionId;
     if (serviceId) where.serviceId = serviceId;
+    if (pricingModel) where.pricingModel = pricingModel;
+    if (vendorId) where.vendorId = vendorId;
+
+    if (search) {
+      where.OR = [
+        { service: { name: { contains: search, mode: "insensitive" } } },
+        { service: { code: { contains: search, mode: "insensitive" } } },
+        { vendor: { name: { contains: search, mode: "insensitive" } } },
+      ];
+    }
+
+    if (approvalStatus) {
+      if (approvalStatus === "APPROVED") {
+        where.clientApprovalStatus = "APPROVED";
+        where.vendorApprovalStatus = "APPROVED";
+      } else if (approvalStatus === "REJECTED") {
+        where.OR = [
+          { clientApprovalStatus: "REJECTED" },
+          { vendorApprovalStatus: "REJECTED" },
+        ];
+      } else if (approvalStatus === "PENDING") {
+        where.AND = [
+          { NOT: { clientApprovalStatus: "REJECTED" } },
+          { NOT: { vendorApprovalStatus: "REJECTED" } },
+          {
+            OR: [
+              { clientApprovalStatus: "PENDING" },
+              { vendorApprovalStatus: "PENDING" },
+            ],
+          },
+        ];
+      }
+    }
+
+    let orderBy: any = { priority: sortOrder };
+    if (sortBy === "service") {
+      orderBy = { service: { name: sortOrder } };
+    } else if (sortBy === "pricingModel") {
+      orderBy = { pricingModel: sortOrder };
+    } else if (sortBy === "vendor") {
+      orderBy = { vendor: { name: sortOrder } };
+    } else if (sortBy === "createdAt") {
+      orderBy = { createdAt: sortOrder };
+    } else if (sortBy === "updatedAt") {
+      orderBy = { updatedAt: sortOrder };
+    }
 
     const [terms, totalRecords] = await Promise.all([
       prisma.agreementServiceTerm.findMany({
@@ -1925,9 +1977,7 @@ export async function getAgreementServiceTerms(
         },
         skip,
         take: limit,
-        orderBy: {
-          priority: "asc",
-        },
+        orderBy,
       }),
       prisma.agreementServiceTerm.count({ where }),
     ]);
