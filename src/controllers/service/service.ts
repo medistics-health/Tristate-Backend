@@ -312,20 +312,52 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 1000;
     const search = (req.query.search as string) || "";
+    const category = (req.query.category as string) || "";
+    const vendorId = (req.query.vendorId as string) || "";
+    const isActiveStr = req.query.isActive as string | undefined;
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const skip = (page - 1) * limit;
 
     const where: any = {};
 
     if (search) {
-      where.name = { contains: search, mode: "insensitive" };
+      where.OR = [
+        { name: { contains: search, mode: "insensitive" } },
+        { code: { contains: search, mode: "insensitive" } },
+        { category: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    if (category) {
+      where.category = category;
+    }
+
+    if (vendorId) {
+      where.vendorId = vendorId;
+    }
+
+    if (isActiveStr !== undefined && isActiveStr !== "") {
+      where.isActive = isActiveStr === "true";
+    }
+
+    let orderBy: any = { createdAt: sortOrder };
+    if (sortBy === "name") {
+      orderBy = { name: sortOrder };
+    } else if (sortBy === "code") {
+      orderBy = { code: sortOrder };
+    } else if (sortBy === "category") {
+      orderBy = { category: sortOrder };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: sortOrder };
     }
 
     const [services, total] = await Promise.all([
       prisma.service.findMany({
         where,
         include: { vendor: true },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),

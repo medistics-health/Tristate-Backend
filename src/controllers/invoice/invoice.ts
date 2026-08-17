@@ -566,6 +566,12 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 1000;
     const search = (req.query.search as string) || "";
     const status = (req.query.status as string) || "";
+    const practiceId = (req.query.practiceId as string) || "";
+    const paymentMethod = (req.query.paymentMethod as string) || "";
+    const dateFrom = (req.query.dateFrom as string) || "";
+    const dateTo = (req.query.dateTo as string) || "";
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const skip = (page - 1) * limit;
 
@@ -578,6 +584,26 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
       };
     }
 
+    if (practiceId) {
+      where.practiceId = practiceId;
+    }
+
+    if (paymentMethod) {
+      where.paymentMethod = paymentMethod;
+    }
+
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) {
+        where.createdAt.gte = new Date(dateFrom);
+      }
+      if (dateTo) {
+        const toDate = new Date(dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
+      }
+    }
+
     if (status) {
       if (!isInvoiceStatus(status)) {
         return res.status(400).json({
@@ -586,6 +612,19 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
         });
       }
       where.status = status as InvoiceStatus;
+    }
+
+    let orderBy: any = { createdAt: sortOrder };
+    if (sortBy === "practiceName" || sortBy === "practice") {
+      orderBy = { practice: { name: sortOrder } };
+    } else if (sortBy === "totalAmount" || sortBy === "grossInvoiceTotal") {
+      orderBy = { totalAmount: sortOrder };
+    } else if (sortBy === "status") {
+      orderBy = { status: sortOrder };
+    } else if (sortBy === "dueDate") {
+      orderBy = { dueDate: sortOrder };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: sortOrder };
     }
 
     const [invoices, total] = await Promise.all([
@@ -606,7 +645,7 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
             },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),

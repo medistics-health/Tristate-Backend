@@ -14,16 +14,61 @@ export async function getAllVendorPayables(
 
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
+    const search = (req.query.search as string) || "";
+    const status = (req.query.status as string) || "";
+    const practiceId = (req.query.practiceId as string) || "";
+    const vendorId = (req.query.vendorId as string) || "";
+    const sortBy = (req.query.sortBy as string) || "createdAt";
+    const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
+
     const skip = (page - 1) * limit;
+
+    const where: any = {};
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (practiceId) {
+      where.practiceId = practiceId;
+    }
+
+    if (vendorId) {
+      where.vendorId = vendorId;
+    }
+
+    if (search) {
+      where.OR = [
+        { payableNumber: { contains: search, mode: "insensitive" } },
+        { vendor: { name: { contains: search, mode: "insensitive" } } },
+        { practice: { name: { contains: search, mode: "insensitive" } } },
+      ];
+    }
+
+    let orderBy: any = { createdAt: sortOrder };
+    if (sortBy === "payableNumber") {
+      orderBy = { payableNumber: sortOrder };
+    } else if (sortBy === "vendor") {
+      orderBy = { vendor: { name: sortOrder } };
+    } else if (sortBy === "practice") {
+      orderBy = { practice: { name: sortOrder } };
+    } else if (sortBy === "totalAmount") {
+      orderBy = { totalAmount: sortOrder };
+    } else if (sortBy === "status") {
+      orderBy = { status: sortOrder };
+    } else if (sortBy === "updatedAt") {
+      orderBy = { updatedAt: sortOrder };
+    }
 
     const [payables, total] = await Promise.all([
       prisma.vendorPayable.findMany({
+        where,
         include: { vendor: true, practice: true },
-        orderBy: { createdAt: "desc" },
+        orderBy,
         skip,
         take: limit,
       }),
-      prisma.vendorPayable.count(),
+      prisma.vendorPayable.count({ where }),
     ]);
 
     return res.status(200).json({

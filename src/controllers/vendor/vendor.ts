@@ -154,7 +154,7 @@ export async function getVendors(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 1000;
     const skip = (page - 1) * limit;
 
-    const { search, type } = req.query;
+    const { search, type, sortBy, sortOrder } = req.query;
 
     const where: any = {};
 
@@ -164,6 +164,17 @@ export async function getVendors(req: AuthenticatedRequest, res: Response) {
 
     if (type) {
       where.type = type as VendorType;
+    }
+
+    let orderBy: any = { createdAt: sortOrder === "asc" ? "asc" : "desc" };
+    if (sortBy === "name") {
+      orderBy = { name: sortOrder === "asc" ? "asc" : "desc" };
+    } else if (sortBy === "type") {
+      orderBy = { type: sortOrder === "asc" ? "asc" : "desc" };
+    } else if (sortBy === "renewalDate") {
+      orderBy = { renewalDate: sortOrder === "asc" ? "asc" : "desc" };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: sortOrder === "asc" ? "asc" : "desc" };
     }
 
     const [vendors, totalRecords] = await Promise.all([
@@ -176,7 +187,7 @@ export async function getVendors(req: AuthenticatedRequest, res: Response) {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.vendor.count({ where }),
     ]);

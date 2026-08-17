@@ -1996,6 +1996,12 @@ export async function listBillingRuns(params: {
   limit?: number;
   practiceId?: string;
   status?: BillingRunStatus;
+  paymentMethod?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sortBy?: string;
+  sortOrder?: string;
 }) {
   const page = params.page && params.page > 0 ? params.page : 1;
   const limit = params.limit && params.limit > 0 ? params.limit : 10;
@@ -2007,6 +2013,43 @@ export async function listBillingRuns(params: {
   }
   if (params.status) {
     where.status = params.status;
+  }
+  if (params.paymentMethod) {
+    where.paymentMethod = params.paymentMethod;
+  }
+  if (params.search) {
+    where.practice = {
+      name: { contains: params.search, mode: "insensitive" },
+    };
+  }
+  if (params.dateFrom || params.dateTo) {
+    where.createdAt = {};
+    if (params.dateFrom) {
+      where.createdAt.gte = new Date(params.dateFrom);
+    }
+    if (params.dateTo) {
+      const toDate = new Date(params.dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      where.createdAt.lte = toDate;
+    }
+  }
+
+  const orderDir: Prisma.SortOrder =
+    params.sortOrder?.toLowerCase() === "asc" ? "asc" : "desc";
+  let orderBy: Prisma.BillingRunOrderByWithRelationInput = {
+    createdAt: orderDir,
+  };
+
+  if (params.sortBy === "practiceName" || params.sortBy === "practice") {
+    orderBy = { practice: { name: orderDir } };
+  } else if (params.sortBy === "status") {
+    orderBy = { status: orderDir };
+  } else if (params.sortBy === "periodStart") {
+    orderBy = { periodStart: orderDir };
+  } else if (params.sortBy === "periodEnd") {
+    orderBy = { periodEnd: orderDir };
+  } else if (params.sortBy === "updatedAt") {
+    orderBy = { updatedAt: orderDir };
   }
 
   const [runs, total] = await Promise.all([
@@ -2029,7 +2072,7 @@ export async function listBillingRuns(params: {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy,
       skip,
       take: limit,
     }),
