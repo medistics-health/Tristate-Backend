@@ -1907,6 +1907,9 @@ export async function getAgreementServiceTerms(
     const search = (req.query.search as string) || "";
     const pricingModel = req.query.pricingModel as string;
     const vendorId = req.query.vendorId as string;
+    const clientApprovalStatus = req.query.clientApprovalStatus as string;
+    const internalApprovalStatus = req.query.internalApprovalStatus as string;
+    const termStatus = req.query.termStatus as string;
     const approvalStatus = req.query.approvalStatus as string;
     const sortBy = (req.query.sortBy as string) || "priority";
     const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "desc" ? "desc" : "asc";
@@ -1916,41 +1919,88 @@ export async function getAgreementServiceTerms(
     const skip = (page - 1) * limit;
 
     const where: any = {};
+    const andConditions: any[] = [];
+
     if (agreementId) where.agreementId = agreementId;
     if (agreementVersionId) where.agreementVersionId = agreementVersionId;
     if (serviceId) where.serviceId = serviceId;
     if (pricingModel) where.pricingModel = pricingModel;
     if (vendorId) where.vendorId = vendorId;
 
+    if (termStatus === "Active") {
+      where.isActive = true;
+    } else if (termStatus === "Inactive") {
+      where.isActive = false;
+    }
+
     if (search) {
-      where.OR = [
-        { service: { name: { contains: search, mode: "insensitive" } } },
-        { service: { code: { contains: search, mode: "insensitive" } } },
-        { vendor: { name: { contains: search, mode: "insensitive" } } },
-      ];
+      andConditions.push({
+        OR: [
+          { service: { name: { contains: search, mode: "insensitive" } } },
+          { service: { code: { contains: search, mode: "insensitive" } } },
+          { vendor: { name: { contains: search, mode: "insensitive" } } },
+        ],
+      });
     }
 
     if (approvalStatus) {
-      if (approvalStatus === "APPROVED") {
-        where.clientApprovalStatus = "APPROVED";
-        where.vendorApprovalStatus = "APPROVED";
-      } else if (approvalStatus === "REJECTED") {
-        where.OR = [
-          { clientApprovalStatus: "REJECTED" },
-          { vendorApprovalStatus: "REJECTED" },
-        ];
-      } else if (approvalStatus === "PENDING") {
-        where.AND = [
-          { NOT: { clientApprovalStatus: "REJECTED" } },
-          { NOT: { vendorApprovalStatus: "REJECTED" } },
-          {
-            OR: [
-              { clientApprovalStatus: "PENDING" },
-              { vendorApprovalStatus: "PENDING" },
-            ],
-          },
-        ];
+      where.approvalStatus = approvalStatus;
+    }
+
+    if (clientApprovalStatus) {
+      const val = clientApprovalStatus.toUpperCase();
+      if (val === "APPROVED") {
+        andConditions.push({
+          OR: [
+            { approvalStatus: "APPROVED" },
+            { pricingConfig: { path: ["clientApprovalStatus"], equals: "APPROVED" } },
+          ],
+        });
+      } else if (val === "PENDING") {
+        andConditions.push({
+          OR: [
+            { approvalStatus: "PENDING" },
+            { pricingConfig: { path: ["clientApprovalStatus"], equals: "PENDING" } },
+          ],
+        });
+      } else if (val === "REJECTED") {
+        andConditions.push({
+          OR: [
+            { approvalStatus: "REJECTED" },
+            { pricingConfig: { path: ["clientApprovalStatus"], equals: "REJECTED" } },
+          ],
+        });
       }
+    }
+
+    if (internalApprovalStatus) {
+      const val = internalApprovalStatus.toUpperCase();
+      if (val === "APPROVED") {
+        andConditions.push({
+          OR: [
+            { approvalStatus: "APPROVED" },
+            { pricingConfig: { path: ["internalApprovalStatus"], equals: "APPROVED" } },
+          ],
+        });
+      } else if (val === "PENDING") {
+        andConditions.push({
+          OR: [
+            { approvalStatus: "PENDING" },
+            { pricingConfig: { path: ["internalApprovalStatus"], equals: "PENDING" } },
+          ],
+        });
+      } else if (val === "REJECTED") {
+        andConditions.push({
+          OR: [
+            { approvalStatus: "REJECTED" },
+            { pricingConfig: { path: ["internalApprovalStatus"], equals: "REJECTED" } },
+          ],
+        });
+      }
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     let orderBy: any = { priority: sortOrder };
