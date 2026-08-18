@@ -15,6 +15,7 @@ export async function listUsers(req: AuthenticatedRequest, res: Response) {
         lastName: true,
         email: true,
         role: true,
+        twoFactorEnabled: true,
         createdAt: true,
       },
     });
@@ -35,26 +36,34 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     if (!id) return res.status(400).json({ message: "User id is required." });
-    const { firstName, lastName, email, role } = req.body;
+    const { firstName, lastName, email, role, reset2FA } = req.body;
+
+    const updateData: any = {
+      firstName,
+      lastName,
+      email,
+      role,
+    };
+
+    if (reset2FA === true) {
+      updateData.twoFactorEnabled = false;
+      updateData.twoFactorSecret = null;
+    }
 
     const user = await prisma.user.update({
       where: { id },
-      data: {
-        firstName,
-        lastName,
-        email,
-        role,
-      },
+      data: updateData,
     });
 
     return res.status(200).json({
-      message: "User updated successfully.",
+      message: reset2FA ? "User updated & 2FA reset successfully." : "User updated successfully.",
       user: {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
         role: user.role,
+        twoFactorEnabled: user.twoFactorEnabled,
       },
     });
   } catch (error) {
