@@ -34,6 +34,7 @@
     "@types/microsoft-graph": "^2.40.1",
     "@types/node": "^25.9.3",
     "@types/pdfkit": "^0.17.6",
+    "@types/qrcode": "^1.5.6",
     "ts-node-dev": "^2.0.0",
     "typescript": "^6.0.2"
   },
@@ -53,9 +54,11 @@
     "isomorphic-fetch": "^3.0.0",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",
+    "otplib": "^13.4.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.20.0",
     "prisma": "^7.6.0",
+    "qrcode": "^1.5.4",
     "stripe": "^22.1.0"
   }
 }
