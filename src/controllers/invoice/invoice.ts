@@ -577,11 +577,12 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
 
     const where: any = {};
 
-    if (search) {
-      where.practice = {
-        ...where.practice,
-        name: { contains: search, mode: "insensitive" },
-      };
+    if (search.trim()) {
+      const q = search.trim();
+      where.OR = [
+        { invoiceNumber: { contains: q, mode: "insensitive" } },
+        { practice: { name: { contains: q, mode: "insensitive" } } },
+      ];
     }
 
     if (practiceId) {

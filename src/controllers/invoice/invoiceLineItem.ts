@@ -239,25 +239,41 @@ export async function getAllInvoiceLineItems(
     const dateTo = (req.query.dateTo as string) || "";
     const invoiceId = req.query.invoiceId as string;
     const invoiceNumber = req.query.invoiceNumber as string;
+    const serviceId = req.query.serviceId as string;
     const sortBy = (req.query.sortBy as string) || "createdAt";
     const sortOrder = (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const skip = (page - 1) * limit;
 
     const where: any = {};
+    const andConditions: any[] = [];
 
     if (invoiceId) {
       where.invoiceId = invoiceId;
     }
 
-    if (invoiceNumber || search) {
-      const numQuery = (invoiceNumber || search).trim();
+    if (serviceId) {
+      where.serviceId = serviceId;
+    }
+
+    if (invoiceNumber) {
       where.invoice = {
         invoiceNumber: {
-          contains: numQuery,
+          contains: invoiceNumber.trim(),
           mode: "insensitive",
         },
       };
+    }
+
+    if (search.trim()) {
+      const q = search.trim();
+      andConditions.push({
+        OR: [
+          { invoice: { invoiceNumber: { contains: q, mode: "insensitive" } } },
+          { service: { name: { contains: q, mode: "insensitive" } } },
+          { description: { contains: q, mode: "insensitive" } },
+        ],
+      });
     }
 
     if (dateFrom || dateTo) {
@@ -270,6 +286,10 @@ export async function getAllInvoiceLineItems(
         toDate.setHours(23, 59, 59, 999);
         where.createdAt.lte = toDate;
       }
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     let orderBy: any = { createdAt: sortOrder };
