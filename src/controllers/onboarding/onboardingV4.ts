@@ -1200,7 +1200,9 @@ export async function getOnboardings(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const { search, status } = req.query;
+    const { search, status, sortBy, sortOrder } = req.query;
+    const orderDir =
+      (sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const where: any = {};
 
@@ -1249,9 +1251,16 @@ export async function getOnboardings(req: AuthenticatedRequest, res: Response) {
         },
         skip,
         take: limit,
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy:
+          sortBy === "status"
+            ? { status: orderDir }
+            : sortBy === "updatedAt"
+              ? { updatedAt: orderDir }
+              : sortBy === "createdAt"
+                ? { createdAt: orderDir }
+                : sortBy === "submissionDate" || sortBy === "submitted"
+                  ? { submissionDate: orderDir }
+                  : { createdAt: orderDir },
       }),
       prisma.onboarding.count({ where }),
     ]);

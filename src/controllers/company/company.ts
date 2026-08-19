@@ -124,15 +124,48 @@ export async function getCompanies(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 1000;
     const skip = (page - 1) * limit;
 
-    const { search, status, industry } = req.query;
+    const { search, status, industry, sortBy, sortOrder } = req.query;
+    const orderDir =
+      (sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const where: any = {};
 
     if (search) {
+      const searchTerm = search as string;
+      const taxIdTerm = searchTerm.replace(/[\s-]/g, "");
+      const taxIdMatches: any[] = [
+        {
+          taxIds: {
+            some: {
+              taxIdNumber: { contains: searchTerm, mode: "insensitive" },
+            },
+          },
+        },
+      ];
+      if (taxIdTerm && taxIdTerm !== searchTerm) {
+        taxIdMatches.push({
+          taxIds: {
+            some: {
+              taxIdNumber: { contains: taxIdTerm, mode: "insensitive" },
+            },
+          },
+        });
+      }
+      if (/^\d{9}$/.test(taxIdTerm)) {
+        const formattedEin = `${taxIdTerm.slice(0, 2)}-${taxIdTerm.slice(2)}`;
+        taxIdMatches.push({
+          taxIds: {
+            some: {
+              taxIdNumber: { contains: formattedEin, mode: "insensitive" },
+            },
+          },
+        });
+      }
       where.OR = [
-        { name: { contains: search as string, mode: "insensitive" } },
-        { domain: { contains: search as string, mode: "insensitive" } },
-        { email: { contains: search as string, mode: "insensitive" } },
+        { name: { contains: searchTerm, mode: "insensitive" } },
+        { domain: { contains: searchTerm, mode: "insensitive" } },
+        { email: { contains: searchTerm, mode: "insensitive" } },
+        ...taxIdMatches,
       ];
     }
 
@@ -142,6 +175,17 @@ export async function getCompanies(req: AuthenticatedRequest, res: Response) {
 
     if (industry) {
       where.industry = { contains: industry as string, mode: "insensitive" };
+    }
+
+    let orderBy: any = { createdAt: orderDir };
+    if (sortBy === "name") {
+      orderBy = { name: orderDir };
+    } else if (sortBy === "status") {
+      orderBy = { status: orderDir };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: orderDir };
+    } else if (sortBy === "createdAt" || sortBy === "creationDate") {
+      orderBy = { createdAt: orderDir };
     }
 
     const [companies, totalRecords] = await Promise.all([
@@ -159,9 +203,7 @@ export async function getCompanies(req: AuthenticatedRequest, res: Response) {
         },
         skip,
         take: limit,
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy,
       }),
       prisma.company.count({ where }),
     ]);

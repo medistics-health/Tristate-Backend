@@ -136,13 +136,32 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 1000;
     const skip = (page - 1) * limit;
 
-    const { search, status, region, source, companyId, practiceGroupId } =
+    const { search, status, region, source, companyId, practiceGroupId, sortBy, sortOrder } =
       req.query;
+    const orderDir =
+      (sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const where: any = {};
 
     if (search) {
-      where.name = { contains: search as string, mode: "insensitive" };
+      const searchTerm = search as string;
+      const npiTerm = searchTerm.replace(/\D/g, "");
+      const searchOr: any[] = [
+        { name: { contains: searchTerm, mode: "insensitive" } },
+      ];
+      if (npiTerm) {
+        searchOr.push({ npi: { contains: npiTerm, mode: "insensitive" } });
+        searchOr.push({
+          groupNpis: {
+            some: {
+              groupNpiNumber: { contains: npiTerm, mode: "insensitive" },
+            },
+          },
+        });
+      } else {
+        searchOr.push({ npi: { contains: searchTerm, mode: "insensitive" } });
+      }
+      where.OR = searchOr;
     }
 
     if (status) {
@@ -165,6 +184,21 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
       where.practiceGroupId = practiceGroupId as string;
     }
 
+    let orderBy: any = { createdAt: orderDir };
+    if (sortBy === "name") {
+      orderBy = { name: orderDir };
+    } else if (sortBy === "status") {
+      orderBy = { status: orderDir };
+    } else if (sortBy === "source") {
+      orderBy = { source: orderDir };
+    } else if (sortBy === "npi") {
+      orderBy = { npi: orderDir };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: orderDir };
+    } else if (sortBy === "createdAt" || sortBy === "creationDate") {
+      orderBy = { createdAt: orderDir };
+    }
+
     const [practices, totalRecords] = await Promise.all([
       prisma.practice.findMany({
         where,
@@ -185,9 +219,7 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
         },
         skip,
         take: limit,
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy,
       }),
       prisma.practice.count({ where }),
     ]);
