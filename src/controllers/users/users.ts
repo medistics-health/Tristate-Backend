@@ -7,22 +7,67 @@ const SALT_ROUNDS = 10;
 
 export async function listUsers(req: AuthenticatedRequest, res: Response) {
   try {
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        userName: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        role: true,
-        twoFactorEnabled: true,
-        createdAt: true,
-      },
-    });
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+    const limit = Math.max(1, parseInt(String(req.query.limit || "10"), 10));
+    const skip = (page - 1) * limit;
+
+    const search = req.query.search ? String(req.query.search).trim() : undefined;
+    const role = req.query.role ? String(req.query.role).trim() : undefined;
+    const twoFactorEnabled =
+      req.query.twoFactorEnabled !== undefined && req.query.twoFactorEnabled !== ""
+        ? req.query.twoFactorEnabled === "true" || req.query.twoFactorEnabled === "enabled"
+        : undefined;
+
+    const where: any = {};
+
+    if (role) {
+      where.role = role;
+    }
+
+    if (twoFactorEnabled !== undefined) {
+      where.twoFactorEnabled = twoFactorEnabled;
+    }
+
+    if (search) {
+      where.OR = [
+        { firstName: { contains: search, mode: "insensitive" } },
+        { lastName: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
+        { userName: { contains: search, mode: "insensitive" } },
+      ];
+    }
+
+    const [totalRecords, users] = await Promise.all([
+      prisma.user.count({ where }),
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          userName: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          twoFactorEnabled: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalRecords / limit) || 1;
 
     return res.status(200).json({
       message: "Users fetched successfully.",
       users,
+      pagination: {
+        totalRecords,
+        totalPages,
+        page,
+        limit,
+      },
     });
   } catch (error) {
     return res.status(500).json({

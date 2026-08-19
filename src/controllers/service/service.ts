@@ -343,7 +343,9 @@ export async function getAllServices(req: AuthenticatedRequest, res: Response) {
     }
 
     let orderBy: any = { createdAt: sortOrder };
-    if (sortBy === "name") {
+    if (sortBy === "createdAt" || sortBy === "creationDate") {
+      orderBy = { createdAt: sortOrder };
+    } else if (sortBy === "name") {
       orderBy = { name: sortOrder };
     } else if (sortBy === "code") {
       orderBy = { code: sortOrder };
