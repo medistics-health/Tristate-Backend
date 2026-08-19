@@ -28,6 +28,10 @@ function isInfluenceLevel(influence: string): influence is InfluenceLevel {
   return Object.values(InfluenceLevel).includes(influence as InfluenceLevel);
 }
 
+function isPersonStatus(status: string): status is PersonStatus {
+  return Object.values(PersonStatus).includes(status as PersonStatus);
+}
+
 export async function getPersons(req: AuthenticatedRequest, res: Response) {
   try {
     if (!req.user?.sub) {
@@ -40,7 +44,10 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     const limit = parseInt(req.query.limit as string) || 1000;
     const skip = (page - 1) * limit;
 
-    const { search, role, influence, practiceId, companyId } = req.query;
+    const { search, role, influence, practiceId, companyId, status, sortBy, sortOrder } =
+      req.query;
+    const orderDir =
+      (sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
     const where: any = {};
 
@@ -80,6 +87,29 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
       };
     }
 
+    if (status) {
+      if (!isPersonStatus(status as string)) {
+        return res.status(400).json({
+          message: "Invalid person status.",
+          allowedStatuses: Object.values(PersonStatus),
+        });
+      }
+      where.status = status as PersonStatus;
+    }
+
+    let orderBy: any = { createdAt: orderDir };
+    if (sortBy === "fullName" || sortBy === "firstName" || sortBy === "name") {
+      orderBy = { firstName: orderDir };
+    } else if (sortBy === "role") {
+      orderBy = { role: orderDir };
+    } else if (sortBy === "email") {
+      orderBy = { email: orderDir };
+    } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+      orderBy = { updatedAt: orderDir };
+    } else if (sortBy === "createdAt" || sortBy === "creationDate") {
+      orderBy = { createdAt: orderDir };
+    }
+
     const [persons, totalRecords] = await Promise.all([
       prisma.person.findMany({
         where,
@@ -100,9 +130,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
         },
         skip,
         take: limit,
-        orderBy: {
-          createdAt: "desc",
-        },
+        orderBy,
       }),
       prisma.person.count({ where }),
     ]);

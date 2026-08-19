@@ -1722,6 +1722,10 @@ import {
       const type = (req.query.type as string) || "";
       const status = (req.query.status as string) || "";
       const practiceId = (req.query.practiceId as string) || "";
+      const approvalStatus = (req.query.approvalStatus as string) || "";
+      const sortBy = req.query.sortBy as string | undefined;
+      const orderDir =
+        (req.query.sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
       const skip = (page - 1) * limit;
 
@@ -1755,6 +1759,29 @@ import {
         where.status = status as AgreementStatus;
       }
 
+      if (approvalStatus) {
+        where.docusealSubmissions = {
+          some: {
+            approval_status: approvalStatus,
+          },
+        };
+      }
+
+      let orderBy: any = { createdAt: orderDir };
+      if (sortBy === "type") {
+        orderBy = { type: orderDir };
+      } else if (sortBy === "status") {
+        orderBy = { status: orderDir };
+      } else if (sortBy === "value") {
+        orderBy = { value: orderDir };
+      } else if (sortBy === "effectiveDate") {
+        orderBy = { effectiveDate: orderDir };
+      } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
+        orderBy = { updatedAt: orderDir };
+      } else if (sortBy === "createdAt" || sortBy === "creationDate") {
+        orderBy = { createdAt: orderDir };
+      }
+
       const [agreements, totalRecords] = await Promise.all([
         prisma.agreement.findMany({
           where,
@@ -1768,9 +1795,7 @@ import {
           },
           skip,
           take: limit,
-          orderBy: {
-            createdAt: "desc",
-          },
+          orderBy,
         }),
         prisma.agreement.count({ where }),
       ]);
