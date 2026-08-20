@@ -29,6 +29,13 @@ model User {
   credentialingDocuments CredentialingDocument[] @relation("CredentialingDocumentByUser")
   resolvedExceptions    ExceptionEvent[]       @relation("ExceptionResolvedByUser")
   quickbooksConnections QuickBooksConnection[] @relation("QuickBooksConnectedByUser")
+  onboardingWorkstreamsOwned   OnboardingWorkstream[]       @relation("OnboardingWorkstreamOwner")
+  onboardingTasksOwned         OnboardingTask[]             @relation("OnboardingTaskOwner")
+  onboardingTemplateTasksOwned OnboardingTaskTemplateItem[] @relation("OnboardingTemplateDefaultOwner")
+  onboardingRisksOwned         OnboardingRisk[]             @relation("OnboardingRiskOwner")
+  onboardingActionsResponsible OnboardingActionItem[]       @relation("OnboardingActionResponsible")
+  onboardingActionsLogged      OnboardingActionItem[]       @relation("OnboardingActionLoggedBy")
+  onboardingActivities         OnboardingTaskActivity[]
 
   @@map("User")
 }
@@ -134,6 +141,7 @@ model Practice {
   MonthlyReport       MonthlyReport[]
   payments              Payment[]
   onboardings           Onboarding[]
+  onboardingProjects    OnboardingProject[]
   persons               PracticePerson[]
   credentialingRequests CredentialingRequest[]
   billToTaxId           TaxId?                 @relation("PracticeBillToTaxId", fields: [billToTaxIdId], references: [id])
@@ -231,6 +239,7 @@ model Person {
   onboardings         Onboarding[]
   practices           PracticePerson[]
   credentialingRequests CredentialingRequest[]
+  managedOnboardingProjects OnboardingProject[]
 
   @@map("contacts")
 }
@@ -2056,4 +2065,361 @@ enum InsurancePlanType {
 enum InsuranceStatus {
   ACTIVE
   INACTIVE
+}
+
+// ==========================================
+// Operational Onboarding Project Management
+// ==========================================
+
+model OnboardingProject {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  practiceId          String                  @db.Uuid
+
+  status              OnboardingProjectStatus @default(NOT_STARTED)
+  goLiveTarget        DateTime?               @map("go_live_target")
+  kickoffDate         DateTime?               @map("kickoff_date")
+
+  practiceManagerId   String?                 @map("practice_manager_id") @db.Uuid
+
+  notes               String?
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+
+  practice            Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  practiceManager     Person?                 @relation(fields: [practiceManagerId], references: [id])
+
+  workstreams         OnboardingWorkstream[]
+  risks               OnboardingRisk[]
+  actionItems         OnboardingActionItem[]
+
+  @@index([practiceId])
+  @@index([status])
+  @@index([goLiveTarget])
+  @@map("onboarding_projects")
+}
+
+model OnboardingWorkstream {
+  id                  String                     @id @default(uuid()) @db.Uuid
+
+  onboardingProjectId String                     @map("onboarding_project_id") @db.Uuid
+  serviceLine         OnboardingServiceLine      @map("service_line")
+
+  status              OnboardingWorkstreamStatus @default(PENDING)
+
+  ownerUserId         String?                    @map("owner_user_id") @db.Uuid
+
+  kickoffDate         DateTime?                  @map("kickoff_date")
+  targetDate          DateTime?                  @map("target_date")
+
+  notes               String?
+
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  updatedAt           DateTime                   @updatedAt @map("updated_at")
+
+  onboardingProject   OnboardingProject          @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
+  owner               User?                      @relation("OnboardingWorkstreamOwner", fields: [ownerUserId], references: [id])
+
+  tasks               OnboardingTask[]
+  milestones          OnboardingMilestone[]
+  risks               OnboardingRisk[]
+
+  @@unique([onboardingProjectId, serviceLine])
+  @@index([onboardingProjectId])
+  @@index([ownerUserId])
+  @@index([status])
+  @@map("onboarding_workstreams")
+}
+
+model OnboardingTask {
+  id              String               @id @default(uuid()) @db.Uuid
+
+  workstreamId    String               @map("workstream_id") @db.Uuid
+
+  taskNumber      Int                  @map("task_number")
+  name            String
+  phase           OnboardingTaskPhase
+
+  status          OnboardingTaskStatus @default(NOT_STARTED)
+
+  ownerUserId     String?              @map("owner_user_id") @db.Uuid
+
+  startDate       DateTime?            @map("start_date")
+  dueDate         DateTime?            @map("due_date")
+
+  deliverable     String?
+  notes           String?
+
+  createdAt       DateTime             @default(now()) @map("created_at")
+  updatedAt       DateTime             @updatedAt @map("updated_at")
+
+  workstream      OnboardingWorkstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
+  owner           User?                @relation("OnboardingTaskOwner", fields: [ownerUserId], references: [id])
+
+  dependencies    OnboardingTaskDependency[] @relation("TaskDependencies")
+  dependents      OnboardingTaskDependency[] @relation("TaskDependents")
+
+  activities      OnboardingTaskActivity[]
+  actionItems     OnboardingActionItem[]
+
+  @@unique([workstreamId, taskNumber])
+  @@index([workstreamId])
+  @@index([ownerUserId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("onboarding_tasks")
+}
+
+model OnboardingTaskDependency {
+  id              String   @id @default(uuid()) @db.Uuid
+
+  taskId          String   @map("task_id") @db.Uuid
+  dependsOnTaskId String   @map("depends_on_task_id") @db.Uuid
+
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  task            OnboardingTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask   OnboardingTask @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([taskId])
+  @@index([dependsOnTaskId])
+  @@map("onboarding_task_dependencies")
+}
+
+model OnboardingTaskTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+
+  serviceLine OnboardingServiceLine @map("service_line")
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tasks       OnboardingTaskTemplateItem[]
+
+  @@index([serviceLine])
+  @@index([isActive])
+  @@map("onboarding_task_templates")
+}
+
+model OnboardingTaskTemplateItem {
+  id              String   @id @default(uuid()) @db.Uuid
+
+  templateId      String   @map("template_id") @db.Uuid
+
+  taskNumber      Int      @map("task_number")
+  taskName        String   @map("task_name")
+
+  phase           OnboardingTaskPhase
+
+  defaultOwnerId  String?  @map("default_owner_id") @db.Uuid
+
+  startOffsetDays Int?     @map("start_offset_days")
+  dueOffsetDays   Int?     @map("due_offset_days")
+
+  deliverable     String?
+  notes           String?
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  template        OnboardingTaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  defaultOwner    User?                  @relation("OnboardingTemplateDefaultOwner", fields: [defaultOwnerId], references: [id])
+
+  @@unique([templateId, taskNumber])
+  @@index([templateId])
+  @@map("onboarding_task_template_items")
+}
+
+model OnboardingMilestone {
+  id            String                    @id @default(uuid()) @db.Uuid
+
+  workstreamId  String                    @map("workstream_id") @db.Uuid
+
+  milestoneCode String                    @map("milestone_code")
+  description   String
+  targetWeek    String?                   @map("target_week")
+  targetDate    DateTime?                 @map("target_date")
+
+  status        OnboardingMilestoneStatus @default(NOT_STARTED)
+
+  createdAt     DateTime                  @default(now()) @map("created_at")
+  updatedAt     DateTime                  @updatedAt @map("updated_at")
+
+  workstream    OnboardingWorkstream      @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
+
+  @@unique([workstreamId, milestoneCode])
+  @@index([workstreamId])
+  @@index([targetDate])
+  @@map("onboarding_milestones")
+}
+
+model OnboardingRisk {
+  id                  String                @id @default(uuid()) @db.Uuid
+
+  onboardingProjectId String                @map("onboarding_project_id") @db.Uuid
+  workstreamId        String?               @map("workstream_id") @db.Uuid
+
+  riskNumber          Int                   @map("risk_number")
+  description         String
+
+  impact              OnboardingRiskLevel
+  probability         OnboardingRiskLevel
+  rating              OnboardingRiskRating
+
+  mitigation          String?
+
+  ownerUserId         String?               @map("owner_user_id") @db.Uuid
+
+  status              OnboardingRiskStatus  @default(OPEN)
+
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+
+  onboardingProject   OnboardingProject     @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
+  workstream          OnboardingWorkstream? @relation(fields: [workstreamId], references: [id])
+  owner               User?                 @relation("OnboardingRiskOwner", fields: [ownerUserId], references: [id])
+
+  @@index([onboardingProjectId])
+  @@index([workstreamId])
+  @@index([ownerUserId])
+  @@index([status])
+  @@index([rating])
+  @@map("onboarding_risks")
+}
+
+model OnboardingActionItem {
+  id                  String                     @id @default(uuid()) @db.Uuid
+
+  onboardingProjectId String                     @map("onboarding_project_id") @db.Uuid
+  taskId              String?                    @map("task_id") @db.Uuid
+
+  note                String
+
+  responsibleUserId   String?                    @map("responsible_user_id") @db.Uuid
+
+  status              OnboardingActionItemStatus @default(PENDING)
+
+  loggedByUserId      String                     @map("logged_by_user_id") @db.Uuid
+  loggedAt            DateTime                   @default(now()) @map("logged_at")
+
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  updatedAt           DateTime                   @updatedAt @map("updated_at")
+
+  onboardingProject   OnboardingProject          @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
+  task                OnboardingTask?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  responsibleUser     User?                      @relation("OnboardingActionResponsible", fields: [responsibleUserId], references: [id])
+  loggedByUser        User                       @relation("OnboardingActionLoggedBy", fields: [loggedByUserId], references: [id])
+
+  @@index([onboardingProjectId])
+  @@index([taskId])
+  @@index([responsibleUserId])
+  @@index([status])
+  @@index([loggedAt])
+  @@map("onboarding_action_items")
+}
+
+model OnboardingTaskActivity {
+  id        String   @id @default(uuid()) @db.Uuid
+
+  taskId    String   @map("task_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+
+  action    String
+  oldValue  Json?    @map("old_value")
+  newValue  Json?    @map("new_value")
+  note      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task      OnboardingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User?          @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("onboarding_task_activities")
+}
+
+enum OnboardingServiceLine {
+  HR
+  BENEFITS
+  CREDENTIALING
+  RCM
+  CCM
+  VBC
+  BACK_OFFICE
+  COMPLIANCE
+  MSP_IT
+  EMR
+  SYNGATE
+  SALES
+  CREDIT_CARDS
+}
+
+enum OnboardingProjectStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  AT_RISK
+  BLOCKED
+  COMPLETE
+}
+
+enum OnboardingWorkstreamStatus {
+  COMPLETE_CONTRACTED
+  WAITING_ON_CLIENT
+  PENDING
+  IN_PROGRESS
+  INTERNAL_ACTION_REQUIRED
+  BLOCKED
+}
+
+enum OnboardingTaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETE
+}
+
+enum OnboardingTaskPhase {
+  ONBOARDING_ACCESS
+  ASSESSMENT_DISCOVERY
+  PLANNING_CONFIGURATION
+  TESTING_VALIDATION
+  GO_LIVE_STABILIZATION
+}
+
+enum OnboardingMilestoneStatus {
+  NOT_STARTED
+  ON_TRACK
+  AT_RISK
+  COMPLETE
+}
+
+enum OnboardingRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum OnboardingRiskRating {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum OnboardingRiskStatus {
+  OPEN
+  MITIGATED
+  CLOSED
+}
+
+enum OnboardingActionItemStatus {
+  PENDING
+  IN_PROGRESS
+  DONE
 }
