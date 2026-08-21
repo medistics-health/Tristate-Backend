@@ -1,4 +1,5 @@
 import {
+  OnboardingServiceLine,
   PracticeSource,
   PracticeStatus,
 } from "../../../generated/prisma/client";
@@ -29,6 +30,7 @@ type PracticeBody = {
   region?: string;
   source?: string;
   bucket?: string[];
+  serviceLines?: string[];
   companyId?: string;
   practiceGroupId?: string;
   taxIdId?: string;
@@ -122,6 +124,37 @@ function isPracticeStatus(status: string): status is PracticeStatus {
 
 function isPracticeSource(source: string): source is PracticeSource {
   return Object.values(PracticeSource).includes(source as PracticeSource);
+}
+
+function isOnboardingServiceLine(
+  value: string,
+): value is OnboardingServiceLine {
+  return Object.values(OnboardingServiceLine).includes(
+    value as OnboardingServiceLine,
+  );
+}
+
+function parseServiceLines(serviceLines?: string[]) {
+  if (serviceLines === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(serviceLines)) {
+    return { error: "serviceLines must be an array." as const };
+  }
+
+  const unique = [
+    ...new Set(serviceLines.map((line) => String(line).trim())),
+  ].filter(Boolean);
+
+  if (unique.some((line) => !isOnboardingServiceLine(line))) {
+    return {
+      error: "Invalid service line." as const,
+      allowedServiceLines: Object.values(OnboardingServiceLine),
+    };
+  }
+
+  return { value: unique as OnboardingServiceLine[] };
 }
 
 export async function getPractices(req: AuthenticatedRequest, res: Response) {
@@ -254,6 +287,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       region,
       source,
       bucket,
+      serviceLines,
       companyId,
       practiceGroupId,
       taxIdId,
@@ -290,6 +324,17 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
+      });
+    }
+
+    const parsedServiceLines = parseServiceLines(serviceLines);
+    if (parsedServiceLines && "error" in parsedServiceLines) {
+      return res.status(400).json({
+        message: parsedServiceLines.error,
+        allowedServiceLines:
+          "allowedServiceLines" in parsedServiceLines
+            ? parsedServiceLines.allowedServiceLines
+            : undefined,
       });
     }
 
@@ -428,6 +473,9 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       region,
       source,
       bucket,
+      ...(parsedServiceLines?.value !== undefined
+        ? { serviceLines: parsedServiceLines.value }
+        : {}),
       companyId,
       practiceGroupId,
       taxIdId,
@@ -552,6 +600,7 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       region,
       source,
       bucket,
+      serviceLines,
       companyId,
       practiceGroupId,
       taxIdId,
@@ -588,6 +637,17 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
+      });
+    }
+
+    const parsedServiceLines = parseServiceLines(serviceLines);
+    if (parsedServiceLines && "error" in parsedServiceLines) {
+      return res.status(400).json({
+        message: parsedServiceLines.error,
+        allowedServiceLines:
+          "allowedServiceLines" in parsedServiceLines
+            ? parsedServiceLines.allowedServiceLines
+            : undefined,
       });
     }
 
@@ -742,6 +802,9 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       region,
       source: source as PracticeSource,
       bucket,
+      ...(parsedServiceLines?.value !== undefined
+        ? { serviceLines: parsedServiceLines.value }
+        : {}),
       companyId,
       practiceGroupId,
       taxIdId,
