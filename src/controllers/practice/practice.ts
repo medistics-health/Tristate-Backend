@@ -7,6 +7,7 @@ import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
+import { ensureWorkstreamsForPractice } from "../../services/onboarding/workstreamSync";
 import {
   buildPracticeDefaultProcessingFeeSettings,
   buildProcessingFeeAllocationSettings,
@@ -510,6 +511,13 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       data: practiceData,
     });
 
+    if (parsedServiceLines?.value?.length) {
+      await ensureWorkstreamsForPractice(
+        practice.id,
+        parsedServiceLines.value,
+      );
+    }
+
     return res.status(201).json({
       message: "Practice created successfully.",
       practice,
@@ -600,7 +608,6 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       region,
       source,
       bucket,
-      serviceLines,
       companyId,
       practiceGroupId,
       taxIdId,
@@ -637,17 +644,6 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
-      });
-    }
-
-    const parsedServiceLines = parseServiceLines(serviceLines);
-    if (parsedServiceLines && "error" in parsedServiceLines) {
-      return res.status(400).json({
-        message: parsedServiceLines.error,
-        allowedServiceLines:
-          "allowedServiceLines" in parsedServiceLines
-            ? parsedServiceLines.allowedServiceLines
-            : undefined,
       });
     }
 
@@ -802,9 +798,6 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       region,
       source: source as PracticeSource,
       bucket,
-      ...(parsedServiceLines?.value !== undefined
-        ? { serviceLines: parsedServiceLines.value }
-        : {}),
       companyId,
       practiceGroupId,
       taxIdId,

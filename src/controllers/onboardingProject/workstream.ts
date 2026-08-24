@@ -7,6 +7,7 @@ import {
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import { ensureProjectForPractice } from "../../services/onboarding/workstreamSync";
 
 type WorkstreamBody = {
   practiceId?: string;
@@ -98,28 +99,6 @@ function serializeWorkstream(
     totalTasks,
     percentComplete,
   };
-}
-
-async function ensureProjectForPractice(practiceId: string) {
-  const practice = await prisma.practice.findFirst({
-    where: { id: practiceId },
-  });
-  if (!practice) {
-    return { error: "Practice not found." as const, status: 404 };
-  }
-
-  const existing = await prisma.onboardingProject.findFirst({
-    where: { practiceId },
-    orderBy: { createdAt: "desc" },
-  });
-  if (existing) {
-    return { project: existing };
-  }
-
-  const created = await prisma.onboardingProject.create({
-    data: { practiceId },
-  });
-  return { project: created };
 }
 
 export async function getWorkstreams(
