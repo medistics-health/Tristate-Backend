@@ -94,6 +94,35 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
     return createdTransfers;
   }
 
+  // 1. Calculate total gross transfer amount needed across all destinations
+  let totalGrossTransferAmount = 0;
+  for (const transfer of transferTotals.values()) {
+    totalGrossTransferAmount += transfer.amount;
+  }
+
+  // 2. Fetch current Stripe platform balance
+  let availableBalanceAmount = totalGrossTransferAmount;
+  try {
+    const balanceResponse = await stripe.balance.retrieve();
+    const availableObj = balanceResponse.available.find(
+      (b) => b.currency.toLowerCase() === currency,
+    );
+    if (availableObj) {
+      availableBalanceAmount = availableObj.amount;
+    }
+  } catch (balanceError) {
+    console.error(
+      `Failed to retrieve Stripe balance for invoice transfer ${params.invoice.id}, defaulting to planned gross amounts.`,
+      balanceError,
+    );
+  }
+
+  // 3. Compute available ratio if balance is lower than total transfer needed (e.g. negative balance deficit)
+  const transferRatio =
+    totalGrossTransferAmount > 0 && availableBalanceAmount < totalGrossTransferAmount
+      ? Math.max(0, availableBalanceAmount) / totalGrossTransferAmount
+      : 1;
+
   for (const [destination, transfer] of transferTotals.entries()) {
     const existingTransfer = await prisma.invoiceConnectedAccountTransfer.findUnique({
       where: {
@@ -108,9 +137,11 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
       continue;
     }
 
-    const storedAmount = Number((transfer.amount / 100).toFixed(2));
+    // Apply proportional balance adjustment based on each account's share
+    const adjustedAmount = Math.floor(transfer.amount * transferRatio);
+    const storedAmount = Number((adjustedAmount / 100).toFixed(2));
 
-    if (transfer.amount <= 0) {
+    if (adjustedAmount <= 0) {
       await prisma.invoiceConnectedAccountTransfer.upsert({
         where: {
           invoiceId_stripeConnectedAccountId: {
@@ -124,7 +155,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
           amount: storedAmount,
           currency: currency.toUpperCase(),
           status: "SKIPPED",
-          failureMessage: "Net transfer amount is not positive after adjustments.",
+          failureMessage: "Net transfer amount is not positive after balance adjustments.",
           transferGroup,
           serviceIds: [...new Set(transfer.serviceIds)],
           invoiceLineItemIds: [...new Set(transfer.lineItemIds)],
@@ -133,7 +164,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
           amount: storedAmount,
           currency: currency.toUpperCase(),
           status: "SKIPPED",
-          failureMessage: "Net transfer amount is not positive after adjustments.",
+          failureMessage: "Net transfer amount is not positive after balance adjustments.",
           transferGroup,
           serviceIds: [...new Set(transfer.serviceIds)],
           invoiceLineItemIds: [...new Set(transfer.lineItemIds)],
@@ -141,7 +172,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
         },
       });
       console.warn(
-        `Skipping Stripe transfer for invoice ${params.invoice.id} destination ${destination} because the net transfer amount is not positive after adjustments: ${transfer.amount}.`,
+        `Skipping Stripe transfer for invoice ${params.invoice.id} destination ${destination} because the net transfer amount is not positive after balance adjustments: ${adjustedAmount}.`,
       );
       continue;
     }
@@ -179,7 +210,7 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
     try {
       const created = await stripe.transfers.create(
         {
-          amount: transfer.amount,
+          amount: adjustedAmount,
           currency,
           destination,
           source_transaction: sourceTransactionId,
@@ -191,10 +222,12 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
             sourceTransactionId,
             serviceIds: transfer.serviceIds.join(","),
             lineItemIds: transfer.lineItemIds.join(","),
+            originalAmount: transfer.amount.toString(),
+            adjustedAmount: adjustedAmount.toString(),
           },
         },
         {
-          idempotencyKey: `invoice-transfer:${params.invoice.id}:${destination}:${transfer.amount}`,
+          idempotencyKey: `invoice-transfer:${params.invoice.id}:${destination}:${adjustedAmount}`,
         },
       );
 
