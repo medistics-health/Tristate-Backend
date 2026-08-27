@@ -121,6 +121,7 @@ model Practice {
   region                String?
   source                PracticeSource
   bucket                String[]
+  serviceLines          OnboardingServiceLine[] @default([]) @map("service_lines")
   stripeCustomerId      String?                @map("stripe_customer_id")
   quickbooksCustomerId  String?                @map("quickbooks_customer_id")
   defaultCurrency       String?                @default("USD") @map("default_currency")

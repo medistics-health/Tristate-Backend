@@ -306,6 +306,7 @@ export type SentEmailsPage = {
 const SENT_EMAIL_SELECT =
   "id,subject,bodyPreview,body,from,toRecipients,ccRecipients,sentDateTime,internetMessageId";
 const SENT_EMAIL_MAX_PAGE_SIZE = 100;
+const GRAPH_MAIL_PAGE_SIZE = 50;
 const EMAIL_PATTERN = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const SENT_EMAIL_TOTAL_CACHE_MS = 60_000;
 const sentEmailTotalCache = new Map<string, { total: number; expiresAt: number }>();
@@ -418,27 +419,68 @@ function writeCachedSentEmailTotal(cacheKey: string, total: number) {
   });
 }
 
+function rememberSentEmailTotal(cacheKey: string, total: number, complete: boolean) {
+  const existing = readCachedSentEmailTotal(cacheKey);
+  const nextTotal = complete ? total : Math.max(existing ?? 0, total);
+  writeCachedSentEmailTotal(cacheKey, nextTotal);
+  return nextTotal;
+}
+
 type GraphMessagesResponse = {
   value?: unknown[];
   "@odata.count"?: number;
   "@odata.nextLink"?: string;
 };
 
-async function countRemainingEligibleMessages(
+async function listSentEmailsUnfiltered(
   client: Client,
-  nextLink: string | undefined,
-  options: ListSentEmailOptions,
-) {
-  let remaining = 0;
-  let link = nextLink;
-  while (link) {
-    const response = (await client.api(link).get()) as GraphMessagesResponse;
-    remaining += (response.value ?? []).filter((message) =>
-      isEligibleSentEmail(message, options),
-    ).length;
-    link = response["@odata.nextLink"];
+  senderEmail: string,
+  page: number,
+  limit: number,
+  skip: number,
+): Promise<SentEmailsPage> {
+  const matched: unknown[] = [];
+  let countedTotal: number | undefined;
+  let skipped = 0;
+  let nextLink: string | undefined;
+
+  let request = client
+    .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
+    .select(SENT_EMAIL_SELECT)
+    .orderby("sentDateTime DESC")
+    .top(GRAPH_MAIL_PAGE_SIZE)
+    .count(true)
+    .header("ConsistencyLevel", "eventual");
+
+  let response = (await request.get()) as GraphMessagesResponse;
+  countedTotal = response["@odata.count"];
+
+  while (true) {
+    for (const message of response.value ?? []) {
+      if (skipped < skip) {
+        skipped += 1;
+        continue;
+      }
+      if (matched.length < limit) {
+        matched.push(message);
+      }
+    }
+    nextLink = response["@odata.nextLink"];
+    if (!nextLink || (matched.length >= limit && typeof countedTotal === "number")) {
+      break;
+    }
+    response = (await client.api(nextLink).get()) as GraphMessagesResponse;
+    if (typeof response["@odata.count"] === "number") {
+      countedTotal = response["@odata.count"];
+    }
   }
-  return remaining;
+
+  const total =
+    typeof countedTotal === "number" && countedTotal >= skip + matched.length
+      ? countedTotal
+      : skip + matched.length + (nextLink ? 1 : 0);
+
+  return { messages: matched.slice(0, limit), total, page, limit };
 }
 
 async function listSentEmailsByFilter(
@@ -449,46 +491,16 @@ async function listSentEmailsByFilter(
   limit: number,
   skip: number,
 ): Promise<SentEmailsPage | null> {
-  const filterParts: string[] = [];
-  const recipient = options.recipientEmail?.trim();
-  if (recipient) {
-    filterParts.push(buildRecipientODataFilter(recipient));
-  }
-  const dateFilter = buildSentEmailDateFilter(options);
-  if (dateFilter) {
-    filterParts.push(dateFilter);
-  }
-
-  let request = client
-    .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
-    .select(SENT_EMAIL_SELECT)
-    .orderby("sentDateTime DESC")
-    .skip(skip)
-    .top(limit)
-    .count(true)
-    .header("ConsistencyLevel", "eventual");
-
-  if (filterParts.length > 0) {
-    request = request.filter(filterParts.join(" and "));
-  }
-
-  const response = (await request.get()) as GraphMessagesResponse;
-  const messages = (response.value ?? []).filter((message) =>
-    isEligibleSentEmail(message, options),
+  return listSentEmailsByScan(
+    client,
+    senderEmail,
+    options,
+    page,
+    limit,
+    skip,
+    undefined,
+    true,
   );
-  const countedTotal = response["@odata.count"];
-  const total =
-    typeof countedTotal === "number"
-      ? countedTotal
-      : skip +
-        messages.length +
-        (await countRemainingEligibleMessages(
-          client,
-          response["@odata.nextLink"],
-          options,
-        ));
-
-  return { messages, total, page, limit };
 }
 
 async function listSentEmailsByScan(
@@ -499,61 +511,64 @@ async function listSentEmailsByScan(
   limit: number,
   skip: number,
   keywordSearch?: string,
+  applyRecipientFilter = false,
 ): Promise<SentEmailsPage> {
+  const graphPageSize = GRAPH_MAIL_PAGE_SIZE;
   let request = client
     .api(`/users/${senderEmail}/mailFolders/SentItems/messages`)
     .select(SENT_EMAIL_SELECT)
-    .top(limit)
-    .count(true)
+    .top(graphPageSize)
     .header("ConsistencyLevel", "eventual");
 
   if (keywordSearch) {
     request = request.search(keywordSearch);
   } else {
     request = request.orderby("sentDateTime DESC");
+    const filterParts: string[] = [];
+    if (applyRecipientFilter && options.recipientEmail?.trim()) {
+      filterParts.push(buildRecipientODataFilter(options.recipientEmail.trim()));
+    }
     const dateFilter = buildSentEmailDateFilter(options);
     if (dateFilter) {
-      request = request.filter(dateFilter);
+      filterParts.push(dateFilter);
+    }
+    if (filterParts.length > 0) {
+      request = request.filter(filterParts.join(" and "));
     }
   }
 
   let response = (await request.get()) as GraphMessagesResponse;
   const matched: unknown[] = [];
   let skippedMatches = 0;
+  let countedMatches = 0;
+  let nextLink: string | undefined;
 
   while (true) {
     const eligible = (response.value ?? []).filter((message) =>
       isEligibleSentEmail(message, options),
     );
+    countedMatches += eligible.length;
 
     for (const message of eligible) {
       if (skippedMatches < skip) {
         skippedMatches += 1;
         continue;
       }
-      matched.push(message);
-      if (matched.length >= limit) {
-        break;
+      if (matched.length < limit) {
+        matched.push(message);
       }
     }
 
-    if (matched.length >= limit || !response["@odata.nextLink"]) {
+    nextLink = response["@odata.nextLink"];
+    if (!nextLink) {
       break;
     }
-    response = (await client
-      .api(response["@odata.nextLink"])
-      .get()) as GraphMessagesResponse;
+    response = (await client.api(nextLink).get()) as GraphMessagesResponse;
   }
-
-  const remaining = await countRemainingEligibleMessages(
-    client,
-    matched.length >= limit ? response["@odata.nextLink"] : undefined,
-    options,
-  );
 
   return {
     messages: matched.slice(0, limit),
-    total: skippedMatches + matched.length + remaining,
+    total: countedMatches,
     page,
     limit,
   };
@@ -580,6 +595,24 @@ export async function listOutlookSentEmails(
     const cacheKey = getSentEmailTotalCacheKey(options, senderEmail);
     const cachedTotal = readCachedSentEmailTotal(cacheKey);
     const keywordSearch = buildKeywordSearch(options);
+    const hasRecipient = Boolean(options.recipientEmail?.trim());
+    const hasDateRange = Boolean(options.sentFrom || options.sentTo);
+
+    if (!keywordSearch && !hasRecipient && !hasDateRange) {
+      const unfilteredPage = await listSentEmailsUnfiltered(
+        client,
+        senderEmail,
+        page,
+        limit,
+        skip,
+      );
+      const total = rememberSentEmailTotal(
+        cacheKey,
+        Math.max(cachedTotal ?? 0, unfilteredPage.total),
+        typeof unfilteredPage.total === "number",
+      );
+      return { ...unfilteredPage, total };
+    }
 
     if (!keywordSearch) {
       try {
@@ -592,11 +625,12 @@ export async function listOutlookSentEmails(
           skip,
         );
         if (filteredPage) {
-          writeCachedSentEmailTotal(cacheKey, filteredPage.total);
-          return {
-            ...filteredPage,
-            total: cachedTotal ?? filteredPage.total,
-          };
+          const total = rememberSentEmailTotal(
+            cacheKey,
+            Math.max(cachedTotal ?? 0, filteredPage.total),
+            true,
+          );
+          return { ...filteredPage, total };
         }
       } catch (error) {
         console.warn(
@@ -614,9 +648,13 @@ export async function listOutlookSentEmails(
       limit,
       skip,
       keywordSearch,
+      false,
     );
-    const total = cachedTotal ?? scannedPage.total;
-    writeCachedSentEmailTotal(cacheKey, scannedPage.total);
+    const total = rememberSentEmailTotal(
+      cacheKey,
+      Math.max(cachedTotal ?? 0, scannedPage.total),
+      true,
+    );
     return { ...scannedPage, total };
   } catch (error) {
     console.error("Error listing sent emails via Microsoft Graph:", error);
