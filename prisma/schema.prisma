@@ -21,6 +21,8 @@ model User {
   updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
   approvalDecisions     ApprovalDecision[]     @relation("ApprovalDecisionByUser")
   approvedBillingRuns   BillingRun[]           @relation("BillingRunApprovedBy")
+  createdBillingRuns    BillingRun[]           @relation("BillingRunCreatedBy")
+  createdInvoices       Invoice[]              @relation("InvoiceCreatedByUser")
   credentialingAssigned CredentialingRequest[] @relation("CredentialingAssignedToUser")
   credentialingCreated  CredentialingRequest[] @relation("CredentialingCreatedByUser")
   credentialingUpdated  CredentialingRequest[] @relation("CredentialingUpdatedByUser")
@@ -397,11 +399,13 @@ model Invoice {
   quickbooksInvoiceId    String?             @map("quickbooks_invoice_id")
   dueReminder5DaysSent   Boolean             @default(false) @map("due_reminder_5_days_sent")
   dueReminderOverdueSent Boolean             @default(false) @map("due_reminder_overdue_sent")
+  createdByUserId        String?             @map("created_by_user_id") @db.Uuid
   createdAt              DateTime            @default(now()) @map("created_at")
   updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at")
   lineItems              InvoiceLineItem[]
   stripeTransfers        InvoiceConnectedAccountTransfer[]
   agreement              Agreement?          @relation(fields: [agreementId], references: [id])
+  createdByUser          User?               @relation("InvoiceCreatedByUser", fields: [createdByUserId], references: [id])
   practice               Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   paymentAllocations     PaymentAllocation[]
   purchaseOrders         PurchaseOrder[]
@@ -410,6 +414,7 @@ model Invoice {
 
   @@index([practiceId])
   @@index([agreementId])
+  @@index([createdByUserId])
   @@map("invoices")
 }
 
@@ -566,6 +571,7 @@ model BillingRun {
   status           BillingRunStatus       @default(PENDING)
   approvedByUserId String?                @map("approved_by_user_id") @db.Uuid
   approvedAt       DateTime?              @map("approved_at")
+  createdByUserId  String?                @map("created_by_user_id") @db.Uuid
   notes            String?
   paymentMethod    String                 @map("payment_method")
   feeBearer        String                 @default("CLIENT") @map("fee_bearer")
@@ -577,6 +583,7 @@ model BillingRun {
   inputSnapshots   BillingInputSnapshot[]
   items            BillingRunItem[]
   approvedByUser   User?                  @relation("BillingRunApprovedBy", fields: [approvedByUserId], references: [id])
+  createdByUser    User?                  @relation("BillingRunCreatedBy", fields: [createdByUserId], references: [id])
   practice         Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   vendorPayables   VendorPayable[]
   agreementIds     String[]               @default([]) @map("agreement_ids")
@@ -584,6 +591,7 @@ model BillingRun {
 
   @@index([practiceId])
   @@index([approvedByUserId])
+  @@index([createdByUserId])
   @@index([periodStart, periodEnd])
   @@map("billing_runs")
 }

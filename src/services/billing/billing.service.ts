@@ -1796,6 +1796,7 @@ export async function createBillingRun(body: CreateBillingRunBody) {
         periodStart,
         periodEnd,
         status: BillingRunStatus.PENDING,
+        createdByUserId: body.createdByUserId || undefined,
         notes: body.notes || undefined,
         paymentMethod,
         feeBearer: "CLIENT",
@@ -2058,6 +2059,7 @@ export async function listBillingRuns(params: {
       include: {
         practice: true,
         approvedByUser: true,
+        createdByUser: true,
         items: {
           select: {
             clientAmount: true,
@@ -2110,6 +2112,7 @@ export async function getBillingRun(billingRunId: string) {
         },
       },
       approvedByUser: true,
+      createdByUser: true,
       inputSnapshots: {
         include: {
           service: true,
@@ -2582,6 +2585,7 @@ export async function postBillingRun(billingRunId: string, userId: string) {
       data: {
         practiceId: run.practiceId,
         agreementId: invoiceAgreementId || undefined,
+        createdByUserId: run.createdByUserId || undefined,
         totalAmount: decimal(processingAmounts.customerInvoiceAmount),
         subtotalAmount: decimal(internalSubtotalAmount),
         paymentMethod: run.paymentMethod,
