@@ -177,6 +177,7 @@ export async function createInvoice(req: AuthenticatedRequest, res: Response) {
       data: {
         practiceId,
         agreementId: agreementId ?? undefined,
+        createdByUserId: req.user.sub,
         totalAmount,
         status,
         dueDate: calculatedDueDate,
@@ -265,6 +266,15 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
       include: {
         practice: true,
         agreement: true,
+        createdByUser: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            userName: true,
+            email: true,
+          },
+        },
         lineItems: {
           include: {
             service: {
@@ -634,6 +644,15 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
         include: {
           practice: true,
           agreement: true,
+          createdByUser: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              userName: true,
+              email: true,
+            },
+          },
           lineItems: {
             include: {
               billingRunItemComponent: true,

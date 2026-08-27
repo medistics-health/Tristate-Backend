@@ -322,14 +322,27 @@ export async function createWorkstream(
         ...(template?.tasks.length
           ? {
               tasks: {
-                create: template.tasks.map((item) => ({
-                  taskNumber: item.taskNumber,
-                  name: item.taskName,
-                  phase: item.phase,
-                  ownerUserId: item.defaultOwnerId,
-                  deliverable: item.deliverable,
-                  notes: item.notes,
-                })),
+                create: template.tasks.map((item) => {
+                  const now = new Date();
+                  const baseDate = parsedTargetDate?.value ? new Date(parsedTargetDate.value) : now;
+                  const startOffset = item.startOffsetDays ?? 0;
+                  const dueOffset = item.dueOffsetDays ?? 7;
+
+                  // If targetDate is provided, calculate backwards or forwards, else count forward from today
+                  const startDate = new Date(now.getTime() + startOffset * 86400000);
+                  const dueDate = new Date(now.getTime() + dueOffset * 86400000);
+
+                  return {
+                    taskNumber: item.taskNumber,
+                    name: item.taskName,
+                    phase: item.phase,
+                    ownerUserId: item.defaultOwnerId || ownerUserId || null,
+                    startDate,
+                    dueDate,
+                    deliverable: item.deliverable,
+                    notes: item.notes,
+                  };
+                }),
               },
             }
           : {}),

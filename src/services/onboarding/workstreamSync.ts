@@ -60,14 +60,22 @@ async function createWorkstreamForProject(
       ...(template?.tasks.length
         ? {
             tasks: {
-              create: template.tasks.map((item) => ({
-                taskNumber: item.taskNumber,
-                name: item.taskName,
-                phase: item.phase,
-                ownerUserId: item.defaultOwnerId,
-                deliverable: item.deliverable,
-                notes: item.notes,
-              })),
+              create: template.tasks.map((item) => {
+                const now = new Date();
+                const startOffset = item.startOffsetDays ?? 0;
+                const dueOffset = item.dueOffsetDays ?? 7;
+
+                return {
+                  taskNumber: item.taskNumber,
+                  name: item.taskName,
+                  phase: item.phase,
+                  ownerUserId: item.defaultOwnerId,
+                  startDate: new Date(now.getTime() + startOffset * 86400000),
+                  dueDate: new Date(now.getTime() + dueOffset * 86400000),
+                  deliverable: item.deliverable,
+                  notes: item.notes,
+                };
+              }),
             },
           }
         : {}),

@@ -12,6 +12,7 @@ export type CreateBillingRunBody = {
   practiceId?: string;
   periodStart?: string;
   periodEnd?: string;
+  createdByUserId?: string;
   notes?: string;
   autoCalculate?: boolean;
   snapshots?: BillingSnapshotInput[];
