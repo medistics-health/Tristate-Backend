@@ -4,7 +4,10 @@ import {
 } from "../../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
 
-export async function ensureProjectForPractice(practiceId: string) {
+export async function ensureProjectForPractice(
+  practiceId: string,
+  extras?: { goLiveTarget?: Date | null },
+) {
   const practice = await prisma.practice.findFirst({
     where: { id: practiceId },
   });
@@ -17,11 +20,23 @@ export async function ensureProjectForPractice(practiceId: string) {
     orderBy: { createdAt: "desc" },
   });
   if (existing) {
+    if (extras && "goLiveTarget" in extras) {
+      const updated = await prisma.onboardingProject.update({
+        where: { id: existing.id },
+        data: { goLiveTarget: extras.goLiveTarget ?? null },
+      });
+      return { project: updated };
+    }
     return { project: existing };
   }
 
   const created = await prisma.onboardingProject.create({
-    data: { practiceId },
+    data: {
+      practiceId,
+      ...(extras && "goLiveTarget" in extras
+        ? { goLiveTarget: extras.goLiveTarget ?? null }
+        : {}),
+    },
   });
   return { project: created };
 }

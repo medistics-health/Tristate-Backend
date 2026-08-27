@@ -7,7 +7,10 @@ import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
-import { ensureWorkstreamsForPractice } from "../../services/onboarding/workstreamSync";
+import {
+  ensureProjectForPractice,
+  ensureWorkstreamsForPractice,
+} from "../../services/onboarding/workstreamSync";
 import {
   buildPracticeDefaultProcessingFeeSettings,
   buildProcessingFeeAllocationSettings,
@@ -43,6 +46,7 @@ type PracticeBody = {
   credentialingChargeAmount?: number | string | null;
   processingFeeConfig?: unknown;
   groupNpis?: GroupNpiInput[];
+  goLiveTarget?: string | null;
 };
 
 type SendOnboardingEmailBody = {
@@ -133,6 +137,37 @@ function isOnboardingServiceLine(
   return Object.values(OnboardingServiceLine).includes(
     value as OnboardingServiceLine,
   );
+}
+
+function parseOptionalDate(value?: string | null) {
+  if (value === undefined) return undefined;
+  if (value === null || String(value).trim() === "") {
+    return { value: null as Date | null };
+  }
+
+  const trimmed = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split("-").map(Number);
+    return { value: new Date(year, month - 1, day) };
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return { error: "Invalid goLiveTarget date." as const };
+  }
+  return { value: parsed };
+}
+
+function withGoLiveTarget<T extends { onboardingProjects?: Array<{ goLiveTarget: Date | null }> }>(
+  practice: T,
+  goLiveTarget?: Date | null,
+) {
+  const { onboardingProjects, ...rest } = practice;
+  return {
+    ...rest,
+    goLiveTarget:
+      goLiveTarget ?? onboardingProjects?.[0]?.goLiveTarget ?? null,
+  };
 }
 
 function parseServiceLines(serviceLines?: string[]) {
@@ -250,6 +285,11 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
           _count: {
             select: { persons: true, deals: true, agreements: true },
           },
+          onboardingProjects: {
+            select: { goLiveTarget: true },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
         },
         skip,
         take: limit,
@@ -262,7 +302,7 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
 
     return res.status(200).json({
       message: "Practices fetched successfully.",
-      practices,
+      practices: practices.map((practice) => withGoLiveTarget(practice)),
       pagination: {
         totalRecords,
         totalPages,
@@ -300,6 +340,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       credentialingChargeAmount,
       processingFeeConfig,
       groupNpis,
+      goLiveTarget,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -507,6 +548,13 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       };
     }
 
+    const parsedGoLiveTarget = parseOptionalDate(goLiveTarget);
+    if (parsedGoLiveTarget && "error" in parsedGoLiveTarget) {
+      return res.status(400).json({
+        message: parsedGoLiveTarget.error,
+      });
+    }
+
     const practice = await prisma.practice.create({
       data: practiceData,
     });
@@ -518,9 +566,20 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       );
     }
 
+    let goLiveTargetValue: Date | null = null;
+    if (parsedGoLiveTarget) {
+      const ensured = await ensureProjectForPractice(practice.id, {
+        goLiveTarget: parsedGoLiveTarget.value,
+      });
+      if ("error" in ensured) {
+        return res.status(ensured.status).json({ message: ensured.error });
+      }
+      goLiveTargetValue = ensured.project.goLiveTarget;
+    }
+
     return res.status(201).json({
       message: "Practice created successfully.",
-      practice,
+      practice: withGoLiveTarget(practice, goLiveTargetValue),
     });
   } catch (error) {
     console.log(error);
@@ -569,6 +628,11 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         vendorPayables: true,
         audits: true,
         assessments: true,
+        onboardingProjects: {
+          select: { goLiveTarget: true },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
     });
 
@@ -587,7 +651,7 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
 
     return res.status(200).json({
       message: "Practice fetched successfully.",
-      practice,
+      practice: withGoLiveTarget(practice),
       allGroupNpisByTaxId,
     });
   } catch (error) {
@@ -619,6 +683,7 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       credentialingChargeAmount,
       processingFeeConfig,
       groupNpis,
+      goLiveTarget,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -841,14 +906,43 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       };
     }
 
+    const parsedGoLiveTarget = parseOptionalDate(goLiveTarget);
+    if (parsedGoLiveTarget && "error" in parsedGoLiveTarget) {
+      return res.status(400).json({
+        message: parsedGoLiveTarget.error,
+      });
+    }
+
     const practice = await prisma.practice.update({
       where: { id },
       data: updateData,
     });
 
+    if (parsedGoLiveTarget) {
+      const ensured = await ensureProjectForPractice(practice.id, {
+        goLiveTarget: parsedGoLiveTarget.value,
+      });
+      if ("error" in ensured) {
+        return res.status(ensured.status).json({ message: ensured.error });
+      }
+      return res.status(200).json({
+        message: "Practice updated successfully.",
+        practice: withGoLiveTarget(practice, ensured.project.goLiveTarget),
+      });
+    }
+
+    const latestProject = await prisma.onboardingProject.findFirst({
+      where: { practiceId: practice.id },
+      orderBy: { createdAt: "desc" },
+      select: { goLiveTarget: true },
+    });
+
     return res.status(200).json({
       message: "Practice updated successfully.",
-      practice,
+      practice: withGoLiveTarget(
+        practice,
+        latestProject?.goLiveTarget ?? null,
+      ),
     });
   } catch (error) {
     return res.status(500).json({
