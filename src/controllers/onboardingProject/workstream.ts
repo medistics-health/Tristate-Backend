@@ -150,10 +150,10 @@ export async function getWorkstreams(
     }
 
     if (serviceLine) {
-      where.serviceLine = serviceLine;
+      where.serviceLine = serviceLine as OnboardingServiceLine;
     }
     if (status) {
-      where.status = status;
+      where.status = status as OnboardingWorkstreamStatus;
     }
     if (ownerUserId) {
       where.ownerUserId = ownerUserId;
@@ -277,7 +277,9 @@ export async function createWorkstream(
     if (!projectId && practiceId) {
       const ensured = await ensureProjectForPractice(practiceId);
       if ("error" in ensured) {
-        return res.status(ensured.status).json({ message: ensured.error });
+        return res
+          .status(ensured.status ?? 404)
+          .json({ message: ensured.error });
       }
       projectId = ensured.project.id;
     } else if (projectId) {
