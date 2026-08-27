@@ -158,11 +158,13 @@ function parseOptionalDate(value?: string | null) {
   return { value: parsed };
 }
 
-function withGoLiveTarget<T extends { onboardingProjects?: Array<{ goLiveTarget: Date | null }> }>(
+function withGoLiveTarget<T extends object>(
   practice: T,
   goLiveTarget?: Date | null,
 ) {
-  const { onboardingProjects, ...rest } = practice;
+  const { onboardingProjects, ...rest } = practice as T & {
+    onboardingProjects?: Array<{ goLiveTarget: Date | null }>;
+  };
   return {
     ...rest,
     goLiveTarget:
@@ -572,7 +574,9 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
         goLiveTarget: parsedGoLiveTarget.value,
       });
       if ("error" in ensured) {
-        return res.status(ensured.status).json({ message: ensured.error });
+        return res
+          .status(ensured.status ?? 404)
+          .json({ message: ensured.error });
       }
       goLiveTargetValue = ensured.project.goLiveTarget;
     }
@@ -923,7 +927,9 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         goLiveTarget: parsedGoLiveTarget.value,
       });
       if ("error" in ensured) {
-        return res.status(ensured.status).json({ message: ensured.error });
+        return res
+          .status(ensured.status ?? 404)
+          .json({ message: ensured.error });
       }
       return res.status(200).json({
         message: "Practice updated successfully.",
