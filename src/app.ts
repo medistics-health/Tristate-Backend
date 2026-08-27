@@ -36,6 +36,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import path from "path";
 
+import onboardingProjectsRouter from "./routes/onboardingProjects.routes";
+
 const app = express();
 
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -82,5 +84,6 @@ app.use("/api/v1/users", userRouter);
 app.use("/api/v1/deals", dealRouter);
 app.use("/api/v1/settings", settingsRouter);
 app.use("/api/v1/mercury", mercuryRouter);
+app.use("/api/v1/onboarding-projects", onboardingProjectsRouter);
 
 export default app;
