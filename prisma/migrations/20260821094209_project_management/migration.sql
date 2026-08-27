@@ -32,7 +32,7 @@ CREATE TYPE "OnboardingRiskStatus" AS ENUM ('OPEN', 'MITIGATED', 'CLOSED');
 CREATE TYPE "OnboardingActionItemStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'DONE');
 
 -- AlterTable
-ALTER TABLE "credentialing_requests" DROP COLUMN "approval_date";
+ALTER TABLE "credentialing_requests" DROP COLUMN IF EXISTS "approval_date";
 
 -- CreateTable
 CREATE TABLE "onboarding_projects" (
