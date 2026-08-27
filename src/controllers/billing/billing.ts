@@ -476,7 +476,10 @@ export async function createBillingRunHandler(
       return res.status(401).json({ message: "Unauthorized." });
     }
 
-    const billingRun = await createBillingRun(req.body as CreateBillingRunBody);
+    const billingRun = await createBillingRun({
+      ...(req.body as CreateBillingRunBody),
+      createdByUserId: req.user.sub,
+    });
 
     return res.status(201).json({
       message: "Billing run created successfully.",

@@ -26,15 +26,30 @@ export function formatDateMMDDYYYY(dateInput?: Date | string | null): string | n
   return `${month}-${day}-${year}`;
 }
 
-// Utility: Convert MM-DD-YYYY or ISO to Date object for Prisma storage
+// Utility: Convert MM-DD-YYYY, YYYY-MM-DD or ISO to Date object for Prisma storage
 export function parseDateInput(dateString?: string | null): Date | null {
   if (!dateString) return null;
   if (/^\d{2}-\d{2}-\d{4}$/.test(dateString)) {
     const [month, day, year] = dateString.split("-").map(Number);
     return new Date(year, month - 1, day);
   }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+    const [year, month, day] = dateString.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
   const d = new Date(dateString);
   return isNaN(d.getTime()) ? null : d;
+}
+
+// Utility: Generate random 7-digit task code format (e.g. TASK3209192)
+export function generateTaskCode(taskId: string, taskNumber: number): string {
+  let hash = 0;
+  for (let i = 0; i < taskId.length; i++) {
+    hash = (hash << 5) - hash + taskId.charCodeAt(i);
+    hash |= 0;
+  }
+  const num = Math.abs(hash % 9000000) + 1000000;
+  return `TASK${num}`;
 }
 
 const taskSelectFields = {
@@ -64,12 +79,17 @@ const taskSelectFields = {
   dependencies: {
     include: {
       dependsOnTask: {
-        select: { id: true, taskNumber: true, name: true, status: true },
+        select: {
+          id: true,
+          taskNumber: true,
+          name: true,
+          status: true,
+        },
       },
     },
   },
-  activities: { select: { id: true } },
   actionItems: { select: { id: true } },
+  activities: { select: { id: true } },
 } as const;
 
 // =========================================================
@@ -101,7 +121,7 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
 
     const workstreamFilter: Prisma.OnboardingWorkstreamWhereInput = {};
     if (practiceId) {
-      workstreamFilter.onboardingProjectId = practiceId;
+      workstreamFilter.onboardingProject = { practiceId };
     }
     if (serviceLine) {
       workstreamFilter.serviceLine = serviceLine as OnboardingServiceLine;
@@ -130,11 +150,17 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
       where.dueDate = {};
       if (dueDateFrom) {
         const fromDate = parseDateInput(dueDateFrom);
-        if (fromDate) where.dueDate.gte = fromDate;
+        if (fromDate) {
+          fromDate.setHours(0, 0, 0, 0);
+          where.dueDate.gte = fromDate;
+        }
       }
       if (dueDateTo) {
         const toDate = parseDateInput(dueDateTo);
-        if (toDate) where.dueDate.lte = toDate;
+        if (toDate) {
+          toDate.setHours(23, 59, 59, 999);
+          where.dueDate.lte = toDate;
+        }
       }
     }
 
@@ -154,7 +180,7 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
     }
 
     const formattedTasks = rawTasks.map((t) => {
-      const taskCode = `TASK${String(t.taskNumber).padStart(6, "0")}`;
+      const taskCode = generateTaskCode(t.id, t.taskNumber);
       const ownerName = t.owner ? `${t.owner.firstName} ${t.owner.lastName}`.trim() : "Unassigned";
 
       return {
@@ -177,7 +203,7 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
         dependencies: t.dependencies.map((dep: any) => ({
           id: dep.dependsOnTask.id,
           taskNumber: dep.dependsOnTask.taskNumber,
-          taskCode: `TASK${String(dep.dependsOnTask.taskNumber).padStart(6, "0")}`,
+          taskCode: generateTaskCode(dep.dependsOnTask.id, dep.dependsOnTask.taskNumber),
           name: dep.dependsOnTask.name,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
         })),
@@ -188,9 +214,31 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
       };
     });
 
+    const totalCount = formattedTasks.length;
+    const completed = formattedTasks.filter((t) => t.status === "COMPLETE").length;
+    const inProgress = formattedTasks.filter((t) => t.status === "IN_PROGRESS").length;
+    const blocked = formattedTasks.filter((t) => t.status === "BLOCKED").length;
+    const pct = totalCount > 0 ? Math.round((completed / totalCount) * 100) : 0;
+
+    const page = Number(req.query.page) || 1;
+    const pageSize = Number(req.query.pageSize) || 10;
+    const startIdx = (page - 1) * pageSize;
+    const paginatedTasks = formattedTasks.slice(startIdx, startIdx + pageSize);
+
     res.status(200).json({
       success: true,
-      tasks: formattedTasks,
+      tasks: paginatedTasks,
+      totalTasks: totalCount,
+      page,
+      pageSize,
+      totalPages: Math.ceil(totalCount / pageSize) || 1,
+      metrics: {
+        total: totalCount,
+        completed,
+        inProgress,
+        blocked,
+        pct,
+      },
     });
   } catch (error: any) {
     console.error("Error fetching tasks:", error);
@@ -325,7 +373,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
       select: taskSelectFields,
     });
 
-    const taskCode = `TASK${String(createdTask.taskNumber).padStart(6, "0")}`;
+    const taskCode = generateTaskCode(createdTask.id, createdTask.taskNumber);
 
     res.status(201).json({
       success: true,
