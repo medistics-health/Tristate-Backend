@@ -2225,8 +2225,12 @@ model OnboardingTaskTemplateItem {
 
   defaultOwnerId  String?  @map("default_owner_id") @db.Uuid
 
+  startMode       String?  @map("start_mode")
+  dueMode         String?  @map("due_mode")
   startOffsetDays Int?     @map("start_offset_days")
   dueOffsetDays   Int?     @map("due_offset_days")
+  fixedStartDate  String?  @map("fixed_start_date")
+  fixedDueDate    String?  @map("fixed_due_date")
 
   deliverable     String?
   notes           String?

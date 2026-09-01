@@ -97,7 +97,7 @@ export async function getMilestones(req: Request, res: Response): Promise<void> 
             },
           },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { updatedAt: "desc" },
       });
     } catch (dbErr) {
       let filtered = [...memoryMilestones];
@@ -184,6 +184,55 @@ export async function updateMilestone(req: AuthenticatedRequest, res: Response):
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { milestoneCode, description, targetWeek, targetDate, status } = req.body;
 
+    try {
+      const existing = await prisma.onboardingMilestone.findUnique({
+        where: { id },
+      });
+
+      if (existing) {
+        const updated = await prisma.onboardingMilestone.update({
+          where: { id },
+          data: {
+            ...(milestoneCode ? { milestoneCode } : {}),
+            ...(description ? { description } : {}),
+            ...(targetWeek !== undefined ? { targetWeek } : {}),
+            ...(targetDate !== undefined ? { targetDate: parseDateInput(targetDate) } : {}),
+            ...(status ? { status: status as OnboardingMilestoneStatus } : {}),
+          },
+          include: {
+            workstream: {
+              include: {
+                onboardingProject: {
+                  include: {
+                    practice: { select: { name: true } },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        res.status(200).json({
+          success: true,
+          milestone: {
+            id: updated.id,
+            milestoneCode: updated.milestoneCode,
+            description: updated.description,
+            practiceName: updated.workstream?.onboardingProject?.practice?.name || "Practice Onboarding",
+            serviceLine: updated.workstream?.serviceLine || "RCM",
+            targetWeek: updated.targetWeek || "Week 1",
+            targetDate: formatDateMMDDYYYY(updated.targetDate),
+            status: updated.status,
+            createdAt: formatDateMMDDYYYY(updated.createdAt),
+            updatedAt: formatDateMMDDYYYY(updated.updatedAt),
+          },
+        });
+        return;
+      }
+    } catch (dbErr) {
+      console.warn("DB update failed for milestone, using memory fallback", dbErr);
+    }
+
     const idx = memoryMilestones.findIndex((m) => m.id === id);
     if (idx !== -1) {
       if (milestoneCode) memoryMilestones[idx].milestoneCode = milestoneCode;
@@ -217,6 +266,18 @@ export async function updateMilestone(req: AuthenticatedRequest, res: Response):
 export async function deleteMilestone(req: Request, res: Response): Promise<void> {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+    try {
+      const existing = await prisma.onboardingMilestone.findUnique({ where: { id } });
+      if (existing) {
+        await prisma.onboardingMilestone.delete({ where: { id } });
+        res.status(200).json({ success: true, message: "Milestone deleted successfully" });
+        return;
+      }
+    } catch (dbErr) {
+      console.warn("DB delete failed for milestone, fallback memory delete", dbErr);
+    }
+
     memoryMilestones = memoryMilestones.filter((m) => m.id !== id);
     res.status(200).json({ success: true, message: "Milestone deleted successfully" });
   } catch (error: any) {

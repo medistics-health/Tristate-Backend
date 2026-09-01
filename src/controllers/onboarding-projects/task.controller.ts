@@ -169,7 +169,7 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
       rawTasks = await prisma.onboardingTask.findMany({
         where,
         select: taskSelectFields,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ updatedAt: "desc" }, { taskNumber: "asc" }],
       });
     } catch (dbErr: any) {
       res.status(200).json({
@@ -480,6 +480,57 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
         },
       },
       select: taskSelectFields,
+    });
+    // Auto-update phase milestones and workstream status based on task completions
+    const wsTasks = await prisma.onboardingTask.findMany({
+      where: { workstreamId: existingTask.workstreamId },
+    });
+
+    const phaseMapping: Record<string, string> = {
+      ONBOARDING_ACCESS: "M1",
+      ASSESSMENT_DISCOVERY: "M2",
+      PLANNING_CONFIGURATION: "M3",
+      TESTING_VALIDATION: "M4",
+      GO_LIVE_STABILIZATION: "M5",
+    };
+
+    const targetPhaseCode = phaseMapping[updatedTask.phase];
+    if (targetPhaseCode) {
+      const phaseTasks = wsTasks.filter((t) => t.phase === updatedTask.phase);
+      const allPhaseComplete = phaseTasks.length > 0 && phaseTasks.every((t) => t.status === OnboardingTaskStatus.COMPLETE);
+      const anyPhaseStarted = phaseTasks.some((t) => t.status !== OnboardingTaskStatus.NOT_STARTED);
+
+      const nextMilestoneStatus = allPhaseComplete
+        ? "COMPLETE"
+        : anyPhaseStarted
+        ? "ON_TRACK"
+        : "NOT_STARTED";
+
+      await prisma.onboardingMilestone.updateMany({
+        where: {
+          workstreamId: existingTask.workstreamId,
+          milestoneCode: targetPhaseCode,
+        },
+        data: { status: nextMilestoneStatus as any },
+      });
+    }
+
+    // Auto-rollup Workstream status
+    const allWsTasksComplete = wsTasks.length > 0 && wsTasks.every((t) => t.status === OnboardingTaskStatus.COMPLETE);
+    const hasWsBlockers = wsTasks.some((t) => t.status === OnboardingTaskStatus.BLOCKED);
+    const hasWsInProgress = wsTasks.some((t) => t.status === OnboardingTaskStatus.IN_PROGRESS || t.status === OnboardingTaskStatus.COMPLETE);
+
+    const nextWsStatus = allWsTasksComplete
+      ? OnboardingWorkstreamStatus.COMPLETE_CONTRACTED
+      : hasWsBlockers
+      ? OnboardingWorkstreamStatus.BLOCKED
+      : hasWsInProgress
+      ? OnboardingWorkstreamStatus.IN_PROGRESS
+      : OnboardingWorkstreamStatus.PENDING;
+
+    await prisma.onboardingWorkstream.update({
+      where: { id: existingTask.workstreamId },
+      data: { status: nextWsStatus },
     });
 
     const taskCode = `TASK${String(updatedTask.taskNumber).padStart(6, "0")}`;

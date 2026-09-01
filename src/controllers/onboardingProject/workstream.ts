@@ -311,6 +311,14 @@ export async function createWorkstream(
       },
     });
 
+    const DEFAULT_MILESTONES = [
+      { code: "M1", week: "Week 1", desc: "Phase 1: Onboarding & Access Completed" },
+      { code: "M2", week: "Week 2", desc: "Phase 2: Assessment & Discovery Completed" },
+      { code: "M3", week: "Week 3", desc: "Phase 3: System Setup & Integration Completed" },
+      { code: "M4", week: "Week 4", desc: "Phase 4: Training & Enablement Completed" },
+      { code: "M5", week: "Week 5-6", desc: "Phase 5: Go-Live & Stabilization Completed" },
+    ];
+
     const workstream = await prisma.onboardingWorkstream.create({
       data: {
         onboardingProjectId: projectId!,
@@ -319,18 +327,46 @@ export async function createWorkstream(
         ownerUserId: ownerUserId || null,
         targetDate: parsedTargetDate?.value ?? null,
         notes: notes?.trim() || null,
+        milestones: {
+          create: DEFAULT_MILESTONES.map((m) => ({
+            milestoneCode: m.code,
+            description: m.desc,
+            targetWeek: m.week,
+            targetDate: parsedTargetDate?.value ?? null,
+            status: "NOT_STARTED",
+          })),
+        },
         ...(template?.tasks.length
           ? {
               tasks: {
                 create: template.tasks.map((item) => {
                   const now = new Date();
-                  const baseDate = parsedTargetDate?.value ? new Date(parsedTargetDate.value) : now;
                   const startOffset = item.startOffsetDays ?? 0;
                   const dueOffset = item.dueOffsetDays ?? 7;
 
-                  // If targetDate is provided, calculate backwards or forwards, else count forward from today
-                  const startDate = new Date(now.getTime() + startOffset * 86400000);
-                  const dueDate = new Date(now.getTime() + dueOffset * 86400000);
+                  // 1. Calculate Start Date
+                  let startDate: Date | null = null;
+                  if (item.startMode === "FIXED_DATE" || item.fixedStartDate) {
+                    if (item.fixedStartDate) {
+                      const parsedStart = new Date(item.fixedStartDate);
+                      if (!isNaN(parsedStart.getTime())) startDate = parsedStart;
+                    }
+                  }
+                  if (!startDate) {
+                    startDate = new Date(now.getTime() + startOffset * 86400000);
+                  }
+
+                  // 2. Calculate Due Date
+                  let dueDate: Date | null = null;
+                  if (item.dueMode === "FIXED_DATE" || item.fixedDueDate) {
+                    if (item.fixedDueDate) {
+                      const parsedDue = new Date(item.fixedDueDate);
+                      if (!isNaN(parsedDue.getTime())) dueDate = parsedDue;
+                    }
+                  }
+                  if (!dueDate) {
+                    dueDate = new Date(now.getTime() + dueOffset * 86400000);
+                  }
 
                   return {
                     taskNumber: item.taskNumber,
@@ -435,7 +471,14 @@ export async function updateWorkstream(
       if (parsedTargetDate && "error" in parsedTargetDate) {
         return res.status(400).json({ message: parsedTargetDate.error });
       }
-      updateData.targetDate = parsedTargetDate?.value ?? null;
+      const newTargetDate = parsedTargetDate?.value ?? null;
+      updateData.targetDate = newTargetDate;
+
+      // Auto-sync Target Date to all Phase Milestones (M1-M5) attached to this Workstream
+      await prisma.onboardingMilestone.updateMany({
+        where: { workstreamId: id },
+        data: { targetDate: newTargetDate },
+      });
     }
 
     if (notes !== undefined) {
