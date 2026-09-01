@@ -206,6 +206,8 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
           taskCode: generateTaskCode(dep.dependsOnTask.id, dep.dependsOnTask.taskNumber),
           name: dep.dependsOnTask.name,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
+          requiredStatus: dep.requiredStatus,
+          status: dep.dependsOnTask.status, // Add status to allow frontend to check it against requiredStatus
         })),
         actionItemsCount: t.actionItems.length,
         activityCount: t.activities.length,
@@ -375,6 +377,59 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
 
     const taskCode = generateTaskCode(createdTask.id, createdTask.taskNumber);
 
+    // Auto-update phase milestones and workstream status based on task additions
+    const wsTasks = await prisma.onboardingTask.findMany({
+      where: { workstreamId: targetWorkstreamId },
+    });
+
+    const phaseMapping: Record<string, string> = {
+      ONBOARDING_ACCESS: "M1",
+      ASSESSMENT_DISCOVERY: "M2",
+      PLANNING_CONFIGURATION: "M3",
+      TESTING_VALIDATION: "M4",
+      GO_LIVE_STABILIZATION: "M5",
+      HYPERCARE_OPTIMIZATION: "M6",
+    };
+
+    const targetPhaseCode = phaseMapping[createdTask.phase];
+    if (targetPhaseCode) {
+      const phaseTasks = wsTasks.filter((t) => t.phase === createdTask.phase);
+      const allPhaseComplete = phaseTasks.length > 0 && phaseTasks.every((t) => t.status === OnboardingTaskStatus.COMPLETE);
+      const anyPhaseStarted = phaseTasks.some((t) => t.status !== OnboardingTaskStatus.NOT_STARTED);
+
+      const nextMilestoneStatus = allPhaseComplete
+        ? "COMPLETE"
+        : anyPhaseStarted
+        ? "ON_TRACK"
+        : "NOT_STARTED";
+
+      await prisma.onboardingMilestone.updateMany({
+        where: {
+          workstreamId: targetWorkstreamId,
+          milestoneCode: { startsWith: targetPhaseCode },
+        },
+        data: { status: nextMilestoneStatus as any },
+      });
+    }
+
+    // Auto-rollup Workstream status
+    const allWsTasksComplete = wsTasks.length > 0 && wsTasks.every((t) => t.status === OnboardingTaskStatus.COMPLETE);
+    const hasWsBlockers = wsTasks.some((t) => t.status === OnboardingTaskStatus.BLOCKED);
+    const hasWsInProgress = wsTasks.some((t) => t.status === OnboardingTaskStatus.IN_PROGRESS || t.status === OnboardingTaskStatus.COMPLETE);
+
+    const nextWsStatus = allWsTasksComplete
+      ? OnboardingWorkstreamStatus.COMPLETE_CONTRACTED
+      : hasWsBlockers
+      ? OnboardingWorkstreamStatus.BLOCKED
+      : hasWsInProgress
+      ? OnboardingWorkstreamStatus.IN_PROGRESS
+      : OnboardingWorkstreamStatus.PENDING;
+
+    await prisma.onboardingWorkstream.update({
+      where: { id: targetWorkstreamId },
+      data: { status: nextWsStatus },
+    });
+
     res.status(201).json({
       success: true,
       task: {
@@ -402,6 +457,8 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
           taskCode: `TASK${String(dep.dependsOnTask.taskNumber).padStart(6, "0")}`,
           name: dep.dependsOnTask.name,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
+          requiredStatus: (dep as any).requiredStatus, // Type might need coercion if relation isn't explicitly including it
+          status: dep.dependsOnTask.status,
         })),
         createdAt: formatDateMMDDYYYY(createdTask.createdAt),
         updatedAt: formatDateMMDDYYYY(createdTask.updatedAt),
@@ -425,6 +482,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       dueDate,
       deliverable,
       notes,
+      dependencies, // Array of { dependsOnTaskId: string, requiredStatus: "IN_PROGRESS" | "COMPLETE" }
     } = req.body;
 
     const existingTask = await prisma.onboardingTask.findUnique({
@@ -443,10 +501,40 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       return;
     }
 
+    // Determine the effective dependencies to validate against
+    // Use the incoming dependencies if provided, otherwise use existing
+    let effectiveDepsToValidate = existingTask.dependencies.map(d => ({
+      status: d.dependsOnTask.status,
+      requiredStatus: d.requiredStatus
+    }));
+
+    if (dependencies !== undefined && Array.isArray(dependencies)) {
+      // Need to fetch current statuses of the newly requested dependencies to validate
+      const depTaskIds = dependencies.map(d => d.dependsOnTaskId);
+      const depTasks = await prisma.onboardingTask.findMany({
+        where: { id: { in: depTaskIds } },
+        select: { id: true, status: true }
+      });
+      effectiveDepsToValidate = dependencies.map(d => {
+        const found = depTasks.find(t => t.id === d.dependsOnTaskId);
+        return {
+          status: found ? found.status : OnboardingTaskStatus.NOT_STARTED,
+          requiredStatus: d.requiredStatus || OnboardingTaskStatus.COMPLETE
+        };
+      });
+    }
+
     if (status === OnboardingTaskStatus.IN_PROGRESS) {
-      const hasUnmetDeps = existingTask.dependencies.some(
-        (dep) => dep.dependsOnTask.status !== OnboardingTaskStatus.COMPLETE
-      );
+      const hasUnmetDeps = effectiveDepsToValidate.some((dep) => {
+        if (dep.requiredStatus === OnboardingTaskStatus.COMPLETE) {
+          return dep.status !== OnboardingTaskStatus.COMPLETE;
+        }
+        if (dep.requiredStatus === OnboardingTaskStatus.IN_PROGRESS) {
+          return dep.status !== OnboardingTaskStatus.IN_PROGRESS && dep.status !== OnboardingTaskStatus.COMPLETE;
+        }
+        return false;
+      });
+
       if (hasUnmetDeps) {
         res.status(400).json({
           success: false,
@@ -469,6 +557,15 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
         ...(dueDate !== undefined ? { dueDate: parseDateInput(dueDate) } : {}),
         ...(deliverable !== undefined ? { deliverable } : {}),
         ...(notes !== undefined ? { notes } : {}),
+        ...(dependencies !== undefined && Array.isArray(dependencies) ? {
+          dependencies: {
+            deleteMany: {},
+            create: dependencies.map((dep: any) => ({
+              dependsOnTaskId: dep.dependsOnTaskId,
+              requiredStatus: dep.requiredStatus || OnboardingTaskStatus.COMPLETE,
+            })),
+          },
+        } : {}),
         activities: {
           create: {
             userId,
@@ -492,6 +589,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       PLANNING_CONFIGURATION: "M3",
       TESTING_VALIDATION: "M4",
       GO_LIVE_STABILIZATION: "M5",
+      HYPERCARE_OPTIMIZATION: "M6",
     };
 
     const targetPhaseCode = phaseMapping[updatedTask.phase];
@@ -509,7 +607,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       await prisma.onboardingMilestone.updateMany({
         where: {
           workstreamId: existingTask.workstreamId,
-          milestoneCode: targetPhaseCode,
+          milestoneCode: { startsWith: targetPhaseCode },
         },
         data: { status: nextMilestoneStatus as any },
       });
@@ -562,11 +660,49 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
           taskCode: `TASK${String(dep.dependsOnTask.taskNumber).padStart(6, "0")}`,
           name: dep.dependsOnTask.name,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
+          requiredStatus: dep.requiredStatus,
+          status: dep.dependsOnTask.status, // Add status to allow frontend to check it against requiredStatus
         })),
         createdAt: formatDateMMDDYYYY(updatedTask.createdAt),
         updatedAt: formatDateMMDDYYYY(updatedTask.updatedAt),
       },
     });
+
+    // CASCADE AUTOMATIC STATUS UPDATES
+    if (updatedTask.status === OnboardingTaskStatus.COMPLETE || updatedTask.status === OnboardingTaskStatus.IN_PROGRESS) {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const allWsTasks = await prisma.onboardingTask.findMany({
+          where: { workstreamId: existingTask.workstreamId },
+          include: { dependencies: { include: { dependsOnTask: true } } }
+        });
+        
+        for (const t of allWsTasks) {
+          if (t.status === OnboardingTaskStatus.COMPLETE) continue;
+          
+          const startDeps = t.dependencies.filter(d => d.requiredStatus === OnboardingTaskStatus.IN_PROGRESS);
+          const finishDeps = t.dependencies.filter(d => d.requiredStatus === OnboardingTaskStatus.COMPLETE);
+          
+          const allStartMet = startDeps.length === 0 || startDeps.every(d => d.dependsOnTask.status === OnboardingTaskStatus.IN_PROGRESS || d.dependsOnTask.status === OnboardingTaskStatus.COMPLETE);
+          const allFinishMet = finishDeps.length === 0 || finishDeps.every(d => d.dependsOnTask.status === OnboardingTaskStatus.COMPLETE);
+          
+          let newStatus: OnboardingTaskStatus = t.status;
+          if (newStatus === OnboardingTaskStatus.BLOCKED && allStartMet) {
+            newStatus = OnboardingTaskStatus.IN_PROGRESS;
+          }
+          if (newStatus === OnboardingTaskStatus.IN_PROGRESS && allFinishMet && allStartMet && finishDeps.length > 0) {
+            newStatus = OnboardingTaskStatus.COMPLETE;
+          }
+          
+          if (newStatus !== t.status) {
+            await prisma.onboardingTask.update({ where: { id: t.id }, data: { status: newStatus } });
+            changed = true;
+          }
+        }
+      }
+    }
+
   } catch (error: any) {
     console.error("Error updating task:", error);
     res.status(500).json({ success: false, message: error.message || "Failed to update task" });

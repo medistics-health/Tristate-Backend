@@ -2184,6 +2184,8 @@ model OnboardingTaskDependency {
   taskId          String   @map("task_id") @db.Uuid
   dependsOnTaskId String   @map("depends_on_task_id") @db.Uuid
 
+  requiredStatus  OnboardingTaskStatus @default(COMPLETE) @map("required_status")
+
   createdAt       DateTime @default(now()) @map("created_at")
 
   task            OnboardingTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
@@ -2403,6 +2405,7 @@ enum OnboardingTaskPhase {
   PLANNING_CONFIGURATION
   TESTING_VALIDATION
   GO_LIVE_STABILIZATION
+  HYPERCARE_OPTIMIZATION
 }
 
 enum OnboardingMilestoneStatus {
