@@ -83,6 +83,7 @@ const taskSelectFields = {
           id: true,
           taskNumber: true,
           name: true,
+          phase: true,
           status: true,
         },
       },
@@ -205,13 +206,16 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
           taskNumber: dep.dependsOnTask.taskNumber,
           taskCode: generateTaskCode(dep.dependsOnTask.id, dep.dependsOnTask.taskNumber),
           name: dep.dependsOnTask.name,
+          phase: dep.dependsOnTask.phase,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
           requiredStatus: dep.requiredStatus,
+          dependencyType: dep.dependencyType,
           status: dep.dependsOnTask.status, // Add status to allow frontend to check it against requiredStatus
         })),
         actionItemsCount: t.actionItems.length,
         activityCount: t.activities.length,
         createdAt: formatDateMMDDYYYY(t.createdAt),
+        createdAtRaw: t.createdAt ? new Date(t.createdAt).toISOString() : null,
         updatedAt: formatDateMMDDYYYY(t.updatedAt),
       };
     });
@@ -455,7 +459,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
           id: dep.dependsOnTask.id,
           taskNumber: dep.dependsOnTask.taskNumber,
           taskCode: `TASK${String(dep.dependsOnTask.taskNumber).padStart(6, "0")}`,
-          name: dep.dependsOnTask.name,
+          phase: dep.dependsOnTask.phase,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
           requiredStatus: (dep as any).requiredStatus, // Type might need coercion if relation isn't explicitly including it
           status: dep.dependsOnTask.status,
@@ -505,11 +509,11 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
     // Use the incoming dependencies if provided, otherwise use existing
     let effectiveDepsToValidate = existingTask.dependencies.map(d => ({
       status: d.dependsOnTask.status,
-      requiredStatus: d.requiredStatus
+      requiredStatus: d.requiredStatus,
+      dependencyType: d.dependencyType,
     }));
 
     if (dependencies !== undefined && Array.isArray(dependencies)) {
-      // Need to fetch current statuses of the newly requested dependencies to validate
       const depTaskIds = dependencies.map(d => d.dependsOnTaskId);
       const depTasks = await prisma.onboardingTask.findMany({
         where: { id: { in: depTaskIds } },
@@ -519,29 +523,48 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
         const found = depTasks.find(t => t.id === d.dependsOnTaskId);
         return {
           status: found ? found.status : OnboardingTaskStatus.NOT_STARTED,
-          requiredStatus: d.requiredStatus || OnboardingTaskStatus.COMPLETE
+          requiredStatus: d.requiredStatus || OnboardingTaskStatus.COMPLETE,
+          dependencyType: d.dependencyType || "BLOCKS_START",
         };
       });
     }
 
-    if (status === OnboardingTaskStatus.IN_PROGRESS) {
-      const hasUnmetDeps = effectiveDepsToValidate.some((dep) => {
-        if (dep.requiredStatus === OnboardingTaskStatus.COMPLETE) {
-          return dep.status !== OnboardingTaskStatus.COMPLETE;
-        }
-        if (dep.requiredStatus === OnboardingTaskStatus.IN_PROGRESS) {
-          return dep.status !== OnboardingTaskStatus.IN_PROGRESS && dep.status !== OnboardingTaskStatus.COMPLETE;
-        }
-        return false;
-      });
+    const startDeps = effectiveDepsToValidate.filter(d => d.dependencyType === "BLOCKS_START");
+    const finishDeps = effectiveDepsToValidate.filter(d => d.dependencyType === "BLOCKS_FINISH");
 
-      if (hasUnmetDeps) {
-        res.status(400).json({
-          success: false,
-          message: `Cannot move Task #${existingTask.taskNumber} to IN_PROGRESS. Predecessor dependencies are not complete!`,
-        });
-        return;
-      }
+    const hasUnmetStartDeps = startDeps.some((dep) =>
+      dep.requiredStatus === OnboardingTaskStatus.COMPLETE
+        ? dep.status !== OnboardingTaskStatus.COMPLETE
+        : dep.status !== OnboardingTaskStatus.IN_PROGRESS && dep.status !== OnboardingTaskStatus.COMPLETE
+    );
+    const hasUnmetFinishDeps = finishDeps.some((dep) =>
+      dep.requiredStatus === OnboardingTaskStatus.COMPLETE
+        ? dep.status !== OnboardingTaskStatus.COMPLETE
+        : dep.status !== OnboardingTaskStatus.IN_PROGRESS && dep.status !== OnboardingTaskStatus.COMPLETE
+    );
+
+    if (status === OnboardingTaskStatus.IN_PROGRESS && hasUnmetStartDeps) {
+      res.status(400).json({
+        success: false,
+        message: `Cannot move Task #${existingTask.taskNumber} to IN_PROGRESS. Predecessor dependencies are not met!`,
+      });
+      return;
+    }
+
+    if (status === OnboardingTaskStatus.COMPLETE && (hasUnmetStartDeps || hasUnmetFinishDeps)) {
+      res.status(400).json({
+        success: false,
+        message: `Cannot move Task #${existingTask.taskNumber} to COMPLETE. Predecessor dependencies are not met!`,
+      });
+      return;
+    }
+
+    let effectiveStatus = status;
+    if (!effectiveStatus && hasUnmetStartDeps && existingTask.status !== OnboardingTaskStatus.BLOCKED) {
+      effectiveStatus = OnboardingTaskStatus.BLOCKED;
+    }
+    if (dependencies !== undefined && Array.isArray(dependencies) && hasUnmetStartDeps) {
+      effectiveStatus = OnboardingTaskStatus.BLOCKED;
     }
 
     const userId = req.user?.sub || null;
@@ -551,7 +574,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       data: {
         ...(name ? { name } : {}),
         ...(phase ? { phase: phase as OnboardingTaskPhase } : {}),
-        ...(status ? { status: status as OnboardingTaskStatus } : {}),
+        ...(effectiveStatus ? { status: effectiveStatus as OnboardingTaskStatus } : {}),
         ...(ownerUserId !== undefined ? { ownerUserId } : {}),
         ...(startDate !== undefined ? { startDate: parseDateInput(startDate) } : {}),
         ...(dueDate !== undefined ? { dueDate: parseDateInput(dueDate) } : {}),
@@ -563,6 +586,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
             create: dependencies.map((dep: any) => ({
               dependsOnTaskId: dep.dependsOnTaskId,
               requiredStatus: dep.requiredStatus || OnboardingTaskStatus.COMPLETE,
+              dependencyType: dep.dependencyType || "BLOCKS_START",
             })),
           },
         } : {}),
@@ -659,8 +683,10 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
           taskNumber: dep.dependsOnTask.taskNumber,
           taskCode: `TASK${String(dep.dependsOnTask.taskNumber).padStart(6, "0")}`,
           name: dep.dependsOnTask.name,
+          phase: dep.dependsOnTask.phase,
           isComplete: dep.dependsOnTask.status === OnboardingTaskStatus.COMPLETE,
           requiredStatus: dep.requiredStatus,
+          dependencyType: dep.dependencyType,
           status: dep.dependsOnTask.status, // Add status to allow frontend to check it against requiredStatus
         })),
         createdAt: formatDateMMDDYYYY(updatedTask.createdAt),
@@ -668,40 +694,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       },
     });
 
-    // CASCADE AUTOMATIC STATUS UPDATES
-    if (updatedTask.status === OnboardingTaskStatus.COMPLETE || updatedTask.status === OnboardingTaskStatus.IN_PROGRESS) {
-      let changed = true;
-      while (changed) {
-        changed = false;
-        const allWsTasks = await prisma.onboardingTask.findMany({
-          where: { workstreamId: existingTask.workstreamId },
-          include: { dependencies: { include: { dependsOnTask: true } } }
-        });
-        
-        for (const t of allWsTasks) {
-          if (t.status === OnboardingTaskStatus.COMPLETE) continue;
-          
-          const startDeps = t.dependencies.filter(d => d.requiredStatus === OnboardingTaskStatus.IN_PROGRESS);
-          const finishDeps = t.dependencies.filter(d => d.requiredStatus === OnboardingTaskStatus.COMPLETE);
-          
-          const allStartMet = startDeps.length === 0 || startDeps.every(d => d.dependsOnTask.status === OnboardingTaskStatus.IN_PROGRESS || d.dependsOnTask.status === OnboardingTaskStatus.COMPLETE);
-          const allFinishMet = finishDeps.length === 0 || finishDeps.every(d => d.dependsOnTask.status === OnboardingTaskStatus.COMPLETE);
-          
-          let newStatus: OnboardingTaskStatus = t.status;
-          if (newStatus === OnboardingTaskStatus.BLOCKED && allStartMet) {
-            newStatus = OnboardingTaskStatus.IN_PROGRESS;
-          }
-          if (newStatus === OnboardingTaskStatus.IN_PROGRESS && allFinishMet && allStartMet && finishDeps.length > 0) {
-            newStatus = OnboardingTaskStatus.COMPLETE;
-          }
-          
-          if (newStatus !== t.status) {
-            await prisma.onboardingTask.update({ where: { id: t.id }, data: { status: newStatus } });
-            changed = true;
-          }
-        }
-      }
-    }
+
 
   } catch (error: any) {
     console.error("Error updating task:", error);

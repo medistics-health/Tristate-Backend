@@ -2184,6 +2184,7 @@ model OnboardingTaskDependency {
   taskId          String   @map("task_id") @db.Uuid
   dependsOnTaskId String   @map("depends_on_task_id") @db.Uuid
 
+  dependencyType  String @default("BLOCKS_START") @map("dependency_type")
   requiredStatus  OnboardingTaskStatus @default(COMPLETE) @map("required_status")
 
   createdAt       DateTime @default(now()) @map("created_at")
