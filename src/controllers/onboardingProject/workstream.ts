@@ -311,13 +311,80 @@ export async function createWorkstream(
       },
     });
 
-    const DEFAULT_MILESTONES = [
-      { code: "M1", week: "Week 1", desc: "Phase 1: Onboarding & Access Completed" },
-      { code: "M2", week: "Week 2", desc: "Phase 2: Assessment & Discovery Completed" },
-      { code: "M3", week: "Week 3", desc: "Phase 3: System Setup & Integration Completed" },
-      { code: "M4", week: "Week 4", desc: "Phase 4: Training & Enablement Completed" },
-      { code: "M5", week: "Week 5-6", desc: "Phase 5: Go-Live & Stabilization Completed" },
+    const SERVICE_LINE_PHASE_NAMES: Record<string, Record<string, string>> = {
+      RCM: {
+        ONBOARDING_ACCESS: "Phase 1: Onboarding & Access",
+        ASSESSMENT_DISCOVERY: "Phase 2: Assessment & Discovery",
+        PLANNING_CONFIGURATION: "Phase 3: Planning & Configuration",
+        TESTING_VALIDATION: "Phase 4: Testing & Validation",
+        GO_LIVE_STABILIZATION: "Phase 5: Go-Live & Stabilization",
+      },
+      CCM: {
+        ONBOARDING_ACCESS: "Phase 1: Onboarding & Access",
+        ASSESSMENT_DISCOVERY: "Phase 2: Assessment & Discovery",
+        PLANNING_CONFIGURATION: "Phase 3: Workflow Design & Configuration",
+        TESTING_VALIDATION: "Phase 4: Enrollment Readiness",
+        GO_LIVE_STABILIZATION: "Phase 5: Go-Live",
+        HYPERCARE_OPTIMIZATION: "Phase 6: Hypercare & Optimization",
+      },
+      CREDENTIALING: {
+        ONBOARDING_ACCESS: "Phase 1: Intake & Planning",
+        ASSESSMENT_DISCOVERY: "Phase 2: CAQH Management",
+        PLANNING_CONFIGURATION: "Phase 3: Application Submission",
+        TESTING_VALIDATION: "Phase 4: Follow-Up & Tracking",
+        GO_LIVE_STABILIZATION: "Phase 5: Go-Live Readiness",
+        HYPERCARE_OPTIMIZATION: "Phase 6: Go-Live",
+      },
+      HR: {
+        ONBOARDING_ACCESS: "Phase 1: Pre-Hire",
+        ASSESSMENT_DISCOVERY: "Phase 2: New Hire Setup",
+        PLANNING_CONFIGURATION: "Phase 3: Benefits",
+        TESTING_VALIDATION: "Phase 4: Compliance",
+        GO_LIVE_STABILIZATION: "Phase 5: Go-Live",
+        HYPERCARE_OPTIMIZATION: "Phase 6: Stabilization",
+      },
+      MSP_IT: {
+        ONBOARDING_ACCESS: "Phase 1: Discovery",
+        ASSESSMENT_DISCOVERY: "Phase 2: Design",
+        PLANNING_CONFIGURATION: "Phase 3: Deployment",
+        TESTING_VALIDATION: "Phase 4: Testing",
+        GO_LIVE_STABILIZATION: "Phase 5: Training",
+        HYPERCARE_OPTIMIZATION: "Phase 6: Go-Live / Hypercare",
+      },
+    };
+
+    const DEFAULT_PHASE_NAMES: Record<string, string> = {
+      ONBOARDING_ACCESS: "Phase 1: Onboarding & Access",
+      ASSESSMENT_DISCOVERY: "Phase 2: Assessment & Discovery",
+      PLANNING_CONFIGURATION: "Phase 3: System Setup & Integration",
+      TESTING_VALIDATION: "Phase 4: Testing & Validation",
+      GO_LIVE_STABILIZATION: "Phase 5: Go-Live & Stabilization",
+      HYPERCARE_OPTIMIZATION: "Phase 6: Hypercare & Optimization",
+    };
+
+    const getPhaseName = (p: string) => {
+      if (SERVICE_LINE_PHASE_NAMES[serviceLine]?.[p]) {
+        return SERVICE_LINE_PHASE_NAMES[serviceLine][p];
+      }
+      if (DEFAULT_PHASE_NAMES[p]) {
+        return DEFAULT_PHASE_NAMES[p];
+      }
+      return `Phase 1: ${serviceLine}`;
+    };
+
+    const ALL_MILESTONES = [
+      { phase: "ONBOARDING_ACCESS", code: "M1", week: "Week 1" },
+      { phase: "ASSESSMENT_DISCOVERY", code: "M2", week: "Week 2" },
+      { phase: "PLANNING_CONFIGURATION", code: "M3", week: "Week 3" },
+      { phase: "TESTING_VALIDATION", code: "M4", week: "Week 4" },
+      { phase: "GO_LIVE_STABILIZATION", code: "M5", week: "Week 5-6" },
+      { phase: "HYPERCARE_OPTIMIZATION", code: "M6", week: "Week 7-8" },
     ];
+
+    const activePhases = new Set(template?.tasks.map((t) => t.phase) || []);
+    const milestonesToCreate = activePhases.size > 0
+      ? ALL_MILESTONES.filter((m) => activePhases.has(m.phase as any))
+      : ALL_MILESTONES.slice(0, 5);
 
     const workstream = await prisma.onboardingWorkstream.create({
       data: {
@@ -328,13 +395,17 @@ export async function createWorkstream(
         targetDate: parsedTargetDate?.value ?? null,
         notes: notes?.trim() || null,
         milestones: {
-          create: DEFAULT_MILESTONES.map((m) => ({
-            milestoneCode: m.code,
-            description: m.desc,
-            targetWeek: m.week,
-            targetDate: parsedTargetDate?.value ?? null,
-            status: "NOT_STARTED",
-          })),
+          create: milestonesToCreate.map((m) => {
+            const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const phaseTitle = getPhaseName(m.phase);
+            return {
+              milestoneCode: `${m.code}${randomCode}`,
+              description: `${phaseTitle} Completed`,
+              targetWeek: m.week,
+              targetDate: parsedTargetDate?.value ?? null,
+              status: "NOT_STARTED",
+            };
+          }),
         },
         ...(template?.tasks.length
           ? {

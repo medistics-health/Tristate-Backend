@@ -7,11 +7,13 @@ import { formatDateMMDDYYYY, parseDateInput } from "./task.controller";
 export async function getMilestones(req: Request, res: Response): Promise<void> {
   try {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const serviceLine = typeof req.query.serviceLine === "string" ? req.query.serviceLine : undefined;
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
 
     const dbMilestones = await prisma.onboardingMilestone.findMany({
       where: {
         ...(status ? { status: status as OnboardingMilestoneStatus } : {}),
+        ...(serviceLine ? { workstream: { serviceLine: serviceLine as OnboardingServiceLine } } : {}),
         ...(search
           ? {
               OR: [
@@ -120,7 +122,8 @@ export async function createMilestone(req: AuthenticatedRequest, res: Response):
       const count = await prisma.onboardingMilestone.count({
         where: { workstreamId: resolvedWorkstreamId },
       });
-      finalCode = `M${count + 1}`;
+      const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      finalCode = `M${count + 1}${randomCode}`;
     }
 
     const created = await prisma.onboardingMilestone.create({
