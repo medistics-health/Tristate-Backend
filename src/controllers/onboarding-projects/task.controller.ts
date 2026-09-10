@@ -560,11 +560,19 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
     }
 
     let effectiveStatus = status;
-    if (!effectiveStatus && hasUnmetStartDeps && existingTask.status !== OnboardingTaskStatus.BLOCKED) {
-      effectiveStatus = OnboardingTaskStatus.BLOCKED;
+    if (!effectiveStatus) {
+      if (hasUnmetStartDeps && existingTask.status !== OnboardingTaskStatus.BLOCKED) {
+        effectiveStatus = OnboardingTaskStatus.BLOCKED;
+      } else if (!hasUnmetStartDeps && existingTask.status === OnboardingTaskStatus.BLOCKED) {
+        effectiveStatus = OnboardingTaskStatus.NOT_STARTED;
+      }
     }
-    if (dependencies !== undefined && Array.isArray(dependencies) && hasUnmetStartDeps) {
-      effectiveStatus = OnboardingTaskStatus.BLOCKED;
+    if (dependencies !== undefined && Array.isArray(dependencies)) {
+      if (hasUnmetStartDeps) {
+        effectiveStatus = OnboardingTaskStatus.BLOCKED;
+      } else if (!status && existingTask.status === OnboardingTaskStatus.BLOCKED) {
+        effectiveStatus = OnboardingTaskStatus.NOT_STARTED;
+      }
     }
 
     const userId = req.user?.sub || null;
@@ -602,6 +610,55 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       },
       select: taskSelectFields,
     });
+    // Check and cascade auto-unblock to successor tasks dependent on this task
+    const dependentTasks = await prisma.onboardingTask.findMany({
+      where: {
+        status: OnboardingTaskStatus.BLOCKED,
+        dependencies: {
+          some: {
+            dependsOnTaskId: taskId,
+          },
+        },
+      },
+      include: {
+        dependencies: {
+          include: {
+            dependsOnTask: {
+              select: { id: true, status: true },
+            },
+          },
+        },
+      },
+    });
+
+    for (const depTask of dependentTasks) {
+      const startDeps = depTask.dependencies.filter((d) => d.dependencyType === "BLOCKS_START");
+      const unmet = startDeps.some((dep) =>
+        dep.requiredStatus === OnboardingTaskStatus.COMPLETE
+          ? dep.dependsOnTask.status !== OnboardingTaskStatus.COMPLETE
+          : dep.dependsOnTask.status !== OnboardingTaskStatus.IN_PROGRESS &&
+            dep.dependsOnTask.status !== OnboardingTaskStatus.COMPLETE
+      );
+
+      if (!unmet) {
+        await prisma.onboardingTask.update({
+          where: { id: depTask.id },
+          data: {
+            status: OnboardingTaskStatus.NOT_STARTED,
+            activities: {
+              create: {
+                userId,
+                action: "STATUS_CHANGE",
+                oldValue: OnboardingTaskStatus.BLOCKED,
+                newValue: OnboardingTaskStatus.NOT_STARTED,
+                note: `Automatically unblocked as predecessor Task #${updatedTask.taskNumber} requirements were met`,
+              },
+            },
+          },
+        });
+      }
+    }
+
     // Auto-update phase milestones and workstream status based on task completions
     const wsTasks = await prisma.onboardingTask.findMany({
       where: { workstreamId: existingTask.workstreamId },
