@@ -395,11 +395,14 @@ export async function createWorkstream(
         targetDate: parsedTargetDate?.value ?? null,
         notes: notes?.trim() || null,
         milestones: {
-          create: milestonesToCreate.map((m) => {
-            const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+          create: milestonesToCreate.map((m, idx) => {
+            const now = new Date();
+            const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
+            const timeStamp = String(now.getTime()).slice(-4); // last 4 digits of timestamp
+            const codeSuffix = `${dateStamp}-${timeStamp}${idx + 1}`;
             const phaseTitle = getPhaseName(m.phase);
             return {
-              milestoneCode: `${m.code}${randomCode}`,
+              milestoneCode: `${m.code}-${codeSuffix}`,
               description: `${phaseTitle} Completed`,
               targetWeek: m.week,
               targetDate: parsedTargetDate?.value ?? null,

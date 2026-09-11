@@ -122,8 +122,10 @@ export async function createMilestone(req: AuthenticatedRequest, res: Response):
       const count = await prisma.onboardingMilestone.count({
         where: { workstreamId: resolvedWorkstreamId },
       });
-      const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      finalCode = `M${count + 1}${randomCode}`;
+      const now = new Date();
+      const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, "");
+      const timeStamp = String(now.getTime()).slice(-4);
+      finalCode = `M${count + 1}-${dateStamp}-${timeStamp}`;
     }
 
     const created = await prisma.onboardingMilestone.create({
