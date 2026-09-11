@@ -329,7 +329,7 @@ import {
                 <p>Please review and sign the agreement using the link below.</p>
                 <p>
                    <strong>Important:</strong>
-                   The signing link will expire in 48 hours.
+                   The signing link will expire in 15 days.
                 </p>
                 <p>
                 ${decodeURIComponent(
@@ -586,7 +586,7 @@ import {
           agreement.services.map((s) => s.name),
         );
         const expireAt = new Date();
-        expireAt.setHours(expireAt.getHours() + 48);
+        expireAt.setDate(expireAt.getDate() + 15);
 
         console.log(mergedValues);
 
@@ -855,7 +855,7 @@ import {
 
       console.log(mergedValues);
       const expireAt = new Date();
-      expireAt.setHours(expireAt.getHours() + 48);
+      expireAt.setDate(expireAt.getDate() + 15);
       const submission: any = await docuseal.createSubmission({
         template_id: templateId,
         send_email: false,
@@ -985,7 +985,7 @@ import {
         <p>Once you sign, it will be routed to the client for signature.</p>
         <p>
            <strong>Important:</strong>
-           The signing link will expire in 48 hours.
+           The signing link will expire in 15 days.
         </p>
         ${signingLink ? `<p><a href="${signingLink}" target="_blank">Review and Sign Updated Document</a></p>` : ""}
         <p>If you have any questions, please contact your representative.</p>
@@ -1182,7 +1182,7 @@ import {
 
         <p>
            <strong>Important:</strong>
-           The signing link will expire in 48 hours.
+           The signing link will expire in 15 days.
         </p>
 
         <p><strong>Documents:</strong></p>
@@ -1537,7 +1537,7 @@ import {
               );
 
               const expireAt = new Date();
-              expireAt.setHours(expireAt.getHours() + 48);
+              expireAt.setDate(expireAt.getDate() + 15);
               const submission: any = await docuseal.createSubmission({
                 template_id: currentTemplateId,
                 send_email: false,
@@ -1662,7 +1662,7 @@ import {
 
         <p>
            <strong>Important:</strong>
-           The signing link will expire in 48 hours.
+           The signing link will expire in 15 days.
         </p>
 
         <p><strong>Documents:</strong></p>
@@ -2107,7 +2107,7 @@ import {
               );
 
               const expireAt = new Date();
-              expireAt.setHours(expireAt.getHours() + 48);
+              expireAt.setDate(expireAt.getDate() + 15);
               const submission: any = await docuseal.createSubmission({
                 template_id: existingSubmission.templateId,
                 send_email: false,
@@ -2226,7 +2226,7 @@ import {
 
         <p>
            <strong>Important:</strong>
-           The signing link will expire in 48 hours.
+           The signing link will expire in 15 days.
         </p>
 
         <p><strong>Documents:</strong></p>
