@@ -1789,7 +1789,11 @@ import {
             practice: true,
             deal: true,
             channelPartners: true,
-            docusealSubmissions: true,
+            docusealSubmissions: {
+              include: {
+                signers: true,
+              },
+            },
             versions: true,
             services: true,
           },
@@ -1839,7 +1843,11 @@ import {
           deal: true,
           invoices: true,
           channelPartners: true,
-          docusealSubmissions: true,
+          docusealSubmissions: {
+            include: {
+              signers: true,
+            },
+          },
           versions: true,
           serviceTerms: true,
           services: true,
