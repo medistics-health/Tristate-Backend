@@ -71,6 +71,7 @@ type CredentialingBody = {
   assignedToUserName?: string | null;
   documents?: CredentialingDocumentInput[];
   followUpLogs?: CredentialingFollowUpInput[];
+  checklist?: any[];
 };
 
 type QueryParams = {
@@ -435,6 +436,7 @@ function mapRequest(request: any) {
     internalNotes: request.internalNotes || "",
     notes: request.notes || "",
     enrollmentId: request.enrollmentId || "",
+    checklist: Array.isArray(request.checklist) ? request.checklist : (request.checklist || []),
     assignedToUserId: request.assignedToUserId || "",
     assignedUserId: request.assignedToUserId || "",
     assignedUser: assignedToUserName,
@@ -842,8 +844,16 @@ async function buildActivityEntries(
     formatChangedField("Enrollment ID", previous.enrollmentId || "", nextPayload.enrollmentId || ""),
   ].filter((entry): entry is string => Boolean(entry));
 
+  const checklistChanges = getChangedChecklistEntries(
+    previous.checklist || [],
+    nextPayload.checklist || [],
+  );
+
   if (changedFields.length) {
     pushEntry("Edited Record", changedFields, CredentialingActivityType.EDITED);
+  }
+  if (checklistChanges.length) {
+    pushEntry("Checklist Updated", checklistChanges, CredentialingActivityType.EDITED);
   }
   if (documentDetails.length) {
     pushEntry("Document Uploaded", documentDetails, CredentialingActivityType.DOCUMENT_UPLOADED);
@@ -853,6 +863,47 @@ async function buildActivityEntries(
   }
 
   return entries;
+}
+
+function getChangedChecklistEntries(
+  previousChecklist: any[],
+  nextChecklist: any[],
+) {
+  const prevList = Array.isArray(previousChecklist) ? previousChecklist : [];
+  const nextList = Array.isArray(nextChecklist) ? nextChecklist : [];
+  const prevMap = new Map<string, any>();
+  prevList.forEach((item) => {
+    if (item?.task) prevMap.set(String(item.task).trim().toLowerCase(), item);
+  });
+
+  const changes: string[] = [];
+
+  nextList.forEach((nextItem) => {
+    if (!nextItem?.task) return;
+    const taskName = String(nextItem.task).trim();
+    const prevItem = prevMap.get(taskName.toLowerCase());
+
+    if (!prevItem) {
+      if (nextItem.completed) {
+        changes.push(`Checklist task "${taskName}" marked as completed`);
+      }
+    } else {
+      if (Boolean(prevItem.completed) !== Boolean(nextItem.completed)) {
+        changes.push(
+          `Checklist task "${taskName}" marked as ${nextItem.completed ? "completed" : "unchecked"}`
+        );
+      } else if (
+        nextItem.completed &&
+        (prevItem.completedDate || "") !== (nextItem.completedDate || "")
+      ) {
+        changes.push(
+          `Checklist task "${taskName}" completion date updated to ${nextItem.completedDate || "cleared"}`
+        );
+      }
+    }
+  });
+
+  return changes;
 }
 
 function normalizeActivityText(value?: string | null) {
@@ -1087,6 +1138,7 @@ function buildCredentialingData(
     internalNotes: body.internalNotes?.trim() || null,
     notes: body.notes?.trim() || null,
     enrollmentId: body.enrollmentId?.trim() || null,
+    checklist: Array.isArray(body.checklist) ? body.checklist : (body.checklist ?? undefined),
     assignedToUserId: refs.assignedResolvedId,
     createdByUserId: currentUserId,
     updatedByUserId: currentUserId,
@@ -1706,7 +1758,7 @@ export async function updateCredentialingRequest(
         await tx.credentialingRequest.update({
           where: { id: existing.id },
           data: {
-            ...data,
+            ...(data as Prisma.CredentialingRequestUncheckedUpdateInput),
             updatedByUserId: currentUserId,
             lastActivityDate: new Date(),
           },

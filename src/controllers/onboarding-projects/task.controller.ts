@@ -393,6 +393,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
       TESTING_VALIDATION: "M4",
       GO_LIVE_STABILIZATION: "M5",
       HYPERCARE_OPTIMIZATION: "M6",
+      PROVIDER_ACTIVATION: "M7",
     };
 
     const targetPhaseCode = phaseMapping[createdTask.phase];
@@ -671,6 +672,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
       TESTING_VALIDATION: "M4",
       GO_LIVE_STABILIZATION: "M5",
       HYPERCARE_OPTIMIZATION: "M6",
+      PROVIDER_ACTIVATION: "M7",
     };
 
     const targetPhaseCode = phaseMapping[updatedTask.phase];
