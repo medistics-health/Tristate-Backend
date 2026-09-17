@@ -1431,6 +1431,7 @@ model CredentialingRequest {
   internalNotes          String?                       @map("internal_notes")
   notes                  String?                       @map("notes")
   enrollmentId           String?                       @map("enrollment_id")
+  checklist              Json?                         @map("checklist")
   assignedToUserId       String?                       @map("assigned_to_user_id") @db.Uuid
   createdByUserId        String?                       @map("created_by_user_id") @db.Uuid
   updatedByUserId        String?                       @map("updated_by_user_id") @db.Uuid
@@ -2407,6 +2408,7 @@ enum OnboardingTaskPhase {
   TESTING_VALIDATION
   GO_LIVE_STABILIZATION
   HYPERCARE_OPTIMIZATION
+  PROVIDER_ACTIVATION
 }
 
 enum OnboardingMilestoneStatus {

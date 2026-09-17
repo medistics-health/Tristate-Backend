@@ -328,12 +328,13 @@ export async function createWorkstream(
         HYPERCARE_OPTIMIZATION: "Phase 6: Hypercare & Optimization",
       },
       CREDENTIALING: {
-        ONBOARDING_ACCESS: "Phase 1: Intake & Planning",
-        ASSESSMENT_DISCOVERY: "Phase 2: CAQH Management",
-        PLANNING_CONFIGURATION: "Phase 3: Application Submission",
-        TESTING_VALIDATION: "Phase 4: Follow-Up & Tracking",
-        GO_LIVE_STABILIZATION: "Phase 5: Go-Live Readiness",
-        HYPERCARE_OPTIMIZATION: "Phase 6: Go-Live",
+        ONBOARDING_ACCESS: "Phase 1: Provider Intake",
+        ASSESSMENT_DISCOVERY: "Phase 2: Credentialing Setup",
+        PLANNING_CONFIGURATION: "Phase 3: Verification & Compliance",
+        TESTING_VALIDATION: "Phase 4: Payer Enrollment",
+        GO_LIVE_STABILIZATION: "Phase 5: TIN / NPI Validation",
+        HYPERCARE_OPTIMIZATION: "Phase 6: Revenue Cycle Readiness",
+        PROVIDER_ACTIVATION: "Phase 7: Provider Activation",
       },
       HR: {
         ONBOARDING_ACCESS: "Phase 1: Pre-Hire",
@@ -360,6 +361,7 @@ export async function createWorkstream(
       TESTING_VALIDATION: "Phase 4: Testing & Validation",
       GO_LIVE_STABILIZATION: "Phase 5: Go-Live & Stabilization",
       HYPERCARE_OPTIMIZATION: "Phase 6: Hypercare & Optimization",
+      PROVIDER_ACTIVATION: "Phase 7: Provider Activation",
     };
 
     const getPhaseName = (p: string) => {
@@ -379,6 +381,7 @@ export async function createWorkstream(
       { phase: "TESTING_VALIDATION", code: "M4", week: "Week 4" },
       { phase: "GO_LIVE_STABILIZATION", code: "M5", week: "Week 5-6" },
       { phase: "HYPERCARE_OPTIMIZATION", code: "M6", week: "Week 7-8" },
+      { phase: "PROVIDER_ACTIVATION", code: "M7", week: "Week 9-10" },
     ];
 
     const activePhases = new Set(template?.tasks.map((t) => t.phase) || []);
