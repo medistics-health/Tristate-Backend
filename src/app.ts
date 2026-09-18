@@ -40,6 +40,13 @@ import cookieParser from "cookie-parser";
 import path from "path";
 
 import onboardingProjectsRouter from "./routes/onboardingProjects.routes";
+import {
+  documentRouter,
+  documentCategoryRouter,
+  documentTagRouter,
+  documentPublicLinkRouter,
+} from "./routes/documentHub.routes";
+import documentHubPublicRouter from "./routes/documentHubPublic.routes";
 
 const app = express();
 
@@ -91,5 +98,10 @@ app.use("/api/v1/deals", dealRouter);
 app.use("/api/v1/settings", settingsRouter);
 app.use("/api/v1/mercury", mercuryRouter);
 app.use("/api/v1/onboarding-projects", onboardingProjectsRouter);
+app.use("/api/v1/public/share", documentHubPublicRouter);
+app.use("/api/v1/documents", documentRouter);
+app.use("/api/v1/categories", documentCategoryRouter);
+app.use("/api/v1/tags", documentTagRouter);
+app.use("/api/v1/public-links", documentPublicLinkRouter);
 
 export default app;

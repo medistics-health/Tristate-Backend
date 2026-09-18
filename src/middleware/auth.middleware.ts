@@ -62,6 +62,14 @@ export const ROLE_GROUPS = {
   INTEGRATIONS: [UserRoles.ADMIN, UserRoles.FINANCE],
   SETTINGS: [UserRoles.ADMIN],
   USER_ADMIN: [UserRoles.ADMIN],
+  DOCUMENT_HUB_CONTENT: [UserRoles.ADMIN, UserRoles.MARKETING],
+  DOCUMENT_HUB_SHARE: [
+    UserRoles.ADMIN,
+    UserRoles.MARKETING,
+    UserRoles.SALES,
+    UserRoles.ACCOUNTMANAGER,
+  ],
+  DOCUMENT_HUB_HARD_DELETE: [UserRoles.ADMIN],
 };
 
 export function requireRoles(allowedRoles: UserRoles[]) {

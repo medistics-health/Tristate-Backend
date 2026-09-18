@@ -38,6 +38,9 @@ model User {
   onboardingActionsResponsible OnboardingActionItem[]       @relation("OnboardingActionResponsible")
   onboardingActionsLogged      OnboardingActionItem[]       @relation("OnboardingActionLoggedBy")
   onboardingActivities         OnboardingTaskActivity[]
+  hubDocumentsUploaded         HubDocument[]            @relation("HubDocumentUploadedBy")
+  hubDocumentPublicLinks       HubDocumentPublicLink[]  @relation("HubDocumentPublicLinkCreatedBy")
+  hubDocumentActivityLogs      HubDocumentActivityLog[] @relation("HubDocumentActivityByUser")
 
   @@map("User")
 }
@@ -153,6 +156,7 @@ model Practice {
   taxId                 TaxId?                 @relation("PracticeTaxId", fields: [taxIdId], references: [id])
   vendorPayables        VendorPayable[]
   groupNpis             GroupNpi[]             @relation("PracticeGroupNpis")
+  hubDocumentLinks      HubDocumentPractice[]
 
   @@index([companyId])
   @@index([practiceGroupId])
@@ -243,6 +247,7 @@ model Person {
   practices           PracticePerson[]
   credentialingRequests CredentialingRequest[]
   managedOnboardingProjects OnboardingProject[]
+  hubDocumentLinks          HubDocumentPerson[]
 
   @@map("contacts")
 }
@@ -268,6 +273,7 @@ model Deal {
   company          Company?              @relation(fields: [companyId], references: [id])
   practice         Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   primaryContact   Person?               @relation(fields: [primaryContactId], references: [id])
+  hubDocumentLinks HubDocumentDeal[]
 
   @@index([practiceId])
   @@index([companyId])
@@ -1571,6 +1577,7 @@ enum UserRoles {
   OPERATIONS
   FINANCE
   VIEWER
+  MARKETING
 }
 
 enum PracticeStatus {
@@ -2441,4 +2448,186 @@ enum OnboardingActionItemStatus {
   PENDING
   IN_PROGRESS
   DONE
+}
+
+model HubDocument {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  title              String
+  description        String?
+  fileKey            String                    @map("file_key")
+  originalFilename   String                    @map("original_filename")
+  mimeType           String                    @map("mime_type")
+  fileSizeBytes      Int                       @map("file_size_bytes")
+  checksumSha256     String                    @map("checksum_sha256")
+  version            Int                       @default(1)
+  rootDocumentId     String                    @map("root_document_id") @db.Uuid
+  parentDocumentId   String?                   @map("parent_document_id") @db.Uuid
+  status             HubDocumentStatus         @default(ACTIVE)
+  isPublicShareable  Boolean                   @default(false) @map("is_public_shareable")
+  uploadedById       String                    @map("uploaded_by") @db.Uuid
+  downloadCount      Int                       @default(0) @map("download_count")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @default(now()) @updatedAt @map("updated_at")
+  uploadedBy         User                      @relation("HubDocumentUploadedBy", fields: [uploadedById], references: [id])
+  parentDocument     HubDocument?              @relation("HubDocumentParent", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  childDocuments     HubDocument[]             @relation("HubDocumentParent")
+  categoryLinks      HubDocumentCategoryLink[]
+  tagLinks           HubDocumentTagLink[]
+  practiceLinks      HubDocumentPractice[]
+  dealLinks          HubDocumentDeal[]
+  personLinks        HubDocumentPerson[]
+  publicLinks        HubDocumentPublicLink[]
+  activityLogs       HubDocumentActivityLog[]
+
+  @@unique([rootDocumentId, version])
+  @@index([rootDocumentId])
+  @@index([parentDocumentId])
+  @@index([uploadedById])
+  @@index([status])
+  @@index([createdAt])
+  @@index([checksumSha256])
+  @@index([mimeType])
+  @@map("hub_documents")
+}
+
+model HubDocumentCategory {
+  id               String                    @id @default(uuid()) @db.Uuid
+  name             String                    @unique
+  parentCategoryId String?                   @map("parent_category_id") @db.Uuid
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  parentCategory   HubDocumentCategory?      @relation("HubDocumentCategoryHierarchy", fields: [parentCategoryId], references: [id])
+  childCategories  HubDocumentCategory[]     @relation("HubDocumentCategoryHierarchy")
+  documentLinks    HubDocumentCategoryLink[]
+
+  @@index([parentCategoryId])
+  @@map("hub_document_categories")
+}
+
+model HubDocumentCategoryLink {
+  id         String              @id @default(uuid()) @db.Uuid
+  documentId String              @map("document_id") @db.Uuid
+  categoryId String              @map("category_id") @db.Uuid
+  document   HubDocument         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  category   HubDocumentCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, categoryId])
+  @@index([documentId])
+  @@index([categoryId])
+  @@map("hub_document_category_links")
+}
+
+model HubDocumentTag {
+  id            String               @id @default(uuid()) @db.Uuid
+  name          String               @unique
+  documentLinks HubDocumentTagLink[]
+
+  @@map("hub_document_tags")
+}
+
+model HubDocumentTagLink {
+  id         String         @id @default(uuid()) @db.Uuid
+  documentId String         @map("document_id") @db.Uuid
+  tagId      String         @map("tag_id") @db.Uuid
+  document   HubDocument    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tag        HubDocumentTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, tagId])
+  @@index([documentId])
+  @@index([tagId])
+  @@map("hub_document_tag_links")
+}
+
+model HubDocumentPractice {
+  id         String      @id @default(uuid()) @db.Uuid
+  documentId String      @map("document_id") @db.Uuid
+  practiceId String      @map("practice_id") @db.Uuid
+  document   HubDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  practice   Practice    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, practiceId])
+  @@index([documentId])
+  @@index([practiceId])
+  @@map("hub_document_practices")
+}
+
+model HubDocumentDeal {
+  id         String      @id @default(uuid()) @db.Uuid
+  documentId String      @map("document_id") @db.Uuid
+  dealId     String      @map("deal_id") @db.Uuid
+  document   HubDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  deal       Deal        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, dealId])
+  @@index([documentId])
+  @@index([dealId])
+  @@map("hub_document_deals")
+}
+
+model HubDocumentPerson {
+  id         String      @id @default(uuid()) @db.Uuid
+  documentId String      @map("document_id") @db.Uuid
+  personId   String      @map("person_id") @db.Uuid
+  document   HubDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  person     Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, personId])
+  @@index([documentId])
+  @@index([personId])
+  @@map("hub_document_persons")
+}
+
+model HubDocumentPublicLink {
+  id            String       @id @default(uuid()) @db.Uuid
+  documentId    String       @map("document_id") @db.Uuid
+  token         String       @unique
+  createdById   String       @map("created_by") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at")
+  expiresAt     DateTime?    @map("expires_at")
+  revokedAt     DateTime?    @map("revoked_at")
+  viewCount     Int          @default(0) @map("view_count")
+  lastAccessedAt DateTime?   @map("last_accessed_at")
+  allowDownload Boolean      @default(true) @map("allow_download")
+  document      HubDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdBy     User         @relation("HubDocumentPublicLinkCreatedBy", fields: [createdById], references: [id])
+
+  @@index([documentId])
+  @@index([createdById])
+  @@index([token])
+  @@map("hub_document_public_links")
+}
+
+model HubDocumentActivityLog {
+  id         String                    @id @default(uuid()) @db.Uuid
+  documentId String?                   @map("document_id") @db.Uuid
+  userId     String?                   @map("user_id") @db.Uuid
+  action     HubDocumentActivityAction
+  ipAddress  String?                   @map("ip_address")
+  details    String?
+  createdAt  DateTime                  @default(now()) @map("created_at")
+  document   HubDocument?              @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  user       User?                     @relation("HubDocumentActivityByUser", fields: [userId], references: [id])
+
+  @@index([documentId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("hub_document_activity_logs")
+}
+
+enum HubDocumentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum HubDocumentActivityAction {
+  UPLOAD
+  DOWNLOAD
+  METADATA_EDIT
+  ARCHIVE
+  RESTORE
+  DELETE
+  PUBLIC_LINK_CREATED
+  PUBLIC_LINK_REVOKED
+  PUBLIC_VIEW
 }

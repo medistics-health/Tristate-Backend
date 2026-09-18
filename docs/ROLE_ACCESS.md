@@ -14,6 +14,7 @@ Source of truth in code:
 - `OPERATIONS`
 - `FINANCE`
 - `VIEWER`
+- `MARKETING`
 
 ## How access works
 
@@ -67,6 +68,22 @@ Source of truth in code:
   - `api/v1/invoices/:id/resend`
   - `api/v1/vendor-payables` release/sync/pay/delete
 
+### `DOCUMENT_HUB_CONTENT` -> `ADMIN`, `MARKETING`
+- Applied to Document Hub write endpoints:
+  - `POST/PATCH/DELETE /api/v1/documents*` (upload, metadata, versions, archive)
+  - Category create/update/delete/merge
+  - Public link revoke (`DELETE /api/v1/public-links/:id`)
+- Additional controller checks:
+  - `MARKETING` may archive/revoke only documents they uploaded
+  - `ADMIN` may archive/revoke any document
+
+### `DOCUMENT_HUB_SHARE` -> `ADMIN`, `MARKETING`, `SALES`, `ACCOUNTMANAGER`
+- Applied to `POST /api/v1/documents/:id/public-links`
+- Controller check: the document must already have `isPublicShareable = true` (only content managers can set that flag)
+
+### `DOCUMENT_HUB_HARD_DELETE` -> `ADMIN`
+- Applied to `DELETE /api/v1/documents/:id/hard`
+
 ## Effective access by role
 
 ### `ADMIN`
@@ -85,16 +102,24 @@ Source of truth in code:
 ### `SALES`
 - All authenticated read endpoints.
 - `BUSINESS_WRITE`.
+- Document Hub public link create (`DOCUMENT_HUB_SHARE`) only when the document is already public-shareable.
 - No finance/integration/admin/settings restricted actions.
 
 ### `ACCOUNTMANAGER`
 - All authenticated read endpoints.
 - `BUSINESS_WRITE`.
+- Document Hub public link create (`DOCUMENT_HUB_SHARE`) only when the document is already public-shareable.
 - No finance/integration/admin/settings restricted actions.
 
 ### `VIEWER`
 - Read-only access to all authenticated resources via `GET` endpoints, including routes that otherwise use restricted role groups.
 - No access to non-`GET` methods (`POST`, `PUT`, `PATCH`, `DELETE`) on any protected route.
+
+### `MARKETING`
+- All authenticated read endpoints.
+- Document Hub content write access (`DOCUMENT_HUB_CONTENT`) and public link create (`DOCUMENT_HUB_SHARE`).
+- Not in `BUSINESS_WRITE`, finance, integrations, user admin, or settings groups.
+- Can archive documents and revoke public links only for their own uploads.
 
 ## Public routes (no auth required)
 
@@ -110,6 +135,9 @@ Examples of public routes:
   - `/api/v1/agreements/service-terms/:id/client-approval`
 - Onboarding external endpoints under:
   - `/api/v1/onboardings/external/*`
+- Document Hub public share (rate-limited):
+  - `GET /api/v1/public/share/:token`
+  - `GET /api/v1/public/share/:token/download`
 
 ## Maintenance rule (must follow)
 
