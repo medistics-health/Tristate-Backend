@@ -58,8 +58,7 @@ export function isAdminRole(role?: string) {
 }
 
 export function isContentManagerRole(role?: string) {
-  const normalized = normalizeRole(role);
-  return normalized === UserRoles.ADMIN || normalized === UserRoles.MARKETING;
+  return isAdminRole(role);
 }
 
 export function canSoftDeleteDocument(params: {
@@ -67,13 +66,7 @@ export function canSoftDeleteDocument(params: {
   userId: string;
   uploadedById: string;
 }) {
-  if (isAdminRole(params.role)) {
-    return true;
-  }
-  return (
-    normalizeRole(params.role) === UserRoles.MARKETING &&
-    params.uploadedById === params.userId
-  );
+  return isAdminRole(params.role);
 }
 
 export function canRevokePublicLink(params: {
@@ -113,6 +106,77 @@ export function serializeHubDocument(
     deals: document.dealLinks.map((link) => link.deal),
     persons: document.personLinks.map((link) => link.person),
   };
+}
+
+export const linkedHubDocumentInclude = {
+  document: {
+    include: {
+      uploadedBy: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+        },
+      },
+      categoryLinks: { include: { category: true } },
+      tagLinks: { include: { tag: true } },
+    },
+  },
+} as const;
+
+export function serializeLinkedHubDocuments(
+  links: Array<{
+    document: {
+      id: string;
+      title: string;
+      description: string | null;
+      originalFilename: string;
+      mimeType: string;
+      fileSizeBytes: number;
+      version: number;
+      rootDocumentId: string;
+      status: HubDocumentStatus;
+      createdAt: Date;
+      uploadedBy: {
+        id: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+      };
+      categoryLinks: Array<{ category: { id: string; name: string } }>;
+      tagLinks: Array<{ tag: { id: string; name: string } }>;
+    };
+  }>,
+) {
+  const latestByRoot = new Map<string, (typeof links)[number]["document"]>();
+  for (const link of links) {
+    const document = link.document;
+    if (document.status === HubDocumentStatus.ARCHIVED) {
+      continue;
+    }
+    const existing = latestByRoot.get(document.rootDocumentId);
+    if (!existing || document.version > existing.version) {
+      latestByRoot.set(document.rootDocumentId, document);
+    }
+  }
+
+  return [...latestByRoot.values()]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((document) => ({
+      id: document.id,
+      title: document.title,
+      description: document.description,
+      originalFilename: document.originalFilename,
+      mimeType: document.mimeType,
+      fileSizeBytes: document.fileSizeBytes,
+      version: document.version,
+      status: document.status,
+      createdAt: document.createdAt,
+      uploadedBy: document.uploadedBy,
+      categories: document.categoryLinks.map((link) => link.category),
+      tags: document.tagLinks.map((link) => link.tag),
+    }));
 }
 
 export function parseIdList(value: unknown): string[] {

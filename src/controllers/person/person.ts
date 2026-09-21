@@ -6,6 +6,10 @@ import {
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
+import {
+  linkedHubDocumentInclude,
+  serializeLinkedHubDocuments,
+} from "../../services/documentHub/documentHub.service";
 
 type PersonBody = {
   practiceIds?: string[];
@@ -340,6 +344,9 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
         docusealSubmissions: {
           where: { signers: { some: { status: "completed" } } },
         },
+        hubDocumentLinks: {
+          include: linkedHubDocumentInclude,
+        },
       },
     });
 
@@ -349,9 +356,14 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    const { hubDocumentLinks, ...personData } = person;
+
     return res.status(200).json({
       message: "Person fetched successfully.",
-      person,
+      person: {
+        ...personData,
+        hubDocuments: serializeLinkedHubDocuments(hubDocumentLinks),
+      },
     });
   } catch (error) {
     return res.status(500).json({

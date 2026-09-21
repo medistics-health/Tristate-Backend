@@ -27,7 +27,10 @@ export async function listCategories(req: AuthenticatedRequest, res: Response) {
 
     return res.status(200).json({
       message: "Categories fetched successfully.",
-      categories,
+      categories: categories.map((category) => ({
+        ...category,
+        parentCategoryId: category.parentCategoryId ?? category.parentCategory?.id ?? null,
+      })),
     });
   } catch (error) {
     return res.status(500).json({
@@ -68,6 +71,7 @@ export async function createCategory(req: AuthenticatedRequest, res: Response) {
 
     const category = await prisma.hubDocumentCategory.create({
       data: { name, parentCategoryId },
+      include: { parentCategory: { select: { id: true, name: true } } },
     });
 
     return res.status(201).json({ message: "Category created successfully.", category });

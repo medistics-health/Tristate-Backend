@@ -62,10 +62,9 @@ export const ROLE_GROUPS = {
   INTEGRATIONS: [UserRoles.ADMIN, UserRoles.FINANCE],
   SETTINGS: [UserRoles.ADMIN],
   USER_ADMIN: [UserRoles.ADMIN],
-  DOCUMENT_HUB_CONTENT: [UserRoles.ADMIN, UserRoles.MARKETING],
+  DOCUMENT_HUB_CONTENT: [UserRoles.ADMIN],
   DOCUMENT_HUB_SHARE: [
     UserRoles.ADMIN,
-    UserRoles.MARKETING,
     UserRoles.SALES,
     UserRoles.ACCOUNTMANAGER,
   ],

@@ -14,7 +14,6 @@ Source of truth in code:
 - `OPERATIONS`
 - `FINANCE`
 - `VIEWER`
-- `MARKETING`
 
 ## How access works
 
@@ -68,18 +67,15 @@ Source of truth in code:
   - `api/v1/invoices/:id/resend`
   - `api/v1/vendor-payables` release/sync/pay/delete
 
-### `DOCUMENT_HUB_CONTENT` -> `ADMIN`, `MARKETING`
+### `DOCUMENT_HUB_CONTENT` -> `ADMIN`
 - Applied to Document Hub write endpoints:
   - `POST/PATCH/DELETE /api/v1/documents*` (upload, metadata, versions, archive)
   - Category create/update/delete/merge
   - Public link revoke (`DELETE /api/v1/public-links/:id`)
-- Additional controller checks:
-  - `MARKETING` may archive/revoke only documents they uploaded
-  - `ADMIN` may archive/revoke any document
 
-### `DOCUMENT_HUB_SHARE` -> `ADMIN`, `MARKETING`, `SALES`, `ACCOUNTMANAGER`
+### `DOCUMENT_HUB_SHARE` -> `ADMIN`, `SALES`, `ACCOUNTMANAGER`
 - Applied to `POST /api/v1/documents/:id/public-links`
-- Controller check: the document must already have `isPublicShareable = true` (only content managers can set that flag)
+- Controller check: the document must already have `isPublicShareable = true` (only admins can set that flag)
 
 ### `DOCUMENT_HUB_HARD_DELETE` -> `ADMIN`
 - Applied to `DELETE /api/v1/documents/:id/hard`
@@ -114,12 +110,6 @@ Source of truth in code:
 ### `VIEWER`
 - Read-only access to all authenticated resources via `GET` endpoints, including routes that otherwise use restricted role groups.
 - No access to non-`GET` methods (`POST`, `PUT`, `PATCH`, `DELETE`) on any protected route.
-
-### `MARKETING`
-- All authenticated read endpoints.
-- Document Hub content write access (`DOCUMENT_HUB_CONTENT`) and public link create (`DOCUMENT_HUB_SHARE`).
-- Not in `BUSINESS_WRITE`, finance, integrations, user admin, or settings groups.
-- Can archive documents and revoke public links only for their own uploads.
 
 ## Public routes (no auth required)
 

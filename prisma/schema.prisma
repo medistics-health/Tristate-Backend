@@ -1577,7 +1577,6 @@ enum UserRoles {
   OPERATIONS
   FINANCE
   VIEWER
-  MARKETING
 }
 
 enum PracticeStatus {
