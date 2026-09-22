@@ -67,6 +67,19 @@ Source of truth in code:
   - `api/v1/invoices/:id/resend`
   - `api/v1/vendor-payables` release/sync/pay/delete
 
+### `DOCUMENT_HUB_CONTENT` -> `ADMIN`
+- Applied to Document Hub write endpoints:
+  - `POST/PATCH/DELETE /api/v1/documents*` (upload, metadata, versions, archive)
+  - Category create/update/delete/merge
+  - Public link revoke (`DELETE /api/v1/public-links/:id`)
+
+### `DOCUMENT_HUB_SHARE` -> `ADMIN`, `SALES`, `ACCOUNTMANAGER`
+- Applied to `POST /api/v1/documents/:id/public-links`
+- Controller check: the document must already have `isPublicShareable = true` (only admins can set that flag)
+
+### `DOCUMENT_HUB_HARD_DELETE` -> `ADMIN`
+- Applied to `DELETE /api/v1/documents/:id/hard`
+
 ## Effective access by role
 
 ### `ADMIN`
@@ -85,11 +98,13 @@ Source of truth in code:
 ### `SALES`
 - All authenticated read endpoints.
 - `BUSINESS_WRITE`.
+- Document Hub public link create (`DOCUMENT_HUB_SHARE`) only when the document is already public-shareable.
 - No finance/integration/admin/settings restricted actions.
 
 ### `ACCOUNTMANAGER`
 - All authenticated read endpoints.
 - `BUSINESS_WRITE`.
+- Document Hub public link create (`DOCUMENT_HUB_SHARE`) only when the document is already public-shareable.
 - No finance/integration/admin/settings restricted actions.
 
 ### `VIEWER`
@@ -110,6 +125,9 @@ Examples of public routes:
   - `/api/v1/agreements/service-terms/:id/client-approval`
 - Onboarding external endpoints under:
   - `/api/v1/onboardings/external/*`
+- Document Hub public share (rate-limited):
+  - `GET /api/v1/public/share/:token`
+  - `GET /api/v1/public/share/:token/download`
 
 ## Maintenance rule (must follow)
 

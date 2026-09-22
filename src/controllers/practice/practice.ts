@@ -17,6 +17,10 @@ import {
   buildProcessingFeeSettings,
   isBillingPaymentMethod,
 } from "../../utils/paymentProcessing";
+import {
+  linkedHubDocumentInclude,
+  serializeLinkedHubDocuments,
+} from "../../services/documentHub/documentHub.service";
 
 type GroupNpiInput = {
   groupNpiNumber: string;
@@ -635,6 +639,9 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
           orderBy: { createdAt: "desc" },
           take: 1,
         },
+        hubDocumentLinks: {
+          include: linkedHubDocumentInclude,
+        },
       },
     });
 
@@ -651,9 +658,14 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    const { hubDocumentLinks, ...practiceData } = practice;
+
     return res.status(200).json({
       message: "Practice fetched successfully.",
-      practice: withGoLiveTarget(practice),
+      practice: {
+        ...withGoLiveTarget(practiceData),
+        hubDocuments: serializeLinkedHubDocuments(hubDocumentLinks),
+      },
       allGroupNpisByTaxId,
     });
   } catch (error) {
