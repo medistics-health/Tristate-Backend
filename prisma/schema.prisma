@@ -42,6 +42,7 @@ model User {
   hubDocumentPublicLinks       HubDocumentPublicLink[]  @relation("HubDocumentPublicLinkCreatedBy")
   hubDocumentPublicLinksRevoked HubDocumentPublicLink[] @relation("HubDocumentPublicLinkRevokedBy")
   hubDocumentActivityLogs      HubDocumentActivityLog[] @relation("HubDocumentActivityByUser")
+  hubDocumentCategoriesCreated HubDocumentCategory[]    @relation("HubDocumentCategoryCreatedBy")
 
   @@map("User")
 }
@@ -2495,11 +2496,14 @@ model HubDocumentCategory {
   name             String                    @unique
   parentCategoryId String?                   @map("parent_category_id") @db.Uuid
   createdAt        DateTime                  @default(now()) @map("created_at")
+  createdById      String?                   @map("created_by") @db.Uuid
   parentCategory   HubDocumentCategory?      @relation("HubDocumentCategoryHierarchy", fields: [parentCategoryId], references: [id])
   childCategories  HubDocumentCategory[]     @relation("HubDocumentCategoryHierarchy")
+  createdBy        User?                     @relation("HubDocumentCategoryCreatedBy", fields: [createdById], references: [id])
   documentLinks    HubDocumentCategoryLink[]
 
   @@index([parentCategoryId])
+  @@index([createdById])
   @@map("hub_document_categories")
 }
 
