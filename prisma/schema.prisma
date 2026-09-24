@@ -40,6 +40,7 @@ model User {
   onboardingActivities         OnboardingTaskActivity[]
   hubDocumentsUploaded         HubDocument[]            @relation("HubDocumentUploadedBy")
   hubDocumentPublicLinks       HubDocumentPublicLink[]  @relation("HubDocumentPublicLinkCreatedBy")
+  hubDocumentPublicLinksRevoked HubDocumentPublicLink[] @relation("HubDocumentPublicLinkRevokedBy")
   hubDocumentActivityLogs      HubDocumentActivityLog[] @relation("HubDocumentActivityByUser")
 
   @@map("User")
@@ -2579,18 +2580,21 @@ model HubDocumentPublicLink {
   id            String       @id @default(uuid()) @db.Uuid
   documentId    String       @map("document_id") @db.Uuid
   token         String       @unique
-  createdById   String       @map("created_by") @db.Uuid
-  createdAt     DateTime     @default(now()) @map("created_at")
-  expiresAt     DateTime?    @map("expires_at")
-  revokedAt     DateTime?    @map("revoked_at")
-  viewCount     Int          @default(0) @map("view_count")
-  lastAccessedAt DateTime?   @map("last_accessed_at")
-  allowDownload Boolean      @default(true) @map("allow_download")
-  document      HubDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  createdBy     User         @relation("HubDocumentPublicLinkCreatedBy", fields: [createdById], references: [id])
+  createdById    String       @map("created_by") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  expiresAt      DateTime?    @map("expires_at")
+  revokedAt      DateTime?    @map("revoked_at")
+  revokedById    String?      @map("revoked_by") @db.Uuid
+  viewCount      Int          @default(0) @map("view_count")
+  lastAccessedAt DateTime?    @map("last_accessed_at")
+  allowDownload  Boolean      @default(true) @map("allow_download")
+  document       HubDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation("HubDocumentPublicLinkCreatedBy", fields: [createdById], references: [id])
+  revokedBy      User?        @relation("HubDocumentPublicLinkRevokedBy", fields: [revokedById], references: [id])
 
   @@index([documentId])
   @@index([createdById])
+  @@index([revokedById])
   @@index([token])
   @@map("hub_document_public_links")
 }

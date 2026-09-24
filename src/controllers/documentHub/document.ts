@@ -22,6 +22,7 @@ import {
   listLatestDocumentIds,
   logDocumentActivity,
   parseBoolean,
+  parseHubDocumentPublishStatus,
   parseIdList,
   serializeHubDocument,
   updateHubDocumentMetadata,
@@ -56,6 +57,14 @@ export async function createDocument(req: AuthenticatedRequest, res: Response) {
     const isPublicShareable = parseBoolean(req.body?.isPublicShareable) || false;
     const description =
       req.body?.description !== undefined ? String(req.body.description) : undefined;
+    let status: HubDocumentStatus;
+    try {
+      status = parseHubDocumentPublishStatus(req.body?.status);
+    } catch (error) {
+      return res.status(400).json({
+        message: error instanceof Error ? error.message : "Invalid status.",
+      });
+    }
 
     if (!title) {
       return res.status(400).json({ message: "title is required." });
@@ -76,6 +85,7 @@ export async function createDocument(req: AuthenticatedRequest, res: Response) {
       dealIds,
       personIds,
       isPublicShareable,
+      status,
       uploadedById: user.sub,
     });
 
@@ -328,11 +338,20 @@ export async function updateDocument(req: AuthenticatedRequest, res: Response) {
       req.body?.status !== undefined
         ? String(req.body.status).toUpperCase()
         : undefined;
-    if (
-      statusValue &&
-      !Object.values(HubDocumentStatus).includes(statusValue as HubDocumentStatus)
-    ) {
-      return res.status(400).json({ message: "Invalid status." });
+    if (statusValue === HubDocumentStatus.ARCHIVED) {
+      return res.status(400).json({
+        message: "Use the archive action to archive a document.",
+      });
+    }
+    let nextStatus: HubDocumentStatus | undefined;
+    if (statusValue) {
+      try {
+        nextStatus = parseHubDocumentPublishStatus(statusValue);
+      } catch (error) {
+        return res.status(400).json({
+          message: error instanceof Error ? error.message : "Invalid status.",
+        });
+      }
     }
 
     const previousStatus = existing.status;
@@ -346,17 +365,17 @@ export async function updateDocument(req: AuthenticatedRequest, res: Response) {
       practiceIds:
         req.body?.practiceIds !== undefined ? parseIdList(req.body.practiceIds) : undefined,
       dealIds: req.body?.dealIds !== undefined ? parseIdList(req.body.dealIds) : undefined,
-      personIds: req.body?.personIds !== undefined ? parseIdList(req.body.personIds) : undefined,
+      personIds:
+        req.body?.personIds !== undefined ? parseIdList(req.body.personIds) : undefined,
       isPublicShareable: parseBoolean(req.body?.isPublicShareable),
-      status: statusValue as HubDocumentStatus | undefined,
+      status: nextStatus,
     });
 
     let action: HubDocumentActivityAction = HubDocumentActivityAction.METADATA_EDIT;
-    if (statusValue === HubDocumentStatus.ARCHIVED && previousStatus !== HubDocumentStatus.ARCHIVED) {
-      action = HubDocumentActivityAction.ARCHIVE;
-    } else if (
-      statusValue === HubDocumentStatus.ACTIVE &&
-      previousStatus === HubDocumentStatus.ARCHIVED
+    if (
+      nextStatus &&
+      previousStatus === HubDocumentStatus.ARCHIVED &&
+      nextStatus !== HubDocumentStatus.ARCHIVED
     ) {
       action = HubDocumentActivityAction.RESTORE;
     }

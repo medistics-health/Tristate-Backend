@@ -4,12 +4,13 @@ import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { routeParam } from "../../middleware/documentHubUpload";
 import { prisma } from "../../lib/prisma";
 import {
-  buildShareUrl,
   canRevokePublicLink,
   createPublicLink,
   getRequestIp,
   logDocumentActivity,
   parseBoolean,
+  publicLinkInclude,
+  serializePublicLink,
 } from "../../services/documentHub/documentHub.service";
 
 function requireUser(req: AuthenticatedRequest, res: Response) {
@@ -63,7 +64,7 @@ export async function createDocumentPublicLink(req: AuthenticatedRequest, res: R
     const message = error instanceof Error ? error.message : "Unable to create public link.";
     const status = message.includes("not found")
       ? 404
-      : message.includes("public-shareable")
+      : message.includes("public-shareable") || message.includes("Only active")
         ? 403
         : 500;
     return res.status(status).json({
@@ -91,20 +92,13 @@ export async function listDocumentPublicLinks(req: AuthenticatedRequest, res: Re
 
     const publicLinks = await prisma.hubDocumentPublicLink.findMany({
       where: { documentId: id },
-      include: {
-        createdBy: {
-          select: { id: true, firstName: true, lastName: true, email: true },
-        },
-      },
+      include: publicLinkInclude,
       orderBy: { createdAt: "desc" },
     });
 
     return res.status(200).json({
       message: "Public links fetched successfully.",
-      publicLinks: publicLinks.map((link) => ({
-        ...link,
-        ...buildShareUrl(link.token),
-      })),
+      publicLinks: publicLinks.map(serializePublicLink),
     });
   } catch (error) {
     return res.status(500).json({
@@ -147,15 +141,23 @@ export async function revokePublicLink(req: AuthenticatedRequest, res: Response)
     }
 
     if (publicLink.revokedAt) {
+      const alreadyRevoked = await prisma.hubDocumentPublicLink.findUnique({
+        where: { id },
+        include: publicLinkInclude,
+      });
       return res.status(200).json({
         message: "Public link is already revoked.",
-        publicLink,
+        publicLink: alreadyRevoked ? serializePublicLink(alreadyRevoked) : publicLink,
       });
     }
 
     const updated = await prisma.hubDocumentPublicLink.update({
       where: { id },
-      data: { revokedAt: new Date() },
+      data: {
+        revokedAt: new Date(),
+        revokedById: user.sub,
+      },
+      include: publicLinkInclude,
     });
 
     await logDocumentActivity({
@@ -167,7 +169,7 @@ export async function revokePublicLink(req: AuthenticatedRequest, res: Response)
 
     return res.status(200).json({
       message: "Public link revoked successfully.",
-      publicLink: updated,
+      publicLink: serializePublicLink(updated),
     });
   } catch (error) {
     return res.status(500).json({

@@ -77,6 +77,27 @@ export function canRevokePublicLink(params: {
   return canSoftDeleteDocument(params);
 }
 
+export function parseHubDocumentPublishStatus(
+  value: unknown,
+  fallback: HubDocumentStatus = HubDocumentStatus.ACTIVE,
+): HubDocumentStatus {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return fallback;
+  }
+  const status = String(value).toUpperCase();
+  if (status === HubDocumentStatus.DRAFT || status === HubDocumentStatus.ACTIVE) {
+    return status;
+  }
+  throw new Error("Status must be DRAFT or ACTIVE. Use archive to retire a document.");
+}
+
+export function isHubDocumentPubliclyAvailable(document: {
+  status: HubDocumentStatus;
+  isPublicShareable: boolean;
+}) {
+  return document.isPublicShareable && document.status === HubDocumentStatus.ACTIVE;
+}
+
 export function serializeHubDocument(
   document: HubDocumentWithRelations,
   extras?: { isLatest?: boolean },
@@ -152,7 +173,7 @@ export function serializeLinkedHubDocuments(
   const latestByRoot = new Map<string, (typeof links)[number]["document"]>();
   for (const link of links) {
     const document = link.document;
-    if (document.status === HubDocumentStatus.ARCHIVED) {
+    if (document.status !== HubDocumentStatus.ACTIVE) {
       continue;
     }
     const existing = latestByRoot.get(document.rootDocumentId);
@@ -375,6 +396,7 @@ export async function createHubDocument(params: {
   dealIds?: string[];
   personIds?: string[];
   isPublicShareable?: boolean;
+  status?: HubDocumentStatus;
   uploadedById: string;
 }) {
   const fileError = validateDocumentHubFile({
@@ -424,7 +446,7 @@ export async function createHubDocument(params: {
         checksumSha256,
         version,
         rootDocumentId: documentId,
-        status: HubDocumentStatus.ACTIVE,
+        status: params.status ?? HubDocumentStatus.ACTIVE,
         isPublicShareable: Boolean(params.isPublicShareable),
         uploadedById: params.uploadedById,
       },
@@ -520,7 +542,10 @@ export async function createHubDocumentVersion(params: {
         version,
         rootDocumentId: parent.rootDocumentId,
         parentDocumentId: parent.id,
-        status: HubDocumentStatus.ACTIVE,
+        status:
+          parent.status === HubDocumentStatus.ARCHIVED
+            ? HubDocumentStatus.ACTIVE
+            : parent.status,
         isPublicShareable: parent.isPublicShareable,
         uploadedById: params.uploadedById,
       },
@@ -706,6 +731,32 @@ export function buildShareUrl(token: string) {
   };
 }
 
+const publicLinkUserSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+} as const;
+
+export const publicLinkInclude = {
+  createdBy: { select: publicLinkUserSelect },
+  revokedBy: { select: publicLinkUserSelect },
+};
+
+export function serializePublicLink<
+  T extends {
+    token: string;
+    createdBy?: unknown;
+    revokedBy?: unknown;
+  },
+>(link: T) {
+  const { token, ...rest } = link;
+  return {
+    ...rest,
+    ...buildShareUrl(token),
+  };
+}
+
 export async function createPublicLink(params: {
   documentId: string;
   createdById: string;
@@ -718,8 +769,12 @@ export async function createPublicLink(params: {
   if (!document) {
     throw new Error("Document not found.");
   }
-  if (!document.isPublicShareable) {
-    throw new Error("This document is not marked as public-shareable.");
+  if (!isHubDocumentPubliclyAvailable(document)) {
+    throw new Error(
+      document.status !== HubDocumentStatus.ACTIVE
+        ? "Only active documents can be shared publicly."
+        : "This document is not marked as public-shareable.",
+    );
   }
 
   const token = crypto.randomBytes(32).toString("base64url");
@@ -731,12 +786,10 @@ export async function createPublicLink(params: {
       expiresAt: params.expiresAt || null,
       allowDownload: params.allowDownload !== false,
     },
+    include: publicLinkInclude,
   });
 
-  return {
-    ...publicLink,
-    ...buildShareUrl(token),
-  };
+  return serializePublicLink(publicLink);
 }
 
 export async function getValidPublicLink(token: string) {
@@ -767,7 +820,7 @@ export async function getValidPublicLink(token: string) {
   if (publicLink.expiresAt && publicLink.expiresAt.getTime() < Date.now()) {
     return { error: "unavailable" as const };
   }
-  if (!publicLink.document.isPublicShareable) {
+  if (!isHubDocumentPubliclyAvailable(publicLink.document)) {
     return { error: "unavailable" as const };
   }
 
