@@ -824,27 +824,35 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     }
   }
 
-  // Finalize the invoice if it needs to be finalized
-  if (stripeInvoiceId && !hostedUrl) {
+  // Finalize the invoice if it needs to be finalized, or get the latest URLs
+  if (stripeInvoiceId) {
     let finalizedInvoice;
-    try {
-      finalizedInvoice = await stripeRequest<{ hosted_invoice_url?: string | null; invoice_pdf?: string | null }>(
-        "POST",
-        `/v1/invoices/${stripeInvoiceId}/finalize`,
-      );
-    } catch (err: any) {
-      // If it's already finalized, just retrieve it
-      if (
-        err.message &&
-        err.message.includes("can only be finalized in draft")
-      ) {
-        finalizedInvoice = await stripeRequest(
-          "GET",
-          `/v1/invoices/${stripeInvoiceId}`,
+    if (!hostedUrl) {
+      try {
+        finalizedInvoice = await stripeRequest<{ hosted_invoice_url?: string | null; invoice_pdf?: string | null }>(
+          "POST",
+          `/v1/invoices/${stripeInvoiceId}/finalize`,
         );
-      } else {
-        throw err;
+      } catch (err: any) {
+        // If it's already finalized, just retrieve it
+        if (
+          err.message &&
+          err.message.includes("can only be finalized in draft")
+        ) {
+          finalizedInvoice = await stripeRequest(
+            "GET",
+            `/v1/invoices/${stripeInvoiceId}`,
+          );
+        } else {
+          throw err;
+        }
       }
+    } else {
+      // If hostedUrl already exists, we know it's finalized, so just fetch the latest from Stripe
+      finalizedInvoice = await stripeRequest<{ hosted_invoice_url?: string | null; invoice_pdf?: string | null }>(
+        "GET",
+        `/v1/invoices/${stripeInvoiceId}`,
+      );
     }
 
     hostedUrl = finalizedInvoice.hosted_invoice_url || null;
