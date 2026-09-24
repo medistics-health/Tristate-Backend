@@ -28,6 +28,33 @@ import {
   updateHubDocumentMetadata,
 } from "../../services/documentHub/documentHub.service";
 
+function parseFilterDate(value: unknown, endOfDay: boolean) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return undefined;
+  }
+  const raw = String(value).trim();
+  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (dayOnly) {
+    const year = Number(dayOnly[1]);
+    const month = Number(dayOnly[2]) - 1;
+    const day = Number(dayOnly[3]);
+    return new Date(
+      year,
+      month,
+      day,
+      endOfDay ? 23 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 59 : 0,
+      endOfDay ? 999 : 0,
+    );
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  return date;
+}
+
 function requireUser(req: AuthenticatedRequest, res: Response) {
   if (!req.user?.sub) {
     res.status(401).json({ message: "Unauthorized." });
@@ -134,8 +161,8 @@ export async function getDocuments(req: AuthenticatedRequest, res: Response) {
     const mimeType = req.query.mimeType ? String(req.query.mimeType) : undefined;
     const fileType = req.query.fileType ? String(req.query.fileType).toLowerCase() : undefined;
     const statusParam = req.query.status ? String(req.query.status).toUpperCase() : HubDocumentStatus.ACTIVE;
-    const from = req.query.from ? new Date(String(req.query.from)) : undefined;
-    const to = req.query.to ? new Date(String(req.query.to)) : undefined;
+    const from = parseFilterDate(req.query.from, false);
+    const to = parseFilterDate(req.query.to, true);
     const latestOnly = String(req.query.latestOnly || "true") !== "false";
     const sort = String(req.query.sort || "newest");
 
@@ -173,8 +200,8 @@ export async function getDocuments(req: AuthenticatedRequest, res: Response) {
     }
     if (from || to) {
       where.createdAt = {
-        ...(from && !Number.isNaN(from.getTime()) ? { gte: from } : {}),
-        ...(to && !Number.isNaN(to.getTime()) ? { lte: to } : {}),
+        ...(from ? { gte: from } : {}),
+        ...(to ? { lte: to } : {}),
       };
     }
     if (categoryId) {
@@ -252,6 +279,30 @@ export async function getDocuments(req: AuthenticatedRequest, res: Response) {
   } catch (error) {
     return res.status(500).json({
       message: "Unable to fetch documents.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
+export async function listDocumentUploaders(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!requireUser(req, res)) {
+      return;
+    }
+
+    const uploaders = await prisma.user.findMany({
+      where: { hubDocumentsUploaded: { some: {} } },
+      select: { id: true, firstName: true, lastName: true, email: true },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+    });
+
+    return res.status(200).json({
+      message: "Uploaders fetched successfully.",
+      uploaders,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to fetch uploaders.",
       error: error instanceof Error ? error.message : error,
     });
   }
