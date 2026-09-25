@@ -63,11 +63,7 @@ export const ROLE_GROUPS = {
   SETTINGS: [UserRoles.ADMIN],
   USER_ADMIN: [UserRoles.ADMIN],
   DOCUMENT_HUB_CONTENT: [UserRoles.ADMIN],
-  DOCUMENT_HUB_SHARE: [
-    UserRoles.ADMIN,
-    UserRoles.SALES,
-    UserRoles.ACCOUNTMANAGER,
-  ],
+  DOCUMENT_HUB_SHARE: [UserRoles.ADMIN, UserRoles.SALES],
   DOCUMENT_HUB_HARD_DELETE: [UserRoles.ADMIN],
 };
 

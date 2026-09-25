@@ -73,7 +73,7 @@ Source of truth in code:
   - Category create/update/delete/merge
   - Public link revoke (`DELETE /api/v1/public-links/:id`)
 
-### `DOCUMENT_HUB_SHARE` -> `ADMIN`, `SALES`, `ACCOUNTMANAGER`
+### `DOCUMENT_HUB_SHARE` -> `ADMIN`, `SALES`
 - Applied to `POST /api/v1/documents/:id/public-links`
 - Controller check: the document must already have `isPublicShareable = true` (only admins can set that flag)
 
@@ -104,7 +104,7 @@ Source of truth in code:
 ### `ACCOUNTMANAGER`
 - All authenticated read endpoints.
 - `BUSINESS_WRITE`.
-- Document Hub public link create (`DOCUMENT_HUB_SHARE`) only when the document is already public-shareable.
+- No Document Hub public link create.
 - No finance/integration/admin/settings restricted actions.
 
 ### `VIEWER`
