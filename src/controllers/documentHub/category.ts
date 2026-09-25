@@ -11,6 +11,19 @@ function requireUser(req: AuthenticatedRequest, res: Response) {
   return req.user;
 }
 
+const categoryCreatedBySelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  email: true,
+} as const;
+
+const categoryListInclude = {
+  parentCategory: { select: { id: true, name: true } },
+  createdBy: { select: categoryCreatedBySelect },
+  _count: { select: { documentLinks: true, childCategories: true } },
+} as const;
+
 export async function listCategories(req: AuthenticatedRequest, res: Response) {
   try {
     if (!requireUser(req, res)) {
@@ -18,10 +31,7 @@ export async function listCategories(req: AuthenticatedRequest, res: Response) {
     }
 
     const categories = await prisma.hubDocumentCategory.findMany({
-      include: {
-        parentCategory: { select: { id: true, name: true } },
-        _count: { select: { documentLinks: true, childCategories: true } },
-      },
+      include: categoryListInclude,
       orderBy: { name: "asc" },
     });
 
@@ -42,7 +52,8 @@ export async function listCategories(req: AuthenticatedRequest, res: Response) {
 
 export async function createCategory(req: AuthenticatedRequest, res: Response) {
   try {
-    if (!requireUser(req, res)) {
+    const user = requireUser(req, res);
+    if (!user) {
       return;
     }
 
@@ -70,8 +81,15 @@ export async function createCategory(req: AuthenticatedRequest, res: Response) {
     }
 
     const category = await prisma.hubDocumentCategory.create({
-      data: { name, parentCategoryId },
-      include: { parentCategory: { select: { id: true, name: true } } },
+      data: {
+        name,
+        parentCategoryId,
+        createdById: user.sub,
+      },
+      include: {
+        parentCategory: { select: { id: true, name: true } },
+        createdBy: { select: categoryCreatedBySelect },
+      },
     });
 
     return res.status(201).json({ message: "Category created successfully.", category });

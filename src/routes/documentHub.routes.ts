@@ -13,6 +13,7 @@ import {
   getDocument,
   getDocuments,
   hardDeleteDocument,
+  listDocumentUploaders,
   updateDocument,
 } from "../controllers/documentHub/document";
 import {
@@ -32,6 +33,7 @@ import {
 const documentRouter = Router();
 documentRouter.use(verifyAuthToken);
 documentRouter.get("/", getDocuments);
+documentRouter.get("/uploaders", listDocumentUploaders);
 documentRouter.post(
   "/",
   requireRoles(ROLE_GROUPS.DOCUMENT_HUB_CONTENT),
