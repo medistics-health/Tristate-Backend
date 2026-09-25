@@ -110,20 +110,48 @@ export async function processPendingTransfers() {
 
     console.log(`[stripe-transfers] Total Ready Gross (cents): ${totalReadyGrossAmount}`);
 
-    for (const transfer of readyTransfers) {
-      // transfer.amount is in dollars. Convert to cents for Stripe.
-      const amountInCents = Math.round(Number(transfer.amount) * 100);
+    let availableBalanceAmount = 0; // In CENTS
+    try {
+      const balanceResponse = await stripe.balance.retrieve();
+      const availableObj = balanceResponse.available.find((b) => b.currency.toLowerCase() === "usd");
+      if (availableObj) {
+        availableBalanceAmount = availableObj.amount;
+      }
+    } catch (err) {
+      console.error("[stripe-transfers] Failed to retrieve platform balance:", err);
+      return; 
+    }
+    
+    let remainingBalance = availableBalanceAmount;
 
-      if (amountInCents <= 0) {
+    for (const transfer of readyTransfers) {
+      const amountInCents = Math.round(Number(transfer.amount) * 100);
+      let transferAmount = amountInCents;
+
+      if (remainingBalance < amountInCents) {
+        const diff = amountInCents - remainingBalance;
+        // If difference is small (< $100), assume it was eaten by Stripe fees and deduct it
+        if (diff <= 10000 && remainingBalance > 0) {
+          transferAmount = remainingBalance;
+          console.log(`[stripe-transfers] Balance is short by $${(diff/100).toFixed(2)} due to fees. Deducting from transfer amount.`);
+        } else {
+          console.log(`[stripe-transfers] Remaining balance (${remainingBalance}) is too low for transfer (${amountInCents}). Skipping.`);
+          continue;
+        }
+      }
+
+      if (transferAmount <= 0) {
         console.log(`[stripe-transfers] Amount is <= 0 for transfer ${transfer.id}. Skipping.`);
         continue;
       }
+
+      remainingBalance -= transferAmount;
 
       const destination = (transfer as any).resolvedDestination || transfer.stripeConnectedAccountId;
 
       try {
         const created = await stripe.transfers.create({
-          amount: amountInCents,
+          amount: transferAmount,
           currency: "usd",
           destination,
           transfer_group: transfer.transferGroup || undefined,
@@ -141,12 +169,12 @@ export async function processPendingTransfers() {
             stripeTransferId: created.id,
             status: "SENT",
             stripeConnectedAccountId: destination,
-            amount: transfer.amount, // Keep exactly what was requested
+            amount: Number((transferAmount / 100).toFixed(2)),
             failureMessage: null,
           },
         });
 
-        console.log(`[stripe-transfers] Successfully transferred full amount $${(amountInCents / 100).toFixed(2)} to ${destination}!`);
+        console.log(`[stripe-transfers] Successfully transferred $${(transferAmount / 100).toFixed(2)} to ${destination}!`);
       } catch (err: any) {
         console.error(`[stripe-transfers] Failed to transfer to ${destination}:`, err);
         // If it fails (e.g. insufficient funds), mark as FAILED so it will retry later
