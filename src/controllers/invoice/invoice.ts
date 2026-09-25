@@ -275,6 +275,7 @@ export async function getInvoice(req: AuthenticatedRequest, res: Response) {
             email: true,
           },
         },
+        stripeTransfers: true,
         lineItems: {
           include: {
             service: {
@@ -653,6 +654,7 @@ export async function getAllInvoices(req: AuthenticatedRequest, res: Response) {
               email: true,
             },
           },
+          stripeTransfers: true,
           lineItems: {
             include: {
               billingRunItemComponent: true,
