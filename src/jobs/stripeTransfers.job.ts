@@ -44,32 +44,29 @@ export async function processPendingTransfers() {
           chargeId = typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge?.id;
         }
 
-        if (!chargeId) {
-          console.warn(`[stripe-transfers] Invoice ${stripeInvoiceId} has no charge/PI. Assuming funds are ready.`);
-          // We can't check the balance transaction for this specific charge, so we assume it's ready.
-          // Re-resolve the correct destination
-          let destination = transfer.stripeConnectedAccountId;
-          if (transfer.serviceIds && transfer.serviceIds.length > 0) {
-            const service = await prisma.service.findUnique({
-              where: { id: transfer.serviceIds[0] },
-              select: { stripeConnectedAccountId: true }
-            });
-            if (service?.stripeConnectedAccountId) {
-              destination = service.stripeConnectedAccountId;
-            }
+        let balanceTx: any = null;
+
+        if (chargeId) {
+          const charge = await stripe.charges.retrieve(chargeId, {
+            expand: ["balance_transaction"],
+          });
+          balanceTx = charge.balance_transaction;
+        } else {
+          console.log(`[stripe-transfers] Invoice ${stripeInvoiceId} has no charge. Searching balance transactions by amount ${stripeInvoice.total}...`);
+          // Fallback: match by amount as requested by user
+          const bts = await stripe.balanceTransactions.list({ limit: 10000 });
+          const matchedBt = bts.data.find(
+            (bt) => bt.amount === stripeInvoice.total && (bt.type === "payment" || bt.type === "charge")
+          );
+          if (matchedBt) {
+            console.log(`[stripe-transfers] Found matching balance transaction: ${matchedBt.id}`);
+            balanceTx = matchedBt;
+            chargeId = matchedBt.source as string; 
+          } else {
+            console.warn(`[stripe-transfers] Could not find any matching balance transaction for amount ${stripeInvoice.total}. Skipping.`);
+            continue; // Cannot safely proceed if we can't find the balance transaction
           }
-          (transfer as any).resolvedChargeId = null; 
-          (transfer as any).resolvedDestination = destination;
-          readyTransfers.push(transfer);
-          totalReadyGrossAmount += Math.round(Number(transfer.amount) * 100);
-          continue;
         }
-
-        const charge = await stripe.charges.retrieve(chargeId, {
-          expand: ["balance_transaction"],
-        });
-
-        const balanceTx: any = charge.balance_transaction;
 
         if (balanceTx && balanceTx.status === "available") {
           // Re-resolve the correct destination in case the stored one is stale
@@ -111,34 +108,14 @@ export async function processPendingTransfers() {
       return;
     }
 
-    let availableBalanceAmount = 0; // In CENTS
-    try {
-      const balanceResponse = await stripe.balance.retrieve();
-      const availableObj = balanceResponse.available.find((b) => b.currency.toLowerCase() === "usd");
-      if (availableObj) {
-        availableBalanceAmount = availableObj.amount;
-      }
-    } catch (err) {
-      console.error("[stripe-transfers] Failed to retrieve platform balance:", err);
-      return; 
-    }
-
-    const transferRatio =
-      totalReadyGrossAmount > 0 && availableBalanceAmount < totalReadyGrossAmount
-        ? Math.max(0, availableBalanceAmount) / totalReadyGrossAmount
-        : 1;
-
     console.log(`[stripe-transfers] Total Ready Gross (cents): ${totalReadyGrossAmount}`);
-    console.log(`[stripe-transfers] Available Balance (cents): ${availableBalanceAmount}`);
-    console.log(`[stripe-transfers] Applying Ratio: ${transferRatio}`);
 
     for (const transfer of readyTransfers) {
       // transfer.amount is in dollars. Convert to cents for Stripe.
       const amountInCents = Math.round(Number(transfer.amount) * 100);
-      const adjustedAmountCents = Math.floor(amountInCents * transferRatio);
 
-      if (adjustedAmountCents <= 0) {
-        console.log(`[stripe-transfers] Adjusted amount is <= 0 for transfer ${transfer.id}. Skipping.`);
+      if (amountInCents <= 0) {
+        console.log(`[stripe-transfers] Amount is <= 0 for transfer ${transfer.id}. Skipping.`);
         continue;
       }
 
@@ -146,7 +123,7 @@ export async function processPendingTransfers() {
 
       try {
         const created = await stripe.transfers.create({
-          amount: adjustedAmountCents,
+          amount: amountInCents,
           currency: "usd",
           destination,
           transfer_group: transfer.transferGroup || undefined,
@@ -154,7 +131,6 @@ export async function processPendingTransfers() {
             invoiceId: transfer.invoiceId,
             sourceTransactionId: (transfer as any).resolvedChargeId || "",
             originalAmount: transfer.amount.toString(),
-            adjustedAmount: adjustedAmountCents.toString(),
             executedVia: "CRON_JOB",
           },
         });
@@ -165,15 +141,15 @@ export async function processPendingTransfers() {
             stripeTransferId: created.id,
             status: "SENT",
             stripeConnectedAccountId: destination,
-            amount: Number((adjustedAmountCents / 100).toFixed(2)), // Update DB to exactly what was actually transferred
+            amount: transfer.amount, // Keep exactly what was requested
             failureMessage: null,
           },
         });
 
-        console.log(`[stripe-transfers] Successfully transferred $${(adjustedAmountCents / 100).toFixed(2)} to ${destination}!`);
+        console.log(`[stripe-transfers] Successfully transferred full amount $${(amountInCents / 100).toFixed(2)} to ${destination}!`);
       } catch (err: any) {
-        console.error(`[stripe-transfers] Failed to transfer to ${transfer.stripeConnectedAccountId}:`, err);
-        // Optionally update the DB with failure message
+        console.error(`[stripe-transfers] Failed to transfer to ${destination}:`, err);
+        // If it fails (e.g. insufficient funds), mark as FAILED so it will retry later
         await prisma.invoiceConnectedAccountTransfer.update({
           where: { id: transfer.id },
           data: {
