@@ -33,8 +33,16 @@ export async function processPendingTransfers() {
       }
 
       try {
-        const stripeInvoice: any = await stripe.invoices.retrieve(stripeInvoiceId);
-        const chargeId = typeof stripeInvoice.charge === 'string' ? stripeInvoice.charge : stripeInvoice.charge?.id;
+        const stripeInvoice: any = await stripe.invoices.retrieve(stripeInvoiceId, {
+          expand: ["payment_intent"]
+        });
+        
+        let chargeId = typeof stripeInvoice.charge === 'string' ? stripeInvoice.charge : stripeInvoice.charge?.id;
+        
+        if (!chargeId && stripeInvoice.payment_intent) {
+          const pi = stripeInvoice.payment_intent;
+          chargeId = typeof pi.latest_charge === 'string' ? pi.latest_charge : pi.latest_charge?.id;
+        }
 
         if (!chargeId) {
           console.warn(`[stripe-transfers] Invoice ${stripeInvoiceId} has no charge yet. Skipping.`);
@@ -131,7 +139,7 @@ export async function processPendingTransfers() {
             stripeTransferId: created.id,
             status: "SENT",
             stripeConnectedAccountId: destination,
-            amount: transfer.amount, // Keep the original DB amount intact!
+            amount: Number((adjustedAmountCents / 100).toFixed(2)), // Update DB to exactly what was actually transferred
             failureMessage: null,
           },
         });
