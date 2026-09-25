@@ -13,5 +13,5 @@ app.listen(PORT, () => {
   startCredentialingTriggerJob();
   startInvoiceReminderJob();
   startPricingTermExpiryJob();
-  startStripeTransfersJob();
+  startStripeTransfersJob("*/10 * * * *");
 });
