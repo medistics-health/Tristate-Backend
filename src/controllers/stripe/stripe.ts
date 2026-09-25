@@ -57,8 +57,8 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
 
   for (const lineItem of params.invoice.lineItems) {
     const destination =
-      lineItem.stripeConnectedAccountId?.trim() ||
-      lineItem.service?.stripeConnectedAccountId?.trim();
+      lineItem.service?.stripeConnectedAccountId?.trim() ||
+      lineItem.stripeConnectedAccountId?.trim();
 
     if (!destination) {
       console.warn(
@@ -207,68 +207,9 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
       },
     });
 
-    try {
-      const created = await stripe.transfers.create(
-        {
-          amount: adjustedAmount,
-          currency,
-          destination,
-          source_transaction: sourceTransactionId,
-          transfer_group: transferGroup,
-          metadata: {
-            invoiceId: params.invoice.id,
-            stripeInvoiceId: params.invoice.stripeInvoiceId || "",
-            stripeAccountId: destination,
-            sourceTransactionId,
-            serviceIds: transfer.serviceIds.join(","),
-            lineItemIds: transfer.lineItemIds.join(","),
-            originalAmount: transfer.amount.toString(),
-            adjustedAmount: adjustedAmount.toString(),
-          },
-        },
-        {
-          idempotencyKey: `invoice-transfer:${params.invoice.id}:${destination}:${adjustedAmount}`,
-        },
-      );
-
-      await prisma.invoiceConnectedAccountTransfer.update({
-        where: {
-          invoiceId_stripeConnectedAccountId: {
-            invoiceId: params.invoice.id,
-            stripeConnectedAccountId: destination,
-          },
-        },
-        data: {
-          stripeTransferId: created.id,
-          status: "SENT",
-          failureMessage: null,
-        },
-      });
-
-      createdTransfers.push({ id: created.id });
-      console.info(
-        `Created Stripe transfer ${created.id} for invoice ${params.invoice.id} destination ${destination} using source_transaction ${sourceTransactionId}.`,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Stripe transfer failed.";
-      await prisma.invoiceConnectedAccountTransfer.update({
-        where: {
-          invoiceId_stripeConnectedAccountId: {
-            invoiceId: params.invoice.id,
-            stripeConnectedAccountId: destination,
-          },
-        },
-        data: {
-          status: "FAILED",
-          failureMessage: message,
-        },
-      });
-      console.error(
-        `Stripe transfer failed for invoice ${params.invoice.id} destination ${destination} with source_transaction ${sourceTransactionId}: ${message}`,
-        error,
-      );
-    }
+    console.info(
+      `Saved Stripe transfer ${storedAmount} as PENDING for invoice ${params.invoice.id} to destination ${destination}. It will be processed automatically by the daily Cron Job once the funds become available.`
+    );
   }
 
   return createdTransfers;
