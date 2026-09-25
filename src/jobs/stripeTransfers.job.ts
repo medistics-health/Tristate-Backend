@@ -63,7 +63,7 @@ export async function processPendingTransfers() {
           (transfer as any).resolvedChargeId = chargeId; 
           (transfer as any).resolvedDestination = destination;
           readyTransfers.push(transfer);
-          totalReadyGrossAmount += Number(transfer.amount);
+          totalReadyGrossAmount += Math.round(Number(transfer.amount) * 100); // Accumulate in CENTS
         } else {
           console.log(`[stripe-transfers] Charge ${chargeId} is still pending. Skipping until next check.`);
         }
@@ -77,7 +77,7 @@ export async function processPendingTransfers() {
       return;
     }
 
-    let availableBalanceAmount = 0;
+    let availableBalanceAmount = 0; // In CENTS
     try {
       const balanceResponse = await stripe.balance.retrieve();
       const availableObj = balanceResponse.available.find((b) => b.currency.toLowerCase() === "usd");
@@ -94,14 +94,16 @@ export async function processPendingTransfers() {
         ? Math.max(0, availableBalanceAmount) / totalReadyGrossAmount
         : 1;
 
-    console.log(`[stripe-transfers] Total Ready Gross: $${(totalReadyGrossAmount / 100).toFixed(2)}`);
-    console.log(`[stripe-transfers] Available Balance: $${(availableBalanceAmount / 100).toFixed(2)}`);
+    console.log(`[stripe-transfers] Total Ready Gross (cents): ${totalReadyGrossAmount}`);
+    console.log(`[stripe-transfers] Available Balance (cents): ${availableBalanceAmount}`);
     console.log(`[stripe-transfers] Applying Ratio: ${transferRatio}`);
 
     for (const transfer of readyTransfers) {
-      const adjustedAmount = Math.floor(Number(transfer.amount) * transferRatio);
+      // transfer.amount is in dollars. Convert to cents for Stripe.
+      const amountInCents = Math.round(Number(transfer.amount) * 100);
+      const adjustedAmountCents = Math.floor(amountInCents * transferRatio);
 
-      if (adjustedAmount <= 0) {
+      if (adjustedAmountCents <= 0) {
         console.log(`[stripe-transfers] Adjusted amount is <= 0 for transfer ${transfer.id}. Skipping.`);
         continue;
       }
@@ -110,7 +112,7 @@ export async function processPendingTransfers() {
 
       try {
         const created = await stripe.transfers.create({
-          amount: adjustedAmount,
+          amount: adjustedAmountCents,
           currency: "usd",
           destination,
           transfer_group: transfer.transferGroup || undefined,
@@ -118,7 +120,7 @@ export async function processPendingTransfers() {
             invoiceId: transfer.invoiceId,
             sourceTransactionId: (transfer as any).resolvedChargeId || "",
             originalAmount: transfer.amount.toString(),
-            adjustedAmount: adjustedAmount.toString(),
+            adjustedAmount: adjustedAmountCents.toString(),
             executedVia: "CRON_JOB",
           },
         });
@@ -128,13 +130,13 @@ export async function processPendingTransfers() {
           data: {
             stripeTransferId: created.id,
             status: "SENT",
-            stripeConnectedAccountId: destination, // Update it if it was stale
-            amount: Number((adjustedAmount / 100).toFixed(2)),
-            failureMessage: null, // Clear any previous failure message
+            stripeConnectedAccountId: destination,
+            amount: transfer.amount, // Keep the original DB amount intact!
+            failureMessage: null,
           },
         });
 
-        console.log(`[stripe-transfers] Successfully transferred $${(adjustedAmount / 100).toFixed(2)} to ${transfer.stripeConnectedAccountId}!`);
+        console.log(`[stripe-transfers] Successfully transferred $${(adjustedAmountCents / 100).toFixed(2)} to ${destination}!`);
       } catch (err: any) {
         console.error(`[stripe-transfers] Failed to transfer to ${transfer.stripeConnectedAccountId}:`, err);
         // Optionally update the DB with failure message
