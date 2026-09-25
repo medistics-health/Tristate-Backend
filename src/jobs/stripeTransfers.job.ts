@@ -45,7 +45,23 @@ export async function processPendingTransfers() {
         }
 
         if (!chargeId) {
-          console.warn(`[stripe-transfers] Invoice ${stripeInvoiceId} has no charge yet. Skipping.`);
+          console.warn(`[stripe-transfers] Invoice ${stripeInvoiceId} has no charge/PI. Assuming funds are ready.`);
+          // We can't check the balance transaction for this specific charge, so we assume it's ready.
+          // Re-resolve the correct destination
+          let destination = transfer.stripeConnectedAccountId;
+          if (transfer.serviceIds && transfer.serviceIds.length > 0) {
+            const service = await prisma.service.findUnique({
+              where: { id: transfer.serviceIds[0] },
+              select: { stripeConnectedAccountId: true }
+            });
+            if (service?.stripeConnectedAccountId) {
+              destination = service.stripeConnectedAccountId;
+            }
+          }
+          (transfer as any).resolvedChargeId = null; 
+          (transfer as any).resolvedDestination = destination;
+          readyTransfers.push(transfer);
+          totalReadyGrossAmount += Math.round(Number(transfer.amount) * 100);
           continue;
         }
 
@@ -74,6 +90,16 @@ export async function processPendingTransfers() {
           totalReadyGrossAmount += Math.round(Number(transfer.amount) * 100); // Accumulate in CENTS
         } else {
           console.log(`[stripe-transfers] Charge ${chargeId} is still pending. Skipping until next check.`);
+          if (transfer.status === "FAILED") {
+            console.log(`[stripe-transfers] Self-healing DB status to PENDING for ${transfer.id}`);
+            await prisma.invoiceConnectedAccountTransfer.update({
+              where: { id: transfer.id },
+              data: {
+                status: "PENDING",
+                failureMessage: "Funds are still processing in Stripe",
+              }
+            });
+          }
         }
       } catch (error) {
         console.error(`[stripe-transfers] Error fetching charge for invoice ${stripeInvoiceId}:`, error);
