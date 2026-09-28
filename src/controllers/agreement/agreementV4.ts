@@ -55,6 +55,7 @@ import {
     renewalDate?: string;
     docusealSubmissions?: DocusealSubmissionInput[];
     serviceIds?: string[];
+    signingOrder?: unknown;
   };
 
   type SendAgreementEmailBody = {
@@ -62,6 +63,7 @@ import {
     personId: string;
     subject?: string;
     message?: string;
+    signingOrder?: unknown;
   };
 
   type SendOnboardingFormBody = {
@@ -85,6 +87,117 @@ import {
 
   type AgreementApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
   type SubmissionApprovalStatus = (typeof AGREEMENT_APPROVAL_STATUSES)[number];
+
+  const DEFAULT_SIGNING_ORDER = ["First Party", "Second Party"] as const;
+  type SigningRole = (typeof DEFAULT_SIGNING_ORDER)[number];
+
+  function parseSigningOrder(
+    value: unknown,
+  ): { signingOrder: SigningRole[] } | { error: string } | { omitted: true } {
+    if (value === undefined || value === null) {
+      return { omitted: true };
+    }
+
+    if (!Array.isArray(value) || value.length !== 2) {
+      return {
+        error:
+          'signingOrder must be ["First Party", "Second Party"] or ["Second Party", "First Party"].',
+      };
+    }
+
+    const roles = value.filter(
+      (role): role is SigningRole =>
+        role === "First Party" || role === "Second Party",
+    );
+
+    if (new Set(roles).size !== 2) {
+      return {
+        error:
+          'signingOrder must include both "First Party" and "Second Party" exactly once.',
+      };
+    }
+
+    return { signingOrder: roles };
+  }
+
+  function signingOrderFromSigners(
+    signers: Array<{ role: string; order: number }>,
+  ): SigningRole[] {
+    const roles: SigningRole[] = [];
+
+    for (const signer of [...signers].sort((a, b) => a.order - b.order)) {
+      if (signer.role !== "First Party" && signer.role !== "Second Party") {
+        continue;
+      }
+      if (!roles.includes(signer.role)) {
+        roles.push(signer.role);
+      }
+    }
+
+    if (roles.length === 2) {
+      return roles;
+    }
+
+    return [...DEFAULT_SIGNING_ORDER];
+  }
+
+  async function applySigningOrder(
+    agreementId: string,
+    signingOrder: readonly string[],
+  ) {
+    const submissions = await prisma.docusealSubmission.findMany({
+      where: { agreementId },
+      include: { signers: true },
+    });
+
+    for (const submission of submissions) {
+      for (const signer of submission.signers) {
+        const nextOrder = orderForRole(signer.role, signingOrder);
+        if (signer.order === nextOrder) {
+          continue;
+        }
+        await prisma.docuSigner.update({
+          where: { id: signer.id },
+          data: { order: nextOrder },
+        });
+      }
+    }
+  }
+
+  function orderForRole(role: string, signingOrder: readonly string[]): number {
+    const index = signingOrder.indexOf(role);
+    return index === -1 ? signingOrder.length : index;
+  }
+
+  function leadSigners<T extends { order: number }>(signers: T[]): T[] {
+    if (signers.length === 0) {
+      return [];
+    }
+
+    const minOrder = Math.min(...signers.map((signer) => signer.order));
+    return signers.filter((signer) => signer.order === minOrder);
+  }
+
+  function nextSignerByOrder<T extends { order: number }>(
+    signers: T[],
+    completedOrder: number,
+  ): T | undefined {
+    return [...signers]
+      .filter((signer) => signer.order > completedOrder)
+      .sort((a, b) => a.order - b.order)[0];
+  }
+
+  function nextSignerNote(nextRole?: string | null): string {
+    if (nextRole === "Second Party") {
+      return "<p>After you sign, the agreement will be routed to the client for signature.</p>";
+    }
+
+    if (nextRole === "First Party") {
+      return "<p>After you sign, the agreement will be routed to Tristate for signature.</p>";
+    }
+
+    return "";
+  }
 
   async function getAgreementMailSettings(): Promise<AgreementMailSettings> {
     const settings = await prisma.systemSettings.findFirst({
@@ -284,7 +397,18 @@ import {
         console.log({ dbSubmission });
         if (dbSubmission) {
           console.log("dbSubmission if condition");
-          const signer = dbSubmission.signers.find((s) => s.email === data.email);
+          const completedRole = String(data?.role || "").trim().toLowerCase();
+          const signer = dbSubmission.signers.find(
+            (s) => s.role.trim().toLowerCase() === completedRole,
+          );
+
+          console.log({
+            completedRole: data?.role,
+            signerRoles: dbSubmission.signers.map((s) => ({
+              role: s.role,
+              order: s.order,
+            })),
+          });
 
           if (signer) {
             console.log("udpating signers");
@@ -300,27 +424,32 @@ import {
             });
           }
 
-          if (data?.role === "First Party") {
-            const secondParty = dbSubmission.signers.find(
-              (s) => s.role === "Second Party",
-            );
+          const completedSigner = signer;
+          const nextSigner = completedSigner
+            ? dbSubmission.signers
+                .filter(
+                  (s) => s.role.trim().toLowerCase() !== completedRole,
+                )
+                .filter((s) => s.order > completedSigner.order)
+                .sort((a, b) => a.order - b.order)[0]
+            : undefined;
 
-            console.log({ secondParty });
-            if (secondParty?.email) {
-              const agreement = await prisma.agreement.findUnique({
-                where: { id: dbSubmission.agreementId },
-                include: { practice: true },
-              });
+          console.log({ nextSignerRole: nextSigner?.role, nextSignerOrder: nextSigner?.order });
+          if (nextSigner?.email) {
+            const agreement = await prisma.agreement.findUnique({
+              where: { id: dbSubmission.agreementId },
+              include: { practice: true },
+            });
 
-              const signerName =
-                signer?.name || data.email || "the business owner";
-              console.log({ signerName });
-              const link = process.env.FRONTEND_URL
-                ? `${process.env.FRONTEND_URL}/sign/${secondParty.submissionSlug}`
-                : `http://localhost:5173/sign/${secondParty.submissionSlug}`;
-              const subject = "Action Required: Please Sign the Agreement";
-              const body = `
-                <p>Hi ${secondParty.name || "there"},</p>
+            const signerName =
+              completedSigner?.name || data.email || "the previous signer";
+            console.log({ signerName });
+            const link = process.env.FRONTEND_URL
+              ? `${process.env.FRONTEND_URL}/sign/${nextSigner.submissionSlug}`
+              : `http://localhost:5173/sign/${nextSigner.submissionSlug}`;
+            const subject = "Action Required: Please Sign the Agreement";
+            const body = `
+                <p>Hi ${nextSigner.name || "there"},</p>
                 <p>
                   ${signerName} has completed signing the
                   ${agreement?.type || "agreement"}
@@ -342,9 +471,8 @@ import {
                 <p>Best regards,<br/>The Tristate Team</p>
               `;
 
-              await sendOutlookEmail(secondParty.email, subject, body);
-              console.log({ sent: true });
-            }
+            await sendOutlookEmail(nextSigner.email, subject, body);
+            console.log({ sent: true });
           }
           // await prisma.docusealSubmission.update({
           //   where: { id: dbSubmission.id },
@@ -466,13 +594,20 @@ import {
         templateId,
         fieldValues,
         fieldValuesByTemplateId,
+        signingOrder: requestedSigningOrder,
       } = req.body as {
         agreementId: string;
         personId: string;
         templateId?: number | number[];
         fieldValues?: Record<string, string>;
         fieldValuesByTemplateId?: Record<string, Record<string, string>>;
+        signingOrder?: unknown;
       };
+
+      const parsedSigningOrder = parseSigningOrder(requestedSigningOrder);
+      if ("error" in parsedSigningOrder) {
+        return res.status(400).json({ message: parsedSigningOrder.error });
+      }
 
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
@@ -499,6 +634,12 @@ import {
             select: {
               templateId: true,
               fieldValues: true,
+              signers: {
+                select: {
+                  role: true,
+                  order: true,
+                },
+              },
             },
           },
         },
@@ -507,6 +648,15 @@ import {
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
       }
+
+      const signingOrder =
+        "signingOrder" in parsedSigningOrder
+          ? parsedSigningOrder.signingOrder
+          : signingOrderFromSigners(
+              agreement.docusealSubmissions.flatMap(
+                (submission) => submission.signers,
+              ),
+            );
 
       if (templateIds.length === 0) {
         const resolved = await resolveInitialPacketTemplateIds(agreementId);
@@ -676,7 +826,7 @@ import {
                 status: sub.status,
                 submissionSlug: sub.slug,
                 signedUrl: sub.url,
-                order: i,
+                order: orderForRole(sub.role, signingOrder),
               },
             });
           }
@@ -710,7 +860,7 @@ import {
                     email: sub.email,
                     status: sub.status,
                     signedUrl: sub.url,
-                    order: index,
+                    order: orderForRole(sub.role, signingOrder),
                   }),
                 ),
               },
@@ -747,13 +897,20 @@ import {
         templateId,
         fieldValues,
         submissionApprovalStatus,
+        signingOrder: requestedSigningOrder,
       } = req.body as {
         agreementId: string;
         personId: string;
         templateId: number;
         fieldValues?: Record<string, string>;
         submissionApprovalStatus: string;
+        signingOrder?: unknown;
       };
+
+      const parsedSigningOrder = parseSigningOrder(requestedSigningOrder);
+      if ("error" in parsedSigningOrder) {
+        return res.status(400).json({ message: parsedSigningOrder.error });
+      }
 
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
@@ -809,8 +966,19 @@ import {
           id: true,
           docusealSubmissionId: true,
           fieldValues: true,
+          signers: {
+            select: {
+              role: true,
+              order: true,
+            },
+          },
         },
       });
+
+      const signingOrder =
+        "signingOrder" in parsedSigningOrder
+          ? parsedSigningOrder.signingOrder
+          : signingOrderFromSigners(existingSubmission?.signers || []);
 
       const autoFillValues = buildAutoFillValues(
         template.fields || [],
@@ -917,7 +1085,7 @@ import {
               status: sub.status,
               submissionSlug: sub.slug,
               signedUrl: sub.url,
-              order: i,
+              order: orderForRole(sub.role, signingOrder),
             },
           });
         }
@@ -943,17 +1111,15 @@ import {
             templateId,
             fieldValues: mergedValues,
             signers: {
-              create: docusealSubmissionData.submitters.map(
-                (sub: any, index: number) => ({
-                  signerUuid: sub.uuid,
-                  role: sub.role,
-                  name: sub.name,
-                  email: sub.email,
-                  status: sub.status,
-                  signedUrl: sub.url,
-                  order: index,
-                }),
-              ),
+              create: docusealSubmissionData.submitters.map((sub: any) => ({
+                signerUuid: sub.uuid,
+                role: sub.role,
+                name: sub.name,
+                email: sub.email,
+                status: sub.status,
+                signedUrl: sub.url,
+                order: orderForRole(sub.role, signingOrder),
+              })),
             },
           },
           include: {
@@ -965,24 +1131,27 @@ import {
       const practiceName = agreement.practice?.name || "Unknown Practice";
       const templateName = template.name || `Template #${templateId}`;
       const emailSubject = `Updated Document Ready for Signature - ${agreement.type} - ${practiceName}`;
-      const signingLink = docusealSubmissionData.submitters?.find(
-        (s: any) => s.role === "First Party",
-      )?.slug
-        ? `${process.env.FRONTEND_URL || "http://localhost:5173"}/sign/${docusealSubmissionData.submitters.find((s: any) => s.role === "First Party").slug}`
-        : "";
-      const firstPartySigner = docusealSubmissionData.submitters?.find(
-        (s: any) => s.role === "First Party",
+      const orderedSubmitters = [
+        ...(docusealSubmissionData.submitters || []),
+      ].sort(
+        (a: { role: string }, b: { role: string }) =>
+          orderForRole(a.role, signingOrder) - orderForRole(b.role, signingOrder),
       );
+      const leadSigner = orderedSubmitters[0];
+      const followingSigner = orderedSubmitters[1];
+      const signingLink = leadSigner?.slug
+        ? `${process.env.FRONTEND_URL || "http://localhost:5173"}/sign/${leadSigner.slug}`
+        : "";
 
       const emailBody = `
-        <p>Hello ${firstPartySigner?.name || "there"},</p>
+        <p>Hello ${leadSigner?.name || "there"},</p>
         <p>The document <strong>${templateName}</strong> for your agreement
         <strong>${agreement.type}</strong> with <strong>${practiceName}</strong>
         has been updated.</p>
         <p><strong>Effective Date:</strong> ${formatAgreementDate(agreement.effectiveDate)}</p>
         <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
         <p>Please click the link below to review and sign the updated document.</p>
-        <p>Once you sign, it will be routed to the client for signature.</p>
+        ${nextSignerNote(followingSigner?.role)}
         <p>
            <strong>Important:</strong>
            The signing link will expire in 15 days.
@@ -991,10 +1160,13 @@ import {
         <p>If you have any questions, please contact your representative.</p>
         <p>Best regards,<br/>The Tristate Team</p>
       `;
-      console.log(firstPartySigner?.email, emailSubject, emailBody);
+      const leadEmail =
+        leadSigner?.email ||
+        (leadSigner?.role === "First Party" ? "SJangir@Tristatemso.com" : "");
+      console.log(leadEmail, emailSubject, emailBody);
 
       const resppp = await sendOutlookEmail(
-        firstPartySigner?.email || "SJangir@Tristatemso.com",
+        leadEmail,
         emailSubject,
         emailBody,
         {
@@ -1075,8 +1247,17 @@ import {
     res: Response,
   ) {
     try {
-      const { agreementId, personId, subject, message } =
+      const { agreementId, personId, subject, message, signingOrder: requestedSigningOrder } =
         req.body as SendAgreementEmailBody;
+
+      const parsedSigningOrder = parseSigningOrder(requestedSigningOrder);
+      if ("error" in parsedSigningOrder) {
+        return res.status(400).json({ message: parsedSigningOrder.error });
+      }
+      const explicitSigningOrder =
+        "signingOrder" in parsedSigningOrder
+          ? parsedSigningOrder.signingOrder
+          : null;
 
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
@@ -1104,6 +1285,21 @@ import {
 
       if (!agreement) {
         return res.status(404).json({ message: "Agreement not found." });
+      }
+
+      if (explicitSigningOrder) {
+        for (const submission of agreement.docusealSubmissions) {
+          for (const signer of submission.signers) {
+            const nextOrder = orderForRole(signer.role, explicitSigningOrder);
+            if (signer.order !== nextOrder) {
+              await prisma.docuSigner.update({
+                where: { id: signer.id },
+                data: { order: nextOrder },
+              });
+              signer.order = nextOrder;
+            }
+          }
+        }
       }
 
       // const practicePersonExists = await prisma.practicePerson.findFirst({
@@ -1138,20 +1334,23 @@ import {
         subject ||
         `Agreement: ${agreement.type} - ${agreement.practice?.name || "Unknown"}`;
 
-      const firstPartySigners = agreement.docusealSubmissions.flatMap(
-        (submission) =>
-          submission.signers.filter((signer) => signer.role === "First Party"),
+      const leadSignersForEmail = agreement.docusealSubmissions.flatMap(
+        (submission) => leadSigners(submission.signers),
       );
+      const nextRole = agreement.docusealSubmissions
+        .flatMap((submission) => {
+          const lead = leadSigners(submission.signers)[0];
+          return lead ? [nextSignerByOrder(submission.signers, lead.order)] : [];
+        })
+        .find(Boolean)?.role;
       const submissionLinks = agreement.docusealSubmissions
         .flatMap((submission) =>
-          submission.signers
-            .filter((signer) => signer.role === "First Party")
-            .map((signer, index) => {
-              const link = process.env.FRONTEND_URL
-                ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
-                : `http://localhost:5173/sign/${signer.submissionSlug}`;
+          leadSigners(submission.signers).map((signer) => {
+            const link = process.env.FRONTEND_URL
+              ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
+              : `http://localhost:5173/sign/${signer.submissionSlug}`;
 
-              return `
+            return `
               <p>
                ${decodeURIComponent(
                  submission?.url?.split("/").pop() || "",
@@ -1160,15 +1359,16 @@ import {
                 </a>
               </p>
             `;
-            }),
+          }),
         )
         .join("");
 
-      const firstPartyName = firstPartySigners[0]?.name || "there";
+      const leadSigner = leadSignersForEmail[0];
+      const leadName = leadSigner?.name || "there";
       const practiceName = agreement.practice?.name || "Unknown Practice";
 
       const emailBody = `
-        <p>Hello ${firstPartyName},</p>
+        <p>Hello ${leadName},</p>
 
         <p>Please find the agreement details for
         <strong>${practiceName}</strong>.</p>
@@ -1178,7 +1378,7 @@ import {
         <p><strong>Renewal Date:</strong> ${formatAgreementDate(agreement.renewalDate)}</p>
 
         <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
-        <p>After you sign, the agreement will be routed to the client for signature.</p>
+        ${nextSignerNote(nextRole)}
 
         <p>
            <strong>Important:</strong>
@@ -1196,10 +1396,11 @@ import {
         </p>
       `;
 
-      const firstPartyEmail =
-        firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
+      const leadEmail =
+        leadSigner?.email ||
+        (leadSigner?.role === "First Party" ? "SJangir@Tristatemso.com" : "");
 
-      await sendOutlookEmail(firstPartyEmail, emailSubject, emailBody);
+      await sendOutlookEmail(leadEmail, emailSubject, emailBody);
 
       await updateDealAfterAgreementSend(agreementId);
 
@@ -1364,7 +1565,17 @@ import {
         renewalDate,
         docusealSubmissions,
         serviceIds,
+        signingOrder: requestedSigningOrder,
       } = req.body as AgreementBody;
+
+      const parsedSigningOrder = parseSigningOrder(requestedSigningOrder);
+      if ("error" in parsedSigningOrder) {
+        return res.status(400).json({ message: parsedSigningOrder.error });
+      }
+      const signingOrder =
+        "signingOrder" in parsedSigningOrder
+          ? parsedSigningOrder.signingOrder
+          : [...DEFAULT_SIGNING_ORDER];
 
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
@@ -1433,13 +1644,13 @@ import {
               //   ["ADMIN"].includes(req.user?.role || "") ? "APPROVED" : "PENDING_APPROVAL",
               submissionApprovalStatus: "APPROVED",
               signers: {
-                create: s?.submitters?.map((init: any, index: number) => ({
+                create: s?.submitters?.map((init: any) => ({
                   signerUuid: init.uuid,
                   role: init.role,
                   name: "",
                   email: "",
                   status: s.status || "awaiting",
-                  order: index,
+                  order: orderForRole(init.role, signingOrder),
                 })),
               },
             })),
@@ -1587,7 +1798,7 @@ import {
                       status: sub.status,
                       submissionSlug: sub.slug,
                       signedUrl: sub.url,
-                      order: i,
+                      order: orderForRole(sub.role, signingOrder),
                     },
                   });
                 }
@@ -1618,22 +1829,26 @@ import {
             });
 
             if (refreshedAgreement) {
-              const firstPartySigners =
+              const leadSignersForEmail =
                 refreshedAgreement.docusealSubmissions.flatMap((submission) =>
-                  submission.signers.filter(
-                    (signer) => signer.role === "First Party",
-                  ),
+                  leadSigners(submission.signers),
                 );
+              const nextRole = refreshedAgreement.docusealSubmissions
+                .flatMap((submission) => {
+                  const lead = leadSigners(submission.signers)[0];
+                  return lead
+                    ? [nextSignerByOrder(submission.signers, lead.order)]
+                    : [];
+                })
+                .find(Boolean)?.role;
               const submissionLinks = refreshedAgreement.docusealSubmissions
                 .flatMap((submission) =>
-                  submission.signers
-                    .filter((signer) => signer.role === "First Party")
-                    .map((signer) => {
-                      const link = process.env.FRONTEND_URL
-                        ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
-                        : `http://localhost:5173/sign/${signer.submissionSlug}`;
+                  leadSigners(submission.signers).map((signer) => {
+                    const link = process.env.FRONTEND_URL
+                      ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
+                      : `http://localhost:5173/sign/${signer.submissionSlug}`;
 
-                      return `
+                    return `
               <p>
                ${decodeURIComponent(
                  submission?.url?.split("/").pop() || "",
@@ -1642,15 +1857,16 @@ import {
                 </a>
               </p>
             `;
-                    }),
+                  }),
                 )
                 .join("");
 
-              const firstPartyName = firstPartySigners[0]?.name || "there";
+              const leadSigner = leadSignersForEmail[0];
+              const leadName = leadSigner?.name || "there";
               const practiceName =
                 refreshedAgreement.practice?.name || "Unknown Practice";
               const emailBody = `
-        <p>Hello ${firstPartyName},</p>
+        <p>Hello ${leadName},</p>
 
         <p>Please find the agreement details for
         <strong>${practiceName}</strong>.</p>
@@ -1658,7 +1874,7 @@ import {
         <p><strong>Agreement Type:</strong> ${refreshedAgreement.type}</p>
 
         <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
-        <p>After you sign, the agreement will be routed to the client for signature.</p>
+        ${nextSignerNote(nextRole)}
 
         <p>
            <strong>Important:</strong>
@@ -1674,11 +1890,14 @@ import {
         </p>
       `;
 
-              const firstPartyEmail =
-                firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
+              const leadEmail =
+                leadSigner?.email ||
+                (leadSigner?.role === "First Party"
+                  ? "SJangir@Tristatemso.com"
+                  : "");
 
               await sendOutlookEmail(
-                firstPartyEmail,
+                leadEmail,
                 `Agreement: ${refreshedAgreement.type} - ${refreshedAgreement.practice?.name || "Unknown"}`,
                 emailBody,
               );
@@ -1886,7 +2105,17 @@ import {
         renewalDate,
         docusealSubmissions,
         serviceIds,
+        signingOrder: requestedSigningOrder,
       } = req.body as AgreementBody;
+
+      const parsedSigningOrder = parseSigningOrder(requestedSigningOrder);
+      if ("error" in parsedSigningOrder) {
+        return res.status(400).json({ message: parsedSigningOrder.error });
+      }
+      const explicitSigningOrder =
+        "signingOrder" in parsedSigningOrder
+          ? parsedSigningOrder.signingOrder
+          : null;
 
       if (!req.user?.sub) {
         return res.status(401).json({ message: "Unauthorized." });
@@ -1936,6 +2165,10 @@ import {
 
       if (!existingAgreement) {
         return res.status(404).json({ message: "Agreement not found." });
+      }
+
+      if (explicitSigningOrder) {
+        await applySigningOrder(id, explicitSigningOrder);
       }
 
       if (dealId) {
@@ -2160,7 +2393,10 @@ import {
                     status: sub.status,
                     submissionSlug: sub.slug,
                     signedUrl: sub.url,
-                    order: i,
+                    order: orderForRole(
+                      sub.role,
+                      signingOrderFromSigners(existingSubmission.signers),
+                    ),
                   },
                 });
               }
@@ -2190,22 +2426,26 @@ import {
             });
 
             if (refreshedAgreement) {
-              const firstPartySigners =
+              const leadSignersForEmail =
                 refreshedAgreement.docusealSubmissions.flatMap((submission) =>
-                  submission.signers.filter(
-                    (signer) => signer.role === "First Party",
-                  ),
+                  leadSigners(submission.signers),
                 );
+              const nextRole = refreshedAgreement.docusealSubmissions
+                .flatMap((submission) => {
+                  const lead = leadSigners(submission.signers)[0];
+                  return lead
+                    ? [nextSignerByOrder(submission.signers, lead.order)]
+                    : [];
+                })
+                .find(Boolean)?.role;
               const submissionLinks = refreshedAgreement.docusealSubmissions
                 .flatMap((submission) =>
-                  submission.signers
-                    .filter((signer) => signer.role === "First Party")
-                    .map((signer) => {
-                      const link = process.env.FRONTEND_URL
-                        ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
-                        : `http://localhost:5173/sign/${signer.submissionSlug}`;
+                  leadSigners(submission.signers).map((signer) => {
+                    const link = process.env.FRONTEND_URL
+                      ? `${process.env.FRONTEND_URL}/sign/${signer.submissionSlug}`
+                      : `http://localhost:5173/sign/${signer.submissionSlug}`;
 
-                      return `
+                    return `
               <p>
                ${decodeURIComponent(
                  submission?.url?.split("/").pop() || "",
@@ -2214,15 +2454,16 @@ import {
                 </a>
               </p>
             `;
-                    }),
+                  }),
                 )
                 .join("");
 
-              const firstPartyName = firstPartySigners[0]?.name || "there";
+              const leadSigner = leadSignersForEmail[0];
+              const leadName = leadSigner?.name || "there";
               const practiceName =
                 refreshedAgreement.practice?.name || "Unknown Practice";
               const emailBody = `
-        <p>Hello ${firstPartyName},</p>
+        <p>Hello ${leadName},</p>
 
         <p>Please find the agreement details for
         <strong>${practiceName}</strong>.</p>
@@ -2230,7 +2471,7 @@ import {
         <p><strong>Agreement Type:</strong> ${refreshedAgreement.type}</p>
 
         <p><strong>Action Required:</strong> Please click the link below to review and sign the document.</p>
-        <p>After you sign, the agreement will be routed to the client for signature.</p>
+        ${nextSignerNote(nextRole)}
 
         <p>
            <strong>Important:</strong>
@@ -2246,11 +2487,14 @@ import {
         </p>
       `;
 
-              const firstPartyEmail =
-                firstPartySigners[0]?.email || "SJangir@Tristatemso.com";
+              const leadEmail =
+                leadSigner?.email ||
+                (leadSigner?.role === "First Party"
+                  ? "SJangir@Tristatemso.com"
+                  : "");
 
               await sendOutlookEmail(
-                firstPartyEmail,
+                leadEmail,
                 `Agreement: ${refreshedAgreement.type} - ${refreshedAgreement.practice?.name || "Unknown"}`,
                 emailBody,
               );
