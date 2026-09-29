@@ -1625,6 +1625,7 @@ import {
         data: {
           practiceId,
           dealId: dealId ?? undefined,
+          createdByUserId: req.user.sub,
           type,
           status,
           effectiveDate: effectiveDate ? new Date(effectiveDate) : undefined,
@@ -2007,6 +2008,15 @@ import {
           include: {
             practice: true,
             deal: true,
+            createdByUser: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                userName: true,
+                email: true,
+              },
+            },
             channelPartners: true,
             docusealSubmissions: {
               include: {
@@ -2060,6 +2070,15 @@ import {
         include: {
           practice: true,
           deal: true,
+          createdByUser: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              userName: true,
+              email: true,
+            },
+          },
           invoices: true,
           channelPartners: true,
           docusealSubmissions: {
