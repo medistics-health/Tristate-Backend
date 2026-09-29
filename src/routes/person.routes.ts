@@ -1,7 +1,8 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createPerson,
+  checkDuplicatePerson,
   getPersons,
   getPerson,
   updatePerson,

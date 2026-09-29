@@ -1,4 +1,4 @@
-import {
+﻿import {
   OnboardingServiceLine,
   PracticeSource,
   PracticeStatus,
@@ -51,6 +51,15 @@ type PracticeBody = {
   processingFeeConfig?: unknown;
   groupNpis?: GroupNpiInput[];
   goLiveTarget?: string | null;
+  isPrefundingEnabled?: boolean;
+  prefundingCycle?: string | null;
+  prefundingStartDate?: string | null;
+  prefundingDueOn?: number | null;
+  prefundingReminderOn?: number | null;
+  prefundingStripeAccountId?: string | null;
+  prefundingInvoiceRecipientId?: string | null;
+  prefundingState?: string | null;
+  prefundingRateIds?: string[];
 };
 
 type SendOnboardingEmailBody = {
@@ -347,6 +356,15 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       processingFeeConfig,
       groupNpis,
       goLiveTarget,
+      isPrefundingEnabled,
+      prefundingCycle,
+      prefundingStartDate,
+      prefundingDueOn,
+      prefundingReminderOn,
+      prefundingStripeAccountId,
+      prefundingInvoiceRecipientId,
+      prefundingState,
+      prefundingRateIds,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -546,7 +564,27 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       ...(defaultCurrency !== undefined
         ? { defaultCurrency: defaultCurrency || null }
         : {}),
+      ...(isPrefundingEnabled !== undefined ? { isPrefundingEnabled } : {}),
+      ...(prefundingCycle !== undefined ? { prefundingCycle } : {}),
+      ...(prefundingStartDate !== undefined ? { prefundingStartDate: prefundingStartDate ? new Date(prefundingStartDate) : null } : {}),
+      ...(prefundingDueOn !== undefined ? { prefundingDueOn } : {}),
+      ...(prefundingReminderOn !== undefined ? { prefundingReminderOn } : {}),
+      ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
+      ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
+      ...(prefundingState !== undefined ? { prefundingState } : {}),
+      ...(prefundingRateIds !== undefined ? { prefundingRates: { create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })) } } : {}),
     };
+
+    if (isPrefundingEnabled === false) {
+      practiceData.prefundingCycle = null;
+      practiceData.prefundingStartDate = null;
+      practiceData.prefundingDueOn = null;
+      practiceData.prefundingReminderOn = null;
+      practiceData.prefundingStripeAccountId = null;
+      practiceData.prefundingInvoiceRecipientId = null;
+      practiceData.prefundingState = null;
+      practiceData.prefundingRates = undefined;
+    }
 
     if (groupNpiConnect.length > 0) {
       practiceData.groupNpis = {
@@ -698,6 +736,15 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       processingFeeConfig,
       groupNpis,
       goLiveTarget,
+      isPrefundingEnabled,
+      prefundingCycle,
+      prefundingStartDate,
+      prefundingDueOn,
+      prefundingReminderOn,
+      prefundingStripeAccountId,
+      prefundingInvoiceRecipientId,
+      prefundingState,
+      prefundingRateIds,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -892,6 +939,15 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       ...(defaultCurrency !== undefined
         ? { defaultCurrency: defaultCurrency || null }
         : {}),
+      ...(isPrefundingEnabled !== undefined ? { isPrefundingEnabled } : {}),
+      ...(prefundingCycle !== undefined ? { prefundingCycle } : {}),
+      ...(prefundingStartDate !== undefined ? { prefundingStartDate: prefundingStartDate ? new Date(prefundingStartDate) : null } : {}),
+      ...(prefundingDueOn !== undefined ? { prefundingDueOn } : {}),
+      ...(prefundingReminderOn !== undefined ? { prefundingReminderOn } : {}),
+      ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
+      ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
+      ...(prefundingState !== undefined ? { prefundingState } : {}),
+      ...(prefundingRateIds !== undefined ? { prefundingRates: { deleteMany: {}, create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })) } } : {}),
       ...(billingPaymentMethod !== undefined
         ? {
             billingPaymentMethod:
@@ -913,6 +969,17 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
           }
         : {}),
     };
+
+    if (isPrefundingEnabled === false) {
+      updateData.prefundingCycle = null;
+      updateData.prefundingStartDate = null;
+      updateData.prefundingDueOn = null;
+      updateData.prefundingReminderOn = null;
+      updateData.prefundingStripeAccountId = null;
+      updateData.prefundingInvoiceRecipientId = null;
+      updateData.prefundingState = null;
+      updateData.prefundingRates = { deleteMany: {} };
+    }
 
     if (groupNpis !== undefined) {
       updateData.groupNpis = {

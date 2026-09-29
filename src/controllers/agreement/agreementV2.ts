@@ -1,4 +1,4 @@
-import {
+﻿import {
   DealStage,
   AgreementStatus,
   AgreementType,
@@ -1387,7 +1387,7 @@ export async function createAgreement(
               practiceId,
             },
           },
-          OR: [{ role: "ADMIN" }, { role: "OWNER" }],
+          OR: [{ roles: { has: "ADMIN" } }, { roles: { has: "OWNER" } }],
         },
       });
 
@@ -1929,7 +1929,7 @@ export async function updateAgreement(
                 practiceId: agreementForAutoSend.practiceId,
               },
             },
-            OR: [{ role: "ADMIN" }, { role: "OWNER" }],
+            OR: [{ roles: { has: "ADMIN" } }, { roles: { has: "OWNER" } }],
           },
         });
 

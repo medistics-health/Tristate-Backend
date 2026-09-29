@@ -8,41 +8,43 @@ datasource db {
 }
 
 model User {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  userName              String                 @unique
-  firstName             String
-  lastName              String
-  email                 String                 @unique
-  password              String
-  role                  UserRoles
-  twoFactorEnabled      Boolean                @default(false) @map("two_factor_enabled")
-  twoFactorSecret       String?                @map("two_factor_secret")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
-  approvalDecisions     ApprovalDecision[]     @relation("ApprovalDecisionByUser")
-  approvedBillingRuns   BillingRun[]           @relation("BillingRunApprovedBy")
-  createdBillingRuns    BillingRun[]           @relation("BillingRunCreatedBy")
-  createdInvoices       Invoice[]              @relation("InvoiceCreatedByUser")
-  credentialingAssigned CredentialingRequest[] @relation("CredentialingAssignedToUser")
-  credentialingCreated  CredentialingRequest[] @relation("CredentialingCreatedByUser")
-  credentialingUpdated  CredentialingRequest[] @relation("CredentialingUpdatedByUser")
-  credentialingActivity  CredentialingActivityLog[] @relation("CredentialingActivityByUser")
-  credentialingFollowUps CredentialingFollowUpLog[] @relation("CredentialingFollowUpByUser")
-  credentialingDocuments CredentialingDocument[] @relation("CredentialingDocumentByUser")
-  resolvedExceptions    ExceptionEvent[]       @relation("ExceptionResolvedByUser")
-  quickbooksConnections QuickBooksConnection[] @relation("QuickBooksConnectedByUser")
-  onboardingWorkstreamsOwned   OnboardingWorkstream[]       @relation("OnboardingWorkstreamOwner")
-  onboardingTasksOwned         OnboardingTask[]             @relation("OnboardingTaskOwner")
-  onboardingTemplateTasksOwned OnboardingTaskTemplateItem[] @relation("OnboardingTemplateDefaultOwner")
-  onboardingRisksOwned         OnboardingRisk[]             @relation("OnboardingRiskOwner")
-  onboardingActionsResponsible OnboardingActionItem[]       @relation("OnboardingActionResponsible")
-  onboardingActionsLogged      OnboardingActionItem[]       @relation("OnboardingActionLoggedBy")
-  onboardingActivities         OnboardingTaskActivity[]
-  hubDocumentsUploaded         HubDocument[]            @relation("HubDocumentUploadedBy")
-  hubDocumentPublicLinks       HubDocumentPublicLink[]  @relation("HubDocumentPublicLinkCreatedBy")
-  hubDocumentPublicLinksRevoked HubDocumentPublicLink[] @relation("HubDocumentPublicLinkRevokedBy")
-  hubDocumentActivityLogs      HubDocumentActivityLog[] @relation("HubDocumentActivityByUser")
-  hubDocumentCategoriesCreated HubDocumentCategory[]    @relation("HubDocumentCategoryCreatedBy")
+  id                  String    @id @default(uuid()) @db.Uuid
+  userName            String    @unique
+  firstName           String
+  lastName            String
+  email               String    @unique
+  password            String
+  role                UserRoles
+  twoFactorEnabled    Boolean   @default(false) @map("two_factor_enabled")
+  twoFactorSecret     String?   @map("two_factor_secret")
+  hasPrefundingAccess Boolean   @default(false) @map("has_prefunding_access")
+
+  createdAt                     DateTime                     @default(now()) @map("created_at")
+  updatedAt                     DateTime                     @default(now()) @updatedAt @map("updated_at")
+  approvalDecisions             ApprovalDecision[]           @relation("ApprovalDecisionByUser")
+  approvedBillingRuns           BillingRun[]                 @relation("BillingRunApprovedBy")
+  createdBillingRuns            BillingRun[]                 @relation("BillingRunCreatedBy")
+  createdInvoices               Invoice[]                    @relation("InvoiceCreatedByUser")
+  credentialingAssigned         CredentialingRequest[]       @relation("CredentialingAssignedToUser")
+  credentialingCreated          CredentialingRequest[]       @relation("CredentialingCreatedByUser")
+  credentialingUpdated          CredentialingRequest[]       @relation("CredentialingUpdatedByUser")
+  credentialingActivity         CredentialingActivityLog[]   @relation("CredentialingActivityByUser")
+  credentialingFollowUps        CredentialingFollowUpLog[]   @relation("CredentialingFollowUpByUser")
+  credentialingDocuments        CredentialingDocument[]      @relation("CredentialingDocumentByUser")
+  resolvedExceptions            ExceptionEvent[]             @relation("ExceptionResolvedByUser")
+  quickbooksConnections         QuickBooksConnection[]       @relation("QuickBooksConnectedByUser")
+  onboardingWorkstreamsOwned    OnboardingWorkstream[]       @relation("OnboardingWorkstreamOwner")
+  onboardingTasksOwned          OnboardingTask[]             @relation("OnboardingTaskOwner")
+  onboardingTemplateTasksOwned  OnboardingTaskTemplateItem[] @relation("OnboardingTemplateDefaultOwner")
+  onboardingRisksOwned          OnboardingRisk[]             @relation("OnboardingRiskOwner")
+  onboardingActionsResponsible  OnboardingActionItem[]       @relation("OnboardingActionResponsible")
+  onboardingActionsLogged       OnboardingActionItem[]       @relation("OnboardingActionLoggedBy")
+  onboardingActivities          OnboardingTaskActivity[]
+  hubDocumentsUploaded          HubDocument[]                @relation("HubDocumentUploadedBy")
+  hubDocumentPublicLinks        HubDocumentPublicLink[]      @relation("HubDocumentPublicLinkCreatedBy")
+  hubDocumentPublicLinksRevoked HubDocumentPublicLink[]      @relation("HubDocumentPublicLinkRevokedBy")
+  hubDocumentActivityLogs       HubDocumentActivityLog[]     @relation("HubDocumentActivityByUser")
+  hubDocumentCategoriesCreated  HubDocumentCategory[]        @relation("HubDocumentCategoryCreatedBy")
 
   @@map("User")
 }
@@ -118,24 +120,35 @@ model PracticeGroup {
 }
 
 model Practice {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  companyId             String?                @map("company_id") @db.Uuid
-  practiceGroupId       String?                @map("practice_group_id") @db.Uuid
-  taxIdId               String?                @map("tax_id_id") @db.Uuid
-  name                  String
-  npi                   String?
-  status                PracticeStatus
-  region                String?
-  source                PracticeSource
-  bucket                String[]
-  serviceLines          OnboardingServiceLine[] @default([]) @map("service_lines")
-  stripeCustomerId      String?                @map("stripe_customer_id")
-  quickbooksCustomerId  String?                @map("quickbooks_customer_id")
-  defaultCurrency       String?                @default("USD") @map("default_currency")
-  billingPaymentMethod  String?                @default("ACH") @map("billing_payment_method")
-  credentialingChargeAmount Decimal?           @map("credentialing_charge_amount") @db.Decimal(12, 2)
-  processingFeeConfig   Json?                  @map("processing_fee_config")
-  billToTaxIdId         String?                @map("bill_to_tax_id_id") @db.Uuid
+  id                           String                   @id @default(uuid()) @db.Uuid
+  companyId                    String?                  @map("company_id") @db.Uuid
+  practiceGroupId              String?                  @map("practice_group_id") @db.Uuid
+  taxIdId                      String?                  @map("tax_id_id") @db.Uuid
+  name                         String
+  npi                          String?
+  status                       PracticeStatus
+  region                       String?
+  source                       PracticeSource
+  bucket                       String[]
+  serviceLines                 OnboardingServiceLine[]  @default([]) @map("service_lines")
+  stripeCustomerId             String?                  @map("stripe_customer_id")
+  quickbooksCustomerId         String?                  @map("quickbooks_customer_id")
+  defaultCurrency              String?                  @default("USD") @map("default_currency")
+  billingPaymentMethod         String?                  @default("ACH") @map("billing_payment_method")
+  credentialingChargeAmount    Decimal?                 @map("credentialing_charge_amount") @db.Decimal(12, 2)
+  processingFeeConfig          Json?                    @map("processing_fee_config")
+  billToTaxIdId                String?                  @map("bill_to_tax_id_id") @db.Uuid
+  isPrefundingEnabled          Boolean                  @default(false) @map("is_prefunding_enabled")
+  prefundingCycle              String?                  @map("prefunding_cycle")
+  prefundingStartDate          DateTime?                @map("prefunding_start_date")
+  prefundingDueOn              Int?                     @map("prefunding_due_on")
+  prefundingReminderOn         Int?                     @map("prefunding_reminder_on")
+  prefundingStripeAccountId    String?                  @map("prefunding_stripe_account_id")
+  prefundingInvoiceRecipientId String?                  @map("prefunding_invoice_recipient_id") @db.Uuid
+  prefundingState              String?                  @map("prefunding_state")
+  prefundingRates              PrefundingPracticeRate[]
+  prefundingInvoices           PrefundingInvoice[]
+
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
   agreements            Agreement[]
@@ -146,7 +159,7 @@ model Practice {
   billingRuns           BillingRun[]
   deals                 Deal[]
   invoices              Invoice[]
-  MonthlyReport       MonthlyReport[]
+  MonthlyReport         MonthlyReport[]
   payments              Payment[]
   onboardings           Onboarding[]
   onboardingProjects    OnboardingProject[]
@@ -231,23 +244,32 @@ model GroupNpi {
 }
 
 model Person {
-  id                  String               @id @default(uuid()) @db.Uuid
-  firstName           String               @map("first_name")
-  lastName            String               @map("last_name")
-  role                PersonRole
-  status              PersonStatus         @default(ACTIVE)
-  designation         String?
-  influence           InfluenceLevel
-  email               String?
-  phone               String?
-  createdAt           DateTime             @default(now()) @map("created_at")
-  updatedAt           DateTime             @updatedAt @map("updated_at")
-  companies           CompanyPerson[]
-  deals               Deal[]
-  docusealSubmissions DocusealSubmission[]
-  onboardings         Onboarding[]
-  practices           PracticePerson[]
-  credentialingRequests CredentialingRequest[]
+  id               String         @id @default(uuid()) @db.Uuid
+  firstName        String         @map("first_name")
+  lastName         String         @map("last_name")
+  roles            PersonRole[]
+  status           PersonStatus   @default(ACTIVE)
+  designation      String?
+  influence        InfluenceLevel
+  email            String?
+  phone            String?
+  workLocation     String?        @map("work_location")
+    state            String?
+    dateOfJoining    DateTime?      @map("date_of_joining")
+    jobCategory      String?        @map("job_category")
+  payType          String?        @map("pay_type")
+  payRate          Decimal?       @map("pay_rate") @db.Decimal(12, 2)
+  budgetedHours    Decimal?       @map("budgeted_hours") @db.Decimal(10, 2)
+  bufferPercentage Decimal?       @map("buffer_percentage") @db.Decimal(5, 2)
+
+  createdAt                 DateTime               @default(now()) @map("created_at")
+  updatedAt                 DateTime               @updatedAt @map("updated_at")
+  companies                 CompanyPerson[]
+  deals                     Deal[]
+  docusealSubmissions       DocusealSubmission[]
+  onboardings               Onboarding[]
+  practices                 PracticePerson[]
+  credentialingRequests     CredentialingRequest[]
   managedOnboardingProjects OnboardingProject[]
   hubDocumentLinks          HubDocumentPerson[]
 
@@ -255,27 +277,27 @@ model Person {
 }
 
 model Deal {
-  id               String                @id @default(uuid()) @db.Uuid
-  practiceId       String                @map("practice_id") @db.Uuid
-  stage            DealStage
-  value            Decimal               @db.Decimal(12, 2)
-  probability      Int
+  id                String                @id @default(uuid()) @db.Uuid
+  practiceId        String                @map("practice_id") @db.Uuid
+  stage             DealStage
+  value             Decimal               @db.Decimal(12, 2)
+  probability       Int
   expectedCloseDate DateTime?             @map("expected_close_date")
-  createdAt        DateTime              @default(now()) @map("created_at")
-  updatedAt        DateTime              @default(now()) @updatedAt @map("updated_at")
-  activityCount    Int                   @default(0) @map("activity_count")
-  companyId        String?               @map("company_id") @db.Uuid
-  lastActivityAt   DateTime?             @map("last_activity_at")
-  nextTaskDueAt    DateTime?             @map("next_task_due_at")
-  nextTaskTitle    String?               @map("next_task_title")
-  primaryContactId String?               @map("primary_contact_id") @db.Uuid
-  agreements       Agreement[]
-  audits           Audit[]
-  selectedServices DealSelectedService[]
-  company          Company?              @relation(fields: [companyId], references: [id])
-  practice         Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  primaryContact   Person?               @relation(fields: [primaryContactId], references: [id])
-  hubDocumentLinks HubDocumentDeal[]
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at")
+  activityCount     Int                   @default(0) @map("activity_count")
+  companyId         String?               @map("company_id") @db.Uuid
+  lastActivityAt    DateTime?             @map("last_activity_at")
+  nextTaskDueAt     DateTime?             @map("next_task_due_at")
+  nextTaskTitle     String?               @map("next_task_title")
+  primaryContactId  String?               @map("primary_contact_id") @db.Uuid
+  agreements        Agreement[]
+  audits            Audit[]
+  selectedServices  DealSelectedService[]
+  company           Company?              @relation(fields: [companyId], references: [id])
+  practice          Practice              @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  primaryContact    Person?               @relation(fields: [primaryContactId], references: [id])
+  hubDocumentLinks  HubDocumentDeal[]
 
   @@index([practiceId])
   @@index([companyId])
@@ -309,25 +331,25 @@ model Agreement {
 }
 
 model DocusealSubmission {
-  id                   String       @id @default(uuid()) @db.Uuid
-  agreementId          String       @map("agreement_id") @db.Uuid
-  docusealSubmissionId Int?         @unique @map("docuseal_submission_id")
-  personId             String?      @map("person_id") @db.Uuid
-  url                  String?
-  docSlug              String?
-  signedDocUrl         String?      @map("signed_doc_url")
-  auditLogUrl          String?      @map("audit_log_url")
-  status               String?
-  approval_status      String?
-  submissionApprovalStatus   String?
-  submissionApprovalNote     String?
-  templateId           Int?         @map("template_id")
-  fieldValues          Json?        @map("field_values")
-  createdAt            DateTime     @default(now()) @map("created_at")
-  updatedAt            DateTime     @updatedAt @map("updated_at")
-  signers              DocuSigner[]
-  agreement            Agreement    @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-  person               Person?      @relation(fields: [personId], references: [id])
+  id                       String       @id @default(uuid()) @db.Uuid
+  agreementId              String       @map("agreement_id") @db.Uuid
+  docusealSubmissionId     Int?         @unique @map("docuseal_submission_id")
+  personId                 String?      @map("person_id") @db.Uuid
+  url                      String?
+  docSlug                  String?
+  signedDocUrl             String?      @map("signed_doc_url")
+  auditLogUrl              String?      @map("audit_log_url")
+  status                   String?
+  approval_status          String?
+  submissionApprovalStatus String?
+  submissionApprovalNote   String?
+  templateId               Int?         @map("template_id")
+  fieldValues              Json?        @map("field_values")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+  signers                  DocuSigner[]
+  agreement                Agreement    @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  person                   Person?      @relation(fields: [personId], references: [id])
 
   @@index([agreementId])
   @@index([personId])
@@ -357,24 +379,24 @@ model DocuSigner {
 }
 
 model Service {
-  id                     String                   @id @default(uuid()) @db.Uuid
-  name                   String
-  code                   String?
-  category               String?
-  stripeConnectedAccountId String?                @map("stripe_connected_account_id")
-  vendorId               String?                  @map("vendor_id") @db.Uuid
-  isActive               Boolean                  @default(true) @map("is_active")
-  createdAt              DateTime                 @default(now()) @map("created_at")
-  updatedAt              DateTime                 @default(now()) @updatedAt @map("updated_at")
-  agreementTerms         AgreementServiceTerm[]
-  agreements             Agreement[]
-  billingInputSnapshots  BillingInputSnapshot[]
-  billingRunItems        BillingRunItem[]
-  DealSelectedService DealSelectedService[]
-  lineItems              InvoiceLineItem[]
-  MonthlyReport        MonthlyReport?
-  vendor                 Vendor?                  @relation(fields: [vendorId], references: [id])
-  vendorPayableLineItems VendorPayableLineItem[]
+  id                       String                  @id @default(uuid()) @db.Uuid
+  name                     String
+  code                     String?
+  category                 String?
+  stripeConnectedAccountId String?                 @map("stripe_connected_account_id")
+  vendorId                 String?                 @map("vendor_id") @db.Uuid
+  isActive                 Boolean                 @default(true) @map("is_active")
+  createdAt                DateTime                @default(now()) @map("created_at")
+  updatedAt                DateTime                @default(now()) @updatedAt @map("updated_at")
+  agreementTerms           AgreementServiceTerm[]
+  agreements               Agreement[]
+  billingInputSnapshots    BillingInputSnapshot[]
+  billingRunItems          BillingRunItem[]
+  DealSelectedService      DealSelectedService[]
+  lineItems                InvoiceLineItem[]
+  MonthlyReport            MonthlyReport?
+  vendor                   Vendor?                 @relation(fields: [vendorId], references: [id])
+  vendorPayableLineItems   VendorPayableLineItem[]
 
   @@index([stripeConnectedAccountId])
   @@index([vendorId])
@@ -382,39 +404,39 @@ model Service {
 }
 
 model Invoice {
-  id                     String              @id @default(uuid()) @db.Uuid
-  practiceId             String              @map("practice_id") @db.Uuid
-  agreementId            String?             @map("agreement_id") @db.Uuid
-  totalAmount            Decimal             @map("total_amount") @db.Decimal(12, 2)
+  id                     String                            @id @default(uuid()) @db.Uuid
+  practiceId             String                            @map("practice_id") @db.Uuid
+  agreementId            String?                           @map("agreement_id") @db.Uuid
+  totalAmount            Decimal                           @map("total_amount") @db.Decimal(12, 2)
   status                 InvoiceStatus
-  dueDate                DateTime?           @map("due_date")
-  invoiceNumber          String?             @unique @map("invoice_number")
-  currency               String?             @default("USD")
-  billingPeriodStart     DateTime?           @map("billing_period_start")
-  billingPeriodEnd       DateTime?           @map("billing_period_end")
-  subtotalAmount         Decimal?            @map("subtotal_amount") @db.Decimal(12, 2)
-  paymentMethod          String?             @map("payment_method")
-  feeBearer              String?             @map("fee_bearer")
-  processingFeeAmount    Decimal?            @map("processing_fee_amount") @db.Decimal(12, 2)
-  companyFeeAmount       Decimal?            @map("company_fee_amount") @db.Decimal(12, 2)
-  taxAmount              Decimal?            @map("tax_amount") @db.Decimal(12, 2)
-  discountAmount         Decimal?            @map("discount_amount") @db.Decimal(12, 2)
-  stripeInvoiceId        String?             @map("stripe_invoice_id")
-  stripeHostedInvoiceUrl String?             @map("stripe_hosted_invoice_url")
-  stripeInvoicePdfUrl    String?             @map("stripe_invoice_pdf_url")
-  invoicePdfBlobUrl      String?             @map("invoice_pdf_blob_url")
-  receiptPdfBlobUrl      String?             @map("receipt_pdf_blob_url")
-  quickbooksInvoiceId    String?             @map("quickbooks_invoice_id")
-  dueReminder5DaysSent   Boolean             @default(false) @map("due_reminder_5_days_sent")
-  dueReminderOverdueSent Boolean             @default(false) @map("due_reminder_overdue_sent")
-  createdByUserId        String?             @map("created_by_user_id") @db.Uuid
-  createdAt              DateTime            @default(now()) @map("created_at")
-  updatedAt              DateTime            @default(now()) @updatedAt @map("updated_at")
+  dueDate                DateTime?                         @map("due_date")
+  invoiceNumber          String?                           @unique @map("invoice_number")
+  currency               String?                           @default("USD")
+  billingPeriodStart     DateTime?                         @map("billing_period_start")
+  billingPeriodEnd       DateTime?                         @map("billing_period_end")
+  subtotalAmount         Decimal?                          @map("subtotal_amount") @db.Decimal(12, 2)
+  paymentMethod          String?                           @map("payment_method")
+  feeBearer              String?                           @map("fee_bearer")
+  processingFeeAmount    Decimal?                          @map("processing_fee_amount") @db.Decimal(12, 2)
+  companyFeeAmount       Decimal?                          @map("company_fee_amount") @db.Decimal(12, 2)
+  taxAmount              Decimal?                          @map("tax_amount") @db.Decimal(12, 2)
+  discountAmount         Decimal?                          @map("discount_amount") @db.Decimal(12, 2)
+  stripeInvoiceId        String?                           @map("stripe_invoice_id")
+  stripeHostedInvoiceUrl String?                           @map("stripe_hosted_invoice_url")
+  stripeInvoicePdfUrl    String?                           @map("stripe_invoice_pdf_url")
+  invoicePdfBlobUrl      String?                           @map("invoice_pdf_blob_url")
+  receiptPdfBlobUrl      String?                           @map("receipt_pdf_blob_url")
+  quickbooksInvoiceId    String?                           @map("quickbooks_invoice_id")
+  dueReminder5DaysSent   Boolean                           @default(false) @map("due_reminder_5_days_sent")
+  dueReminderOverdueSent Boolean                           @default(false) @map("due_reminder_overdue_sent")
+  createdByUserId        String?                           @map("created_by_user_id") @db.Uuid
+  createdAt              DateTime                          @default(now()) @map("created_at")
+  updatedAt              DateTime                          @default(now()) @updatedAt @map("updated_at")
   lineItems              InvoiceLineItem[]
   stripeTransfers        InvoiceConnectedAccountTransfer[]
-  agreement              Agreement?          @relation(fields: [agreementId], references: [id])
-  createdByUser          User?               @relation("InvoiceCreatedByUser", fields: [createdByUserId], references: [id])
-  practice               Practice            @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  agreement              Agreement?                        @relation(fields: [agreementId], references: [id])
+  createdByUser          User?                             @relation("InvoiceCreatedByUser", fields: [createdByUserId], references: [id])
+  practice               Practice                          @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   paymentAllocations     PaymentAllocation[]
   purchaseOrders         PurchaseOrder[]
   stripeEventLogs        StripeEventLog[]
@@ -430,7 +452,7 @@ model InvoiceLineItem {
   id                        String                   @id @default(uuid()) @db.Uuid
   invoiceId                 String                   @map("invoice_id") @db.Uuid
   serviceId                 String                   @map("service_id") @db.Uuid
-  stripeConnectedAccountId   String?                  @map("stripe_connected_account_id")
+  stripeConnectedAccountId  String?                  @map("stripe_connected_account_id")
   quantity                  Int
   unitPrice                 Decimal                  @map("unit_price") @db.Decimal(12, 2)
   totalPrice                Decimal                  @map("total_price") @db.Decimal(12, 2)
@@ -461,20 +483,20 @@ model InvoiceLineItem {
 }
 
 model InvoiceConnectedAccountTransfer {
-  id                      String              @id @default(uuid()) @db.Uuid
-  invoiceId               String              @map("invoice_id") @db.Uuid
-  stripeConnectedAccountId String             @map("stripe_connected_account_id")
-  stripeTransferId        String?             @map("stripe_transfer_id")
-  amount                  Decimal             @db.Decimal(12, 2)
-  currency                String              @default("USD")
-  status                  StripeTransferStatus @default(PENDING)
-  failureMessage          String?             @map("failure_message")
-  transferGroup           String?             @map("transfer_group")
-  serviceIds              String[]            @default([]) @map("service_ids")
-  invoiceLineItemIds      String[]            @default([]) @map("invoice_line_item_ids")
-  createdAt               DateTime            @default(now()) @map("created_at")
-  updatedAt               DateTime            @default(now()) @updatedAt @map("updated_at")
-  invoice                 Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  id                       String               @id @default(uuid()) @db.Uuid
+  invoiceId                String               @map("invoice_id") @db.Uuid
+  stripeConnectedAccountId String               @map("stripe_connected_account_id")
+  stripeTransferId         String?              @map("stripe_transfer_id")
+  amount                   Decimal              @db.Decimal(12, 2)
+  currency                 String               @default("USD")
+  status                   StripeTransferStatus @default(PENDING)
+  failureMessage           String?              @map("failure_message")
+  transferGroup            String?              @map("transfer_group")
+  serviceIds               String[]             @default([]) @map("service_ids")
+  invoiceLineItemIds       String[]             @default([]) @map("invoice_line_item_ids")
+  createdAt                DateTime             @default(now()) @map("created_at")
+  updatedAt                DateTime             @default(now()) @updatedAt @map("updated_at")
+  invoice                  Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@unique([invoiceId, stripeConnectedAccountId])
   @@index([invoiceId])
@@ -539,27 +561,27 @@ model AgreementVersion {
 }
 
 model AgreementServiceTerm {
-  id                 String            @id @default(uuid()) @db.Uuid
-  agreementId        String            @map("agreement_id") @db.Uuid
-  agreementVersionId String?           @map("agreement_version_id") @db.Uuid
-  serviceId          String            @map("service_id") @db.Uuid
-  vendorId           String?           @map("vendor_id") @db.Uuid
-  pricingModel       PricingModel      @map("pricing_model")
-  pricingConfig      Json              @map("pricing_config")
-  currency           String?           @default("USD")
-  priority           Int               @default(1)
-  minimumFee         Decimal?          @map("minimum_fee") @db.Decimal(12, 2)
-  effectiveDate      DateTime?         @map("effective_date")
-  endDate            DateTime?         @map("end_date")
-  isActive           Boolean           @default(true) @map("is_active")
-  externalReference  String?           @map("external_reference")
-  createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at")
+  id                 String                  @id @default(uuid()) @db.Uuid
+  agreementId        String                  @map("agreement_id") @db.Uuid
+  agreementVersionId String?                 @map("agreement_version_id") @db.Uuid
+  serviceId          String                  @map("service_id") @db.Uuid
+  vendorId           String?                 @map("vendor_id") @db.Uuid
+  pricingModel       PricingModel            @map("pricing_model")
+  pricingConfig      Json                    @map("pricing_config")
+  currency           String?                 @default("USD")
+  priority           Int                     @default(1)
+  minimumFee         Decimal?                @map("minimum_fee") @db.Decimal(12, 2)
+  effectiveDate      DateTime?               @map("effective_date")
+  endDate            DateTime?               @map("end_date")
+  isActive           Boolean                 @default(true) @map("is_active")
+  externalReference  String?                 @map("external_reference")
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @default(now()) @updatedAt @map("updated_at")
   approvalStatus     ApprovalDecisionStatus? @map("approval_status")
-  agreement          Agreement         @relation(fields: [agreementId], references: [id], onDelete: Cascade)
-  agreementVersion   AgreementVersion? @relation(fields: [agreementVersionId], references: [id])
-  service            Service           @relation(fields: [serviceId], references: [id])
-  vendor             Vendor?           @relation(fields: [vendorId], references: [id])
+  agreement          Agreement               @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  agreementVersion   AgreementVersion?       @relation(fields: [agreementVersionId], references: [id])
+  service            Service                 @relation(fields: [serviceId], references: [id])
+  vendor             Vendor?                 @relation(fields: [vendorId], references: [id])
   billingRunItems    BillingRunItem[]
   invoiceLineItems   InvoiceLineItem[]
 
@@ -572,30 +594,30 @@ model AgreementServiceTerm {
 }
 
 model BillingRun {
-  id               String                 @id @default(uuid()) @db.Uuid
-  practiceId       String                 @map("practice_id") @db.Uuid
-  periodStart      DateTime               @map("period_start")
-  periodEnd        DateTime               @map("period_end")
-  status           BillingRunStatus       @default(PENDING)
-  approvedByUserId String?                @map("approved_by_user_id") @db.Uuid
-  approvedAt       DateTime?              @map("approved_at")
-  createdByUserId  String?                @map("created_by_user_id") @db.Uuid
-  notes            String?
-  paymentMethod    String                 @map("payment_method")
-  feeBearer        String                 @default("CLIENT") @map("fee_bearer")
-  companyFeeAmountOverride Decimal?       @map("company_fee_amount_override") @db.Decimal(12, 2)
-  credentialingChargeAmountOverride Decimal? @map("credentialing_charge_amount_override") @db.Decimal(12, 2)
-  processingFeeConfig Json?               @map("processing_fee_config")
-  createdAt        DateTime               @default(now()) @map("created_at")
-  updatedAt        DateTime               @default(now()) @updatedAt @map("updated_at")
-  inputSnapshots   BillingInputSnapshot[]
-  items            BillingRunItem[]
-  approvedByUser   User?                  @relation("BillingRunApprovedBy", fields: [approvedByUserId], references: [id])
-  createdByUser    User?                  @relation("BillingRunCreatedBy", fields: [createdByUserId], references: [id])
-  practice         Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  vendorPayables   VendorPayable[]
-  agreementIds     String[]               @default([]) @map("agreement_ids")
-  selectedCredentialingRequestIds Json?   @map("selected_credentialing_request_ids")
+  id                                String                 @id @default(uuid()) @db.Uuid
+  practiceId                        String                 @map("practice_id") @db.Uuid
+  periodStart                       DateTime               @map("period_start")
+  periodEnd                         DateTime               @map("period_end")
+  status                            BillingRunStatus       @default(PENDING)
+  approvedByUserId                  String?                @map("approved_by_user_id") @db.Uuid
+  approvedAt                        DateTime?              @map("approved_at")
+  createdByUserId                   String?                @map("created_by_user_id") @db.Uuid
+  notes                             String?
+  paymentMethod                     String                 @map("payment_method")
+  feeBearer                         String                 @default("CLIENT") @map("fee_bearer")
+  companyFeeAmountOverride          Decimal?               @map("company_fee_amount_override") @db.Decimal(12, 2)
+  credentialingChargeAmountOverride Decimal?               @map("credentialing_charge_amount_override") @db.Decimal(12, 2)
+  processingFeeConfig               Json?                  @map("processing_fee_config")
+  createdAt                         DateTime               @default(now()) @map("created_at")
+  updatedAt                         DateTime               @default(now()) @updatedAt @map("updated_at")
+  inputSnapshots                    BillingInputSnapshot[]
+  items                             BillingRunItem[]
+  approvedByUser                    User?                  @relation("BillingRunApprovedBy", fields: [approvedByUserId], references: [id])
+  createdByUser                     User?                  @relation("BillingRunCreatedBy", fields: [createdByUserId], references: [id])
+  practice                          Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  vendorPayables                    VendorPayable[]
+  agreementIds                      String[]               @default([]) @map("agreement_ids")
+  selectedCredentialingRequestIds   Json?                  @map("selected_credentialing_request_ids")
 
   @@index([practiceId])
   @@index([approvedByUserId])
@@ -914,7 +936,7 @@ model Onboarding {
   isCredentialingEntity         Boolean?                 @map("is_credentialing_entity")
   primarySpecialty              String?                  @map("primary_specialty")
   additionalSpecialties         String[]                 @map("additional_specialties")
-  requestedServices             String[]            @map("requested_services")
+  requestedServices             String[]                 @map("requested_services")
   primaryServiceToLaunch        String?                  @map("primary_service_to_launch")
   requestedGoLiveDate           DateTime?                @map("requested_go_live_date")
   priorityLevel                 String?                  @map("priority_level")
@@ -939,7 +961,7 @@ model Onboarding {
   credentialing                 OnboardingCredentialing?
   documents                     OnboardingDocument[]
   labPharmacy                   OnboardingLabPharmacy?
-  OnboardingMarketing          OnboardingMarketing?
+  OnboardingMarketing           OnboardingMarketing?
   outreach                      OnboardingOutreach?
   person                        Person?                  @relation(fields: [personId], references: [id], onDelete: SetNull)
   practice                      Practice?                @relation(fields: [practiceId], references: [id], onDelete: SetNull)
@@ -1042,71 +1064,71 @@ model OnboardingLocation {
 }
 
 model OnboardingProvider {
-  id                     String             @id @default(uuid()) @db.Uuid
-  onboardingPracticeId   String             @map("onboarding_practice_id") @db.Uuid
-  firstName              String?            @map("first_name")
-  lastName               String?            @map("last_name")
-  fullName               String?            @map("full_name")
-  dateOfBirth            DateTime?          @map("date_of_birth")
-  gender                 String?
-  credentials            String?
-  providerType           String?            @map("provider_type")
-  specialty              String?
-  npi                    String?
-  caqhId                 String?            @map("caqh_id")
-  ssnFullDigits          String?            @map("ssn_full_digits")
-  licenseNumber          String?            @map("license_number")
-  licenseExpiryDate      DateTime?          @map("license_expiry_date")
-  stateOfLicense         String?            @map("state_of_license")
-  licenseType            String?            @map("license_type")
-  taxonomy               String?
-  primarySpecialty       String?            @map("primary_specialty")
-  secondarySpecialty     String?            @map("secondary_specialty")
-  boardCertifications    String?            @map("board_certifications")
-  caqhUsername           String?            @map("caqh_username")
-  caqhPassword           String?            @map("caqh_password")
-  caqhLastAttestationDate DateTime?         @map("caqh_last_attestation_date")
-  languagesSpoken        String?            @map("languages_spoken")
-  telehealthAvailable    Boolean?           @map("telehealth_available")
-  malpracticeCarrier     String?            @map("malpractice_carrier")
-  malpracticePolicyNumber String?           @map("malpractice_policy_number")
-  malpracticeEffectiveDate DateTime?        @map("malpractice_effective_date")
-  malpracticeExpiryDate  DateTime?          @map("malpractice_expiry_date")
-  hospitalAffiliations   String?            @map("hospital_affiliations")
-  personalCellNumber     String?            @map("personal_cell_number")
-  personalEmail          String?            @map("personal_email")
-  practiceEmail          String?            @map("practice_email")
-  medicarePtanIndividual String?            @map("medicare_ptan_individual")
-  medicaidIdIndividual   String?            @map("medicaid_id_individual")
-  ipaAffiliationsProviderLevel String?      @map("ipa_affiliations_provider_level")
-  nppesUsername          String?            @map("nppes_username")
-  nppesPassword          String?            @map("nppes_password")
-  railroadMedicareIndividual String?        @map("railroad_medicare_individual")
-  railroadMedicareGroup  String?            @map("railroad_medicare_group")
-  cliaNumber             String?            @map("clia_number")
-  copyOfBoardCertification String?          @map("copy_of_board_certification")
-  copyOfProfessionalLiabilityInsurance String? @map("copy_of_professional_liability_insurance")
-  copyOfBachelorsDegree  String?            @map("copy_of_bachelors_degree")
-  copyOfMastersDegree    String?            @map("copy_of_masters_degree")
-  copyOfSocialSecurityCard String?          @map("copy_of_social_security_card")
-  copyOfDriversLicense   String?            @map("copy_of_drivers_license")
-  passportSizedPhoto     String?            @map("passport_sized_photo")
-  resume                 String?
-  providerEffectiveDateWithGroup DateTime?  @map("provider_effective_date_with_group")
-  countryOfBirth         String?            @map("country_of_birth")
-  statePlaceOfBirth      String?            @map("state_place_of_birth")
-  homeAddress            String?            @map("home_address")
-  stateLicenseNumber     String?            @map("state_license_number")
-  deaNumber              String?            @map("dea_number")
-  boardCertified         Boolean?           @map("board_certified")
-  employmentStatus       String?            @map("employment_status")
-  participatingLocations String[]           @map("participating_locations")
-  credentialingNeeded    String?            @map("credentialing_needed")
-  recredentialingNeeded  String?            @map("recredentialing_needed")
-  notes                  String?
-  createdAt              DateTime           @default(now()) @map("created_at")
-  updatedAt              DateTime           @default(now()) @updatedAt @map("updated_at")
-  onboardingPractice     OnboardingPractice @relation(fields: [onboardingPracticeId], references: [id], onDelete: Cascade)
+  id                                   String             @id @default(uuid()) @db.Uuid
+  onboardingPracticeId                 String             @map("onboarding_practice_id") @db.Uuid
+  firstName                            String?            @map("first_name")
+  lastName                             String?            @map("last_name")
+  fullName                             String?            @map("full_name")
+  dateOfBirth                          DateTime?          @map("date_of_birth")
+  gender                               String?
+  credentials                          String?
+  providerType                         String?            @map("provider_type")
+  specialty                            String?
+  npi                                  String?
+  caqhId                               String?            @map("caqh_id")
+  ssnFullDigits                        String?            @map("ssn_full_digits")
+  licenseNumber                        String?            @map("license_number")
+  licenseExpiryDate                    DateTime?          @map("license_expiry_date")
+  stateOfLicense                       String?            @map("state_of_license")
+  licenseType                          String?            @map("license_type")
+  taxonomy                             String?
+  primarySpecialty                     String?            @map("primary_specialty")
+  secondarySpecialty                   String?            @map("secondary_specialty")
+  boardCertifications                  String?            @map("board_certifications")
+  caqhUsername                         String?            @map("caqh_username")
+  caqhPassword                         String?            @map("caqh_password")
+  caqhLastAttestationDate              DateTime?          @map("caqh_last_attestation_date")
+  languagesSpoken                      String?            @map("languages_spoken")
+  telehealthAvailable                  Boolean?           @map("telehealth_available")
+  malpracticeCarrier                   String?            @map("malpractice_carrier")
+  malpracticePolicyNumber              String?            @map("malpractice_policy_number")
+  malpracticeEffectiveDate             DateTime?          @map("malpractice_effective_date")
+  malpracticeExpiryDate                DateTime?          @map("malpractice_expiry_date")
+  hospitalAffiliations                 String?            @map("hospital_affiliations")
+  personalCellNumber                   String?            @map("personal_cell_number")
+  personalEmail                        String?            @map("personal_email")
+  practiceEmail                        String?            @map("practice_email")
+  medicarePtanIndividual               String?            @map("medicare_ptan_individual")
+  medicaidIdIndividual                 String?            @map("medicaid_id_individual")
+  ipaAffiliationsProviderLevel         String?            @map("ipa_affiliations_provider_level")
+  nppesUsername                        String?            @map("nppes_username")
+  nppesPassword                        String?            @map("nppes_password")
+  railroadMedicareIndividual           String?            @map("railroad_medicare_individual")
+  railroadMedicareGroup                String?            @map("railroad_medicare_group")
+  cliaNumber                           String?            @map("clia_number")
+  copyOfBoardCertification             String?            @map("copy_of_board_certification")
+  copyOfProfessionalLiabilityInsurance String?            @map("copy_of_professional_liability_insurance")
+  copyOfBachelorsDegree                String?            @map("copy_of_bachelors_degree")
+  copyOfMastersDegree                  String?            @map("copy_of_masters_degree")
+  copyOfSocialSecurityCard             String?            @map("copy_of_social_security_card")
+  copyOfDriversLicense                 String?            @map("copy_of_drivers_license")
+  passportSizedPhoto                   String?            @map("passport_sized_photo")
+  resume                               String?
+  providerEffectiveDateWithGroup       DateTime?          @map("provider_effective_date_with_group")
+  countryOfBirth                       String?            @map("country_of_birth")
+  statePlaceOfBirth                    String?            @map("state_place_of_birth")
+  homeAddress                          String?            @map("home_address")
+  stateLicenseNumber                   String?            @map("state_license_number")
+  deaNumber                            String?            @map("dea_number")
+  boardCertified                       Boolean?           @map("board_certified")
+  employmentStatus                     String?            @map("employment_status")
+  participatingLocations               String[]           @map("participating_locations")
+  credentialingNeeded                  String?            @map("credentialing_needed")
+  recredentialingNeeded                String?            @map("recredentialing_needed")
+  notes                                String?
+  createdAt                            DateTime           @default(now()) @map("created_at")
+  updatedAt                            DateTime           @default(now()) @updatedAt @map("updated_at")
+  onboardingPractice                   OnboardingPractice @relation(fields: [onboardingPracticeId], references: [id], onDelete: Cascade)
 
   @@index([onboardingPracticeId])
   @@map("onboarding_providers")
@@ -1159,26 +1181,26 @@ model OnboardingBilling {
 }
 
 model OnboardingCredentialing {
-  id                         String                @id @default(uuid()) @db.Uuid
-  onboardingId               String                @unique @map("onboarding_id") @db.Uuid
-  credentialingNeeded        Boolean?              @map("credentialing_needed")
-  credentialingFor           String[]              @map("credentialing_for")
-  payersToEnroll             String?               @map("payers_to_enroll")
-  approvedInsurancesTracker  String?               @map("approved_insurances_tracker")
-  designatedPortalContactName String?              @map("designated_portal_contact_name")
-  designatedPortalContactEmail String?             @map("designated_portal_contact_email")
-  designatedPortalContactPhone String?             @map("designated_portal_contact_phone")
-  irsDocument147c            String?               @map("irs_document_147c")
-  desiredInsurancePlans      String?               @map("desired_insurance_plans")
-  payerPortalLogins          Json?                 @map("payer_portal_logins")
-  caqhMaintained             Boolean?              @map("caqh_maintained")
-  currentCredentialingIssues CredentialingIssues[] @map("current_credentialing_issues")
-  medicarePtanAvailable      String?               @map("medicare_ptan_available")
-  medicaidEnrollmentActive   String?               @map("medicaid_enrollment_active")
-  additionalNotes            String?               @map("additional_notes")
-  createdAt                  DateTime              @default(now()) @map("created_at")
-  updatedAt                  DateTime              @default(now()) @updatedAt @map("updated_at")
-  onboarding                 Onboarding            @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  id                           String                @id @default(uuid()) @db.Uuid
+  onboardingId                 String                @unique @map("onboarding_id") @db.Uuid
+  credentialingNeeded          Boolean?              @map("credentialing_needed")
+  credentialingFor             String[]              @map("credentialing_for")
+  payersToEnroll               String?               @map("payers_to_enroll")
+  approvedInsurancesTracker    String?               @map("approved_insurances_tracker")
+  designatedPortalContactName  String?               @map("designated_portal_contact_name")
+  designatedPortalContactEmail String?               @map("designated_portal_contact_email")
+  designatedPortalContactPhone String?               @map("designated_portal_contact_phone")
+  irsDocument147c              String?               @map("irs_document_147c")
+  desiredInsurancePlans        String?               @map("desired_insurance_plans")
+  payerPortalLogins            Json?                 @map("payer_portal_logins")
+  caqhMaintained               Boolean?              @map("caqh_maintained")
+  currentCredentialingIssues   CredentialingIssues[] @map("current_credentialing_issues")
+  medicarePtanAvailable        String?               @map("medicare_ptan_available")
+  medicaidEnrollmentActive     String?               @map("medicaid_enrollment_active")
+  additionalNotes              String?               @map("additional_notes")
+  createdAt                    DateTime              @default(now()) @map("created_at")
+  updatedAt                    DateTime              @default(now()) @updatedAt @map("updated_at")
+  onboarding                   Onboarding            @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
 
   @@index([onboardingId])
   @@map("onboarding_credentialing")
@@ -1331,25 +1353,25 @@ model ChannelPartner {
 }
 
 model SystemSettings {
-  id               String   @id @default(uuid())
-  organizationName String   @default("Tristate MSO") @map("organization_name")
-  domain           String   @default("tristate-mso.com")
-  address          String?
-  supportEmail     String?  @default("support@tristate-mso.com") @map("support_email")
-  authorizedSigner String?  @map("authorized_signer")
-  notifyTo         String[] @default([]) @map("notify_to")
-  creditCardCompanyRatePercent Decimal @default(1.4) @map("credit_card_company_rate_percent") @db.Decimal(8, 4)
-  creditCardCompanyFixedFee Decimal @default(0.30) @map("credit_card_company_fixed_fee") @db.Decimal(12, 2)
-  creditCardClientRatePercent Decimal @default(1.5) @map("credit_card_client_rate_percent") @db.Decimal(8, 4)
-  creditCardClientFixedFee Decimal @default(0.00) @map("credit_card_client_fixed_fee") @db.Decimal(12, 2)
-  achCompanyRatePercent Decimal @default(0.8) @map("ach_company_rate_percent") @db.Decimal(8, 4)
-  achCompanyCapAmount Decimal @default(5.00) @map("ach_company_cap_amount") @db.Decimal(12, 2)
-  achClientRatePercent Decimal @default(0.0) @map("ach_client_rate_percent") @db.Decimal(8, 4)
-  achClientCapAmount Decimal @default(0.00) @map("ach_client_cap_amount") @db.Decimal(12, 2)
-  invoiceDueDays       Int      @default(15) @map("invoice_due_days")
-  invoiceReminderDays  Int      @default(5) @map("invoice_reminder_days")
-  credentialingReminderDays Int @default(5) @map("credentialing_reminder_days")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                           String   @id @default(uuid())
+  organizationName             String   @default("Tristate MSO") @map("organization_name")
+  domain                       String   @default("tristate-mso.com")
+  address                      String?
+  supportEmail                 String?  @default("support@tristate-mso.com") @map("support_email")
+  authorizedSigner             String?  @map("authorized_signer")
+  notifyTo                     String[] @default([]) @map("notify_to")
+  creditCardCompanyRatePercent Decimal  @default(1.4) @map("credit_card_company_rate_percent") @db.Decimal(8, 4)
+  creditCardCompanyFixedFee    Decimal  @default(0.30) @map("credit_card_company_fixed_fee") @db.Decimal(12, 2)
+  creditCardClientRatePercent  Decimal  @default(1.5) @map("credit_card_client_rate_percent") @db.Decimal(8, 4)
+  creditCardClientFixedFee     Decimal  @default(0.00) @map("credit_card_client_fixed_fee") @db.Decimal(12, 2)
+  achCompanyRatePercent        Decimal  @default(0.8) @map("ach_company_rate_percent") @db.Decimal(8, 4)
+  achCompanyCapAmount          Decimal  @default(5.00) @map("ach_company_cap_amount") @db.Decimal(12, 2)
+  achClientRatePercent         Decimal  @default(0.0) @map("ach_client_rate_percent") @db.Decimal(8, 4)
+  achClientCapAmount           Decimal  @default(0.00) @map("ach_client_cap_amount") @db.Decimal(12, 2)
+  invoiceDueDays               Int      @default(15) @map("invoice_due_days")
+  invoiceReminderDays          Int      @default(5) @map("invoice_reminder_days")
+  credentialingReminderDays    Int      @default(5) @map("credentialing_reminder_days")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
 }
@@ -1405,55 +1427,55 @@ model OnboardingMarketing {
   additionalMarketingNotes     String?    @map("additional_marketing_notes")
   createdAt                    DateTime   @default(now()) @map("created_at")
   updatedAt                    DateTime   @default(now()) @map("updated_at")
-  onboarding                  Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  onboarding                   Onboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
 
   @@index([onboardingId])
   @@map("OnboardingMarketing")
 }
 
 model CredentialingRequest {
-  id                     String                        @id @default(uuid()) @db.Uuid
-  credentialingId        String                        @unique @map("credentialing_id")
-  practiceId             String                        @map("practice_id") @db.Uuid
-  providerId             String?                       @map("provider_id") @db.Uuid
-  providerName           String?                       @map("provider_name")
-  insurancePayerName     String                        @map("insurance_payer_name")
-  requestType            CredentialingRequestType      @map("request_type")
-  contractType           CredentialingContractType     @map("contract_type")
-  ipaDelegatedEntityName String?                       @map("ipa_delegated_entity_name")
-  status                 CredentialingRequestStatus    @default(NOT_STARTED)
-  credentialingChargeBilledAt DateTime?                @map("credentialing_charge_billed_at")
-  credentialingChargeInvoiceLineItemId String?         @map("credentialing_charge_invoice_line_item_id") @db.Uuid
-  payerProviderId        String?                       @map("payer_provider_id")
-  startDate              DateTime?                     @map("start_date")
-  submissionDate         DateTime?                     @map("submission_date")
-  effectiveDate          DateTime?                     @map("effective_date")
-  expirationDate         DateTime?                     @map("expiration_date")
-  nextFollowUpDate       DateTime?                     @map("next_follow_up_date")
-  reCredentialingDueDate DateTime?                     @map("re_credentialing_due_date")
-  lastActivityDate       DateTime?                     @map("last_activity_date")
-  tinVerified            CredentialingVerificationStatus @default(PENDING) @map("tin_verified")
-  addressVerified        CredentialingVerificationStatus @default(PENDING) @map("address_verified")
-  lineOfBusiness         String[]                      @map("lines_of_business")
-  priority               CredentialingPriority          @default(MEDIUM)
-  internalNotes          String?                       @map("internal_notes")
-  notes                  String?                       @map("notes")
-  enrollmentId           String?                       @map("enrollment_id")
-  checklist              Json?                         @map("checklist")
-  assignedToUserId       String?                       @map("assigned_to_user_id") @db.Uuid
-  createdByUserId        String?                       @map("created_by_user_id") @db.Uuid
-  updatedByUserId        String?                       @map("updated_by_user_id") @db.Uuid
-  createdAt              DateTime                      @default(now()) @map("created_at")
-  updatedAt              DateTime                      @default(now()) @updatedAt @map("updated_at")
-  practice               Practice                      @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  provider               Person?                       @relation(fields: [providerId], references: [id])
-  assignedToUser         User?                         @relation("CredentialingAssignedToUser", fields: [assignedToUserId], references: [id])
-  createdByUser          User?                         @relation("CredentialingCreatedByUser", fields: [createdByUserId], references: [id])
-  updatedByUser          User?                         @relation("CredentialingUpdatedByUser", fields: [updatedByUserId], references: [id])
-  billingRunItems        BillingRunItem[]
-  documents              CredentialingDocument[]
-  followUpLogs           CredentialingFollowUpLog[]
-  activityLogs           CredentialingActivityLog[]
+  id                                   String                          @id @default(uuid()) @db.Uuid
+  credentialingId                      String                          @unique @map("credentialing_id")
+  practiceId                           String                          @map("practice_id") @db.Uuid
+  providerId                           String?                         @map("provider_id") @db.Uuid
+  providerName                         String?                         @map("provider_name")
+  insurancePayerName                   String                          @map("insurance_payer_name")
+  requestType                          CredentialingRequestType        @map("request_type")
+  contractType                         CredentialingContractType       @map("contract_type")
+  ipaDelegatedEntityName               String?                         @map("ipa_delegated_entity_name")
+  status                               CredentialingRequestStatus      @default(NOT_STARTED)
+  credentialingChargeBilledAt          DateTime?                       @map("credentialing_charge_billed_at")
+  credentialingChargeInvoiceLineItemId String?                         @map("credentialing_charge_invoice_line_item_id") @db.Uuid
+  payerProviderId                      String?                         @map("payer_provider_id")
+  startDate                            DateTime?                       @map("start_date")
+  submissionDate                       DateTime?                       @map("submission_date")
+  effectiveDate                        DateTime?                       @map("effective_date")
+  expirationDate                       DateTime?                       @map("expiration_date")
+  nextFollowUpDate                     DateTime?                       @map("next_follow_up_date")
+  reCredentialingDueDate               DateTime?                       @map("re_credentialing_due_date")
+  lastActivityDate                     DateTime?                       @map("last_activity_date")
+  tinVerified                          CredentialingVerificationStatus @default(PENDING) @map("tin_verified")
+  addressVerified                      CredentialingVerificationStatus @default(PENDING) @map("address_verified")
+  lineOfBusiness                       String[]                        @map("lines_of_business")
+  priority                             CredentialingPriority           @default(MEDIUM)
+  internalNotes                        String?                         @map("internal_notes")
+  notes                                String?                         @map("notes")
+  enrollmentId                         String?                         @map("enrollment_id")
+  checklist                            Json?                           @map("checklist")
+  assignedToUserId                     String?                         @map("assigned_to_user_id") @db.Uuid
+  createdByUserId                      String?                         @map("created_by_user_id") @db.Uuid
+  updatedByUserId                      String?                         @map("updated_by_user_id") @db.Uuid
+  createdAt                            DateTime                        @default(now()) @map("created_at")
+  updatedAt                            DateTime                        @default(now()) @updatedAt @map("updated_at")
+  practice                             Practice                        @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  provider                             Person?                         @relation(fields: [providerId], references: [id])
+  assignedToUser                       User?                           @relation("CredentialingAssignedToUser", fields: [assignedToUserId], references: [id])
+  createdByUser                        User?                           @relation("CredentialingCreatedByUser", fields: [createdByUserId], references: [id])
+  updatedByUser                        User?                           @relation("CredentialingUpdatedByUser", fields: [updatedByUserId], references: [id])
+  billingRunItems                      BillingRunItem[]
+  documents                            CredentialingDocument[]
+  followUpLogs                         CredentialingFollowUpLog[]
+  activityLogs                         CredentialingActivityLog[]
 
   @@unique([practiceId, providerId, insurancePayerName, requestType])
   @@index([practiceId])
@@ -1509,20 +1531,20 @@ model InsurancePlan {
 }
 
 model CredentialingFollowUpLog {
-  id                     String                         @id @default(uuid()) @db.Uuid
-  credentialingRequestId String                         @map("credentialing_request_id") @db.Uuid
-  dateTime               DateTime                       @default(now()) @map("date_time")
+  id                     String                            @id @default(uuid()) @db.Uuid
+  credentialingRequestId String                            @map("credentialing_request_id") @db.Uuid
+  dateTime               DateTime                          @default(now()) @map("date_time")
   channel                CredentialingCommunicationChannel
   direction              CredentialingDirection
-  referenceNumber        String?                        @map("reference_number")
+  referenceNumber        String?                           @map("reference_number")
   summary                String
-  nextAction             String?                        @map("next_action")
-  loggedByName           String?                        @map("logged_by_name")
-  loggedByUserId         String?                        @map("logged_by_user_id") @db.Uuid
-  createdAt              DateTime                       @default(now()) @map("created_at")
-  updatedAt              DateTime                       @default(now()) @updatedAt @map("updated_at")
-  request                CredentialingRequest           @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
-  loggedByUser           User?                          @relation("CredentialingFollowUpByUser", fields: [loggedByUserId], references: [id])
+  nextAction             String?                           @map("next_action")
+  loggedByName           String?                           @map("logged_by_name")
+  loggedByUserId         String?                           @map("logged_by_user_id") @db.Uuid
+  createdAt              DateTime                          @default(now()) @map("created_at")
+  updatedAt              DateTime                          @default(now()) @updatedAt @map("updated_at")
+  request                CredentialingRequest              @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
+  loggedByUser           User?                             @relation("CredentialingFollowUpByUser", fields: [loggedByUserId], references: [id])
 
   @@index([credentialingRequestId])
   @@index([dateTime])
@@ -1531,20 +1553,20 @@ model CredentialingFollowUpLog {
 }
 
 model CredentialingDocument {
-  id                     String                         @id @default(uuid()) @db.Uuid
-  credentialingRequestId String                         @map("credentialing_request_id") @db.Uuid
-  documentType           CredentialingDocumentType      @map("document_type")
-  fileName               String                         @map("file_name")
-  fileUrl                String?                        @map("file_url")
-  fileSize               Int?                           @map("file_size")
-  mimeType               String?                        @map("mime_type")
-  expiryDate             DateTime?                      @map("expiry_date")
-  uploadedByName         String?                        @map("uploaded_by_name")
-  uploadedByUserId       String?                        @map("uploaded_by_user_id") @db.Uuid
-  createdAt              DateTime                       @default(now()) @map("created_at")
-  updatedAt              DateTime                       @default(now()) @updatedAt @map("updated_at")
-  request                CredentialingRequest           @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
-  uploadedByUser         User?                          @relation("CredentialingDocumentByUser", fields: [uploadedByUserId], references: [id])
+  id                     String                    @id @default(uuid()) @db.Uuid
+  credentialingRequestId String                    @map("credentialing_request_id") @db.Uuid
+  documentType           CredentialingDocumentType @map("document_type")
+  fileName               String                    @map("file_name")
+  fileUrl                String?                   @map("file_url")
+  fileSize               Int?                      @map("file_size")
+  mimeType               String?                   @map("mime_type")
+  expiryDate             DateTime?                 @map("expiry_date")
+  uploadedByName         String?                   @map("uploaded_by_name")
+  uploadedByUserId       String?                   @map("uploaded_by_user_id") @db.Uuid
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @default(now()) @updatedAt @map("updated_at")
+  request                CredentialingRequest      @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
+  uploadedByUser         User?                     @relation("CredentialingDocumentByUser", fields: [uploadedByUserId], references: [id])
 
   @@index([credentialingRequestId])
   @@index([documentType])
@@ -1554,17 +1576,17 @@ model CredentialingDocument {
 }
 
 model CredentialingActivityLog {
-  id                     String                     @id @default(uuid()) @db.Uuid
-  credentialingRequestId String                     @map("credentialing_request_id") @db.Uuid
-  activityType           CredentialingActivityType  @map("activity_type")
+  id                     String                    @id @default(uuid()) @db.Uuid
+  credentialingRequestId String                    @map("credentialing_request_id") @db.Uuid
+  activityType           CredentialingActivityType @map("activity_type")
   action                 String
   details                String?
-  actorName              String?                    @map("actor_name")
-  createdByUserId        String?                    @map("created_by_user_id") @db.Uuid
-  createdAt              DateTime                   @default(now()) @map("created_at")
-  updatedAt              DateTime                   @default(now()) @updatedAt @map("updated_at")
-  request                CredentialingRequest       @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
-  createdByUser          User?                      @relation("CredentialingActivityByUser", fields: [createdByUserId], references: [id])
+  actorName              String?                   @map("actor_name")
+  createdByUserId        String?                   @map("created_by_user_id") @db.Uuid
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @default(now()) @updatedAt @map("updated_at")
+  request                CredentialingRequest      @relation(fields: [credentialingRequestId], references: [id], onDelete: Cascade)
+  createdByUser          User?                     @relation("CredentialingActivityByUser", fields: [createdByUserId], references: [id])
 
   @@index([credentialingRequestId])
   @@index([activityType])
@@ -1879,21 +1901,21 @@ enum ExternalSystem {
 }
 
 model MercuryTransaction {
-  id                  String   @id @default(uuid()) @db.Uuid
-  mercuryTransactionId String  @unique @map("mercury_transaction_id")
-  accountId           String   @map("account_id")
-  amount              Decimal  @db.Decimal(15, 2)
-  direction           String   // CREDIT | DEBIT
-  status              String   // PENDING | SENT | FAILED | CANCELLED
-  description         String?
-  counterpartyName    String?  @map("counterparty_name")
-  postedAt            DateTime? @map("posted_at")
-  rawPayloadJson      Json?    @map("raw_payload_json")
-  matchedEntityType   String?  @map("matched_entity_type")
-  matchedEntityId     String?  @map("matched_entity_id") @db.Uuid
-  reconciliationStatus String  @default("UNMATCHED") @map("reconciliation_status")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid()) @db.Uuid
+  mercuryTransactionId String    @unique @map("mercury_transaction_id")
+  accountId            String    @map("account_id")
+  amount               Decimal   @db.Decimal(15, 2)
+  direction            String // CREDIT | DEBIT
+  status               String // PENDING | SENT | FAILED | CANCELLED
+  description          String?
+  counterpartyName     String?   @map("counterparty_name")
+  postedAt             DateTime? @map("posted_at")
+  rawPayloadJson       Json?     @map("raw_payload_json")
+  matchedEntityType    String?   @map("matched_entity_type")
+  matchedEntityId      String?   @map("matched_entity_id") @db.Uuid
+  reconciliationStatus String    @default("UNMATCHED") @map("reconciliation_status")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@index([accountId])
   @@index([status])
@@ -2090,25 +2112,25 @@ enum InsuranceStatus {
 // ==========================================
 
 model OnboardingProject {
-  id                  String                  @id @default(uuid()) @db.Uuid
-  practiceId          String                  @db.Uuid
+  id         String @id @default(uuid()) @db.Uuid
+  practiceId String @db.Uuid
 
-  status              OnboardingProjectStatus @default(NOT_STARTED)
-  goLiveTarget        DateTime?               @map("go_live_target")
-  kickoffDate         DateTime?               @map("kickoff_date")
+  status       OnboardingProjectStatus @default(NOT_STARTED)
+  goLiveTarget DateTime?               @map("go_live_target")
+  kickoffDate  DateTime?               @map("kickoff_date")
 
-  practiceManagerId   String?                 @map("practice_manager_id") @db.Uuid
+  practiceManagerId String? @map("practice_manager_id") @db.Uuid
 
-  notes               String?
-  createdAt           DateTime                @default(now()) @map("created_at")
-  updatedAt           DateTime                @updatedAt @map("updated_at")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  practice            Practice                @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  practiceManager     Person?                 @relation(fields: [practiceManagerId], references: [id])
+  practice        Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  practiceManager Person?  @relation(fields: [practiceManagerId], references: [id])
 
-  workstreams         OnboardingWorkstream[]
-  risks               OnboardingRisk[]
-  actionItems         OnboardingActionItem[]
+  workstreams OnboardingWorkstream[]
+  risks       OnboardingRisk[]
+  actionItems OnboardingActionItem[]
 
   @@index([practiceId])
   @@index([status])
@@ -2117,29 +2139,29 @@ model OnboardingProject {
 }
 
 model OnboardingWorkstream {
-  id                  String                     @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  onboardingProjectId String                     @map("onboarding_project_id") @db.Uuid
-  serviceLine         OnboardingServiceLine      @map("service_line")
+  onboardingProjectId String                @map("onboarding_project_id") @db.Uuid
+  serviceLine         OnboardingServiceLine @map("service_line")
 
-  status              OnboardingWorkstreamStatus @default(PENDING)
+  status OnboardingWorkstreamStatus @default(PENDING)
 
-  ownerUserId         String?                    @map("owner_user_id") @db.Uuid
+  ownerUserId String? @map("owner_user_id") @db.Uuid
 
-  kickoffDate         DateTime?                  @map("kickoff_date")
-  targetDate          DateTime?                  @map("target_date")
+  kickoffDate DateTime? @map("kickoff_date")
+  targetDate  DateTime? @map("target_date")
 
-  notes               String?
+  notes String?
 
-  createdAt           DateTime                   @default(now()) @map("created_at")
-  updatedAt           DateTime                   @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  onboardingProject   OnboardingProject          @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
-  owner               User?                      @relation("OnboardingWorkstreamOwner", fields: [ownerUserId], references: [id])
+  onboardingProject OnboardingProject @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
+  owner             User?             @relation("OnboardingWorkstreamOwner", fields: [ownerUserId], references: [id])
 
-  tasks               OnboardingTask[]
-  milestones          OnboardingMilestone[]
-  risks               OnboardingRisk[]
+  tasks      OnboardingTask[]
+  milestones OnboardingMilestone[]
+  risks      OnboardingRisk[]
 
   @@unique([onboardingProjectId, serviceLine])
   @@index([onboardingProjectId])
@@ -2149,35 +2171,35 @@ model OnboardingWorkstream {
 }
 
 model OnboardingTask {
-  id              String               @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  workstreamId    String               @map("workstream_id") @db.Uuid
+  workstreamId String @map("workstream_id") @db.Uuid
 
-  taskNumber      Int                  @map("task_number")
-  name            String
-  phase           OnboardingTaskPhase
+  taskNumber Int                 @map("task_number")
+  name       String
+  phase      OnboardingTaskPhase
 
-  status          OnboardingTaskStatus @default(NOT_STARTED)
+  status OnboardingTaskStatus @default(NOT_STARTED)
 
-  ownerUserId     String?              @map("owner_user_id") @db.Uuid
+  ownerUserId String? @map("owner_user_id") @db.Uuid
 
-  startDate       DateTime?            @map("start_date")
-  dueDate         DateTime?            @map("due_date")
+  startDate DateTime? @map("start_date")
+  dueDate   DateTime? @map("due_date")
 
-  deliverable     String?
-  notes           String?
+  deliverable String?
+  notes       String?
 
-  createdAt       DateTime             @default(now()) @map("created_at")
-  updatedAt       DateTime             @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  workstream      OnboardingWorkstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
-  owner           User?                @relation("OnboardingTaskOwner", fields: [ownerUserId], references: [id])
+  workstream OnboardingWorkstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
+  owner      User?                @relation("OnboardingTaskOwner", fields: [ownerUserId], references: [id])
 
-  dependencies    OnboardingTaskDependency[] @relation("TaskDependencies")
-  dependents      OnboardingTaskDependency[] @relation("TaskDependents")
+  dependencies OnboardingTaskDependency[] @relation("TaskDependencies")
+  dependents   OnboardingTaskDependency[] @relation("TaskDependents")
 
-  activities      OnboardingTaskActivity[]
-  actionItems     OnboardingActionItem[]
+  activities  OnboardingTaskActivity[]
+  actionItems OnboardingActionItem[]
 
   @@unique([workstreamId, taskNumber])
   @@index([workstreamId])
@@ -2188,18 +2210,18 @@ model OnboardingTask {
 }
 
 model OnboardingTaskDependency {
-  id              String   @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  taskId          String   @map("task_id") @db.Uuid
-  dependsOnTaskId String   @map("depends_on_task_id") @db.Uuid
+  taskId          String @map("task_id") @db.Uuid
+  dependsOnTaskId String @map("depends_on_task_id") @db.Uuid
 
-  dependencyType  String @default("BLOCKS_START") @map("dependency_type")
-  requiredStatus  OnboardingTaskStatus @default(COMPLETE) @map("required_status")
+  dependencyType String               @default("BLOCKS_START") @map("dependency_type")
+  requiredStatus OnboardingTaskStatus @default(COMPLETE) @map("required_status")
 
-  createdAt       DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  task            OnboardingTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
-  dependsOnTask   OnboardingTask @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  task          OnboardingTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask OnboardingTask @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, dependsOnTaskId])
   @@index([taskId])
@@ -2208,17 +2230,17 @@ model OnboardingTaskDependency {
 }
 
 model OnboardingTaskTemplate {
-  id          String   @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
   serviceLine OnboardingServiceLine @map("service_line")
   name        String
   description String?
-  isActive    Boolean  @default(true) @map("is_active")
+  isActive    Boolean               @default(true) @map("is_active")
 
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  tasks       OnboardingTaskTemplateItem[]
+  tasks OnboardingTaskTemplateItem[]
 
   @@index([serviceLine])
   @@index([isActive])
@@ -2226,32 +2248,32 @@ model OnboardingTaskTemplate {
 }
 
 model OnboardingTaskTemplateItem {
-  id              String   @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  templateId      String   @map("template_id") @db.Uuid
+  templateId String @map("template_id") @db.Uuid
 
-  taskNumber      Int      @map("task_number")
-  taskName        String   @map("task_name")
+  taskNumber Int    @map("task_number")
+  taskName   String @map("task_name")
 
-  phase           OnboardingTaskPhase
+  phase OnboardingTaskPhase
 
-  defaultOwnerId  String?  @map("default_owner_id") @db.Uuid
+  defaultOwnerId String? @map("default_owner_id") @db.Uuid
 
-  startMode       String?  @map("start_mode")
-  dueMode         String?  @map("due_mode")
-  startOffsetDays Int?     @map("start_offset_days")
-  dueOffsetDays   Int?     @map("due_offset_days")
-  fixedStartDate  String?  @map("fixed_start_date")
-  fixedDueDate    String?  @map("fixed_due_date")
+  startMode       String? @map("start_mode")
+  dueMode         String? @map("due_mode")
+  startOffsetDays Int?    @map("start_offset_days")
+  dueOffsetDays   Int?    @map("due_offset_days")
+  fixedStartDate  String? @map("fixed_start_date")
+  fixedDueDate    String? @map("fixed_due_date")
 
-  deliverable     String?
-  notes           String?
+  deliverable String?
+  notes       String?
 
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  template        OnboardingTaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  defaultOwner    User?                  @relation("OnboardingTemplateDefaultOwner", fields: [defaultOwnerId], references: [id])
+  template     OnboardingTaskTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  defaultOwner User?                  @relation("OnboardingTemplateDefaultOwner", fields: [defaultOwnerId], references: [id])
 
   @@unique([templateId, taskNumber])
   @@index([templateId])
@@ -2259,21 +2281,21 @@ model OnboardingTaskTemplateItem {
 }
 
 model OnboardingMilestone {
-  id            String                    @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  workstreamId  String                    @map("workstream_id") @db.Uuid
+  workstreamId String @map("workstream_id") @db.Uuid
 
-  milestoneCode String                    @map("milestone_code")
+  milestoneCode String    @map("milestone_code")
   description   String
-  targetWeek    String?                   @map("target_week")
-  targetDate    DateTime?                 @map("target_date")
+  targetWeek    String?   @map("target_week")
+  targetDate    DateTime? @map("target_date")
 
-  status        OnboardingMilestoneStatus @default(NOT_STARTED)
+  status OnboardingMilestoneStatus @default(NOT_STARTED)
 
-  createdAt     DateTime                  @default(now()) @map("created_at")
-  updatedAt     DateTime                  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  workstream    OnboardingWorkstream      @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
+  workstream OnboardingWorkstream @relation(fields: [workstreamId], references: [id], onDelete: Cascade)
 
   @@unique([workstreamId, milestoneCode])
   @@index([workstreamId])
@@ -2282,30 +2304,30 @@ model OnboardingMilestone {
 }
 
 model OnboardingRisk {
-  id                  String                @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  onboardingProjectId String                @map("onboarding_project_id") @db.Uuid
-  workstreamId        String?               @map("workstream_id") @db.Uuid
+  onboardingProjectId String  @map("onboarding_project_id") @db.Uuid
+  workstreamId        String? @map("workstream_id") @db.Uuid
 
-  riskNumber          Int                   @map("risk_number")
-  description         String
+  riskNumber  Int    @map("risk_number")
+  description String
 
-  impact              OnboardingRiskLevel
-  probability         OnboardingRiskLevel
-  rating              OnboardingRiskRating
+  impact      OnboardingRiskLevel
+  probability OnboardingRiskLevel
+  rating      OnboardingRiskRating
 
-  mitigation          String?
+  mitigation String?
 
-  ownerUserId         String?               @map("owner_user_id") @db.Uuid
+  ownerUserId String? @map("owner_user_id") @db.Uuid
 
-  status              OnboardingRiskStatus  @default(OPEN)
+  status OnboardingRiskStatus @default(OPEN)
 
-  createdAt           DateTime              @default(now()) @map("created_at")
-  updatedAt           DateTime              @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  onboardingProject   OnboardingProject     @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
-  workstream          OnboardingWorkstream? @relation(fields: [workstreamId], references: [id])
-  owner               User?                 @relation("OnboardingRiskOwner", fields: [ownerUserId], references: [id])
+  onboardingProject OnboardingProject     @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
+  workstream        OnboardingWorkstream? @relation(fields: [workstreamId], references: [id])
+  owner             User?                 @relation("OnboardingRiskOwner", fields: [ownerUserId], references: [id])
 
   @@index([onboardingProjectId])
   @@index([workstreamId])
@@ -2316,28 +2338,28 @@ model OnboardingRisk {
 }
 
 model OnboardingActionItem {
-  id                  String                     @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  onboardingProjectId String                     @map("onboarding_project_id") @db.Uuid
-  taskId              String?                    @map("task_id") @db.Uuid
+  onboardingProjectId String  @map("onboarding_project_id") @db.Uuid
+  taskId              String? @map("task_id") @db.Uuid
 
-  note                String
+  note String
 
-  responsibleUserId   String?                    @map("responsible_user_id") @db.Uuid
+  responsibleUserId String? @map("responsible_user_id") @db.Uuid
 
-  status              OnboardingActionItemStatus @default(PENDING)
+  status OnboardingActionItemStatus @default(PENDING)
 
-  loggedByUserId      String                     @map("logged_by_user_id") @db.Uuid
-  loggedAt            DateTime                   @default(now()) @map("logged_at")
+  loggedByUserId String   @map("logged_by_user_id") @db.Uuid
+  loggedAt       DateTime @default(now()) @map("logged_at")
 
-  createdAt           DateTime                   @default(now()) @map("created_at")
-  updatedAt           DateTime                   @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  onboardingProject   OnboardingProject          @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
-  task                OnboardingTask?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  onboardingProject OnboardingProject @relation(fields: [onboardingProjectId], references: [id], onDelete: Cascade)
+  task              OnboardingTask?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
 
-  responsibleUser     User?                      @relation("OnboardingActionResponsible", fields: [responsibleUserId], references: [id])
-  loggedByUser        User                       @relation("OnboardingActionLoggedBy", fields: [loggedByUserId], references: [id])
+  responsibleUser User? @relation("OnboardingActionResponsible", fields: [responsibleUserId], references: [id])
+  loggedByUser    User  @relation("OnboardingActionLoggedBy", fields: [loggedByUserId], references: [id])
 
   @@index([onboardingProjectId])
   @@index([taskId])
@@ -2348,20 +2370,20 @@ model OnboardingActionItem {
 }
 
 model OnboardingTaskActivity {
-  id        String   @id @default(uuid()) @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
 
-  taskId    String   @map("task_id") @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
+  taskId String  @map("task_id") @db.Uuid
+  userId String? @map("user_id") @db.Uuid
 
-  action    String
-  oldValue  Json?    @map("old_value")
-  newValue  Json?    @map("new_value")
-  note      String?
+  action   String
+  oldValue Json?   @map("old_value")
+  newValue Json?   @map("new_value")
+  note     String?
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  task      OnboardingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User?          @relation(fields: [userId], references: [id])
+  task OnboardingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User?          @relation(fields: [userId], references: [id])
 
   @@index([taskId])
   @@index([userId])
@@ -2452,33 +2474,33 @@ enum OnboardingActionItemStatus {
 }
 
 model HubDocument {
-  id                 String                    @id @default(uuid()) @db.Uuid
-  title              String
-  description        String?
-  fileKey            String                    @map("file_key")
-  originalFilename   String                    @map("original_filename")
-  mimeType           String                    @map("mime_type")
-  fileSizeBytes      Int                       @map("file_size_bytes")
-  checksumSha256     String                    @map("checksum_sha256")
-  version            Int                       @default(1)
-  rootDocumentId     String                    @map("root_document_id") @db.Uuid
-  parentDocumentId   String?                   @map("parent_document_id") @db.Uuid
-  status             HubDocumentStatus         @default(ACTIVE)
-  isPublicShareable  Boolean                   @default(false) @map("is_public_shareable")
-  uploadedById       String                    @map("uploaded_by") @db.Uuid
-  downloadCount      Int                       @default(0) @map("download_count")
-  createdAt          DateTime                  @default(now()) @map("created_at")
-  updatedAt          DateTime                  @default(now()) @updatedAt @map("updated_at")
-  uploadedBy         User                      @relation("HubDocumentUploadedBy", fields: [uploadedById], references: [id])
-  parentDocument     HubDocument?              @relation("HubDocumentParent", fields: [parentDocumentId], references: [id], onDelete: SetNull)
-  childDocuments     HubDocument[]             @relation("HubDocumentParent")
-  categoryLinks      HubDocumentCategoryLink[]
-  tagLinks           HubDocumentTagLink[]
-  practiceLinks      HubDocumentPractice[]
-  dealLinks          HubDocumentDeal[]
-  personLinks        HubDocumentPerson[]
-  publicLinks        HubDocumentPublicLink[]
-  activityLogs       HubDocumentActivityLog[]
+  id                String                    @id @default(uuid()) @db.Uuid
+  title             String
+  description       String?
+  fileKey           String                    @map("file_key")
+  originalFilename  String                    @map("original_filename")
+  mimeType          String                    @map("mime_type")
+  fileSizeBytes     Int                       @map("file_size_bytes")
+  checksumSha256    String                    @map("checksum_sha256")
+  version           Int                       @default(1)
+  rootDocumentId    String                    @map("root_document_id") @db.Uuid
+  parentDocumentId  String?                   @map("parent_document_id") @db.Uuid
+  status            HubDocumentStatus         @default(ACTIVE)
+  isPublicShareable Boolean                   @default(false) @map("is_public_shareable")
+  uploadedById      String                    @map("uploaded_by") @db.Uuid
+  downloadCount     Int                       @default(0) @map("download_count")
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @default(now()) @updatedAt @map("updated_at")
+  uploadedBy        User                      @relation("HubDocumentUploadedBy", fields: [uploadedById], references: [id])
+  parentDocument    HubDocument?              @relation("HubDocumentParent", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  childDocuments    HubDocument[]             @relation("HubDocumentParent")
+  categoryLinks     HubDocumentCategoryLink[]
+  tagLinks          HubDocumentTagLink[]
+  practiceLinks     HubDocumentPractice[]
+  dealLinks         HubDocumentDeal[]
+  personLinks       HubDocumentPerson[]
+  publicLinks       HubDocumentPublicLink[]
+  activityLogs      HubDocumentActivityLog[]
 
   @@unique([rootDocumentId, version])
   @@index([rootDocumentId])
@@ -2581,20 +2603,20 @@ model HubDocumentPerson {
 }
 
 model HubDocumentPublicLink {
-  id            String       @id @default(uuid()) @db.Uuid
-  documentId    String       @map("document_id") @db.Uuid
-  token         String       @unique
-  createdById    String       @map("created_by") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at")
-  expiresAt      DateTime?    @map("expires_at")
-  revokedAt      DateTime?    @map("revoked_at")
-  revokedById    String?      @map("revoked_by") @db.Uuid
-  viewCount      Int          @default(0) @map("view_count")
-  lastAccessedAt DateTime?    @map("last_accessed_at")
-  allowDownload  Boolean      @default(true) @map("allow_download")
-  document       HubDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  createdBy      User         @relation("HubDocumentPublicLinkCreatedBy", fields: [createdById], references: [id])
-  revokedBy      User?        @relation("HubDocumentPublicLinkRevokedBy", fields: [revokedById], references: [id])
+  id             String      @id @default(uuid()) @db.Uuid
+  documentId     String      @map("document_id") @db.Uuid
+  token          String      @unique
+  createdById    String      @map("created_by") @db.Uuid
+  createdAt      DateTime    @default(now()) @map("created_at")
+  expiresAt      DateTime?   @map("expires_at")
+  revokedAt      DateTime?   @map("revoked_at")
+  revokedById    String?     @map("revoked_by") @db.Uuid
+  viewCount      Int         @default(0) @map("view_count")
+  lastAccessedAt DateTime?   @map("last_accessed_at")
+  allowDownload  Boolean     @default(true) @map("allow_download")
+  document       HubDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdBy      User        @relation("HubDocumentPublicLinkCreatedBy", fields: [createdById], references: [id])
+  revokedBy      User?       @relation("HubDocumentPublicLinkRevokedBy", fields: [revokedById], references: [id])
 
   @@index([documentId])
   @@index([createdById])
@@ -2637,4 +2659,63 @@ enum HubDocumentActivityAction {
   PUBLIC_LINK_CREATED
   PUBLIC_LINK_REVOKED
   PUBLIC_VIEW
+}
+
+model PrefundingRate {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  basis        String
+  pricingModel String   @map("pricing_model")
+  rate         Decimal  @db.Decimal(12, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  practiceRates PrefundingPracticeRate[]
+
+  @@map("prefunding_rates")
+}
+
+model PrefundingPracticeRate {
+  id               String         @id @default(uuid()) @db.Uuid
+  practiceId       String         @map("practice_id") @db.Uuid
+  prefundingRateId String         @map("prefunding_rate_id") @db.Uuid
+  practice         Practice       @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  prefundingRate   PrefundingRate @relation(fields: [prefundingRateId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceId, prefundingRateId])
+  @@index([practiceId])
+  @@index([prefundingRateId])
+  @@map("prefunding_practice_rates")
+}
+
+model PrefundingInvoice {
+  id          String                      @id @default(uuid()) @db.Uuid
+  practiceId  String                      @map("practice_id") @db.Uuid
+  cycle       String
+  invoiceDate DateTime                    @map("invoice_date")
+  dueDate     DateTime                    @map("due_date")
+  totalAmount Decimal                     @map("total_amount") @db.Decimal(12, 2)
+  status      String
+  practice    Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  lineItems   PrefundingInvoiceLineItem[]
+  createdAt   DateTime                    @default(now()) @map("created_at")
+  updatedAt   DateTime                    @updatedAt @map("updated_at")
+
+  @@index([practiceId])
+  @@map("prefunding_invoices")
+}
+
+model PrefundingInvoiceLineItem {
+  id                  String            @id @default(uuid()) @db.Uuid
+  prefundingInvoiceId String            @map("prefunding_invoice_id") @db.Uuid
+  name                String
+  basis               String?
+  pricingModel        String?           @map("pricing_model")
+  rate                Decimal?          @db.Decimal(12, 2)
+  amount              Decimal           @db.Decimal(12, 2)
+  isOneTime           Boolean           @default(false) @map("is_one_time")
+  invoice             PrefundingInvoice @relation(fields: [prefundingInvoiceId], references: [id], onDelete: Cascade)
+
+  @@index([prefundingInvoiceId])
+  @@map("prefunding_invoice_line_items")
 }

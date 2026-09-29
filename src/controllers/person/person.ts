@@ -1,4 +1,4 @@
-import {
+﻿import {
   PersonRole,
   InfluenceLevel,
   PersonStatus,
@@ -16,7 +16,7 @@ type PersonBody = {
   companyIds?: string[];
   firstName?: string;
   lastName?: string;
-  role?: string;
+  roles?: string[];
   designation?: string;
   influence?: string;
   email?: string;
@@ -68,7 +68,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     }
 
     if (role) {
-      where.role = role as PersonRole;
+      where.roles = { has: role as PersonRole };
     }
 
     if (influence) {
@@ -104,8 +104,6 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     let orderBy: any = { createdAt: orderDir };
     if (sortBy === "fullName" || sortBy === "firstName" || sortBy === "name") {
       orderBy = { firstName: orderDir };
-    } else if (sortBy === "role") {
-      orderBy = { role: orderDir };
     } else if (sortBy === "email") {
       orderBy = { email: orderDir };
     } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
@@ -159,6 +157,39 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+export async function checkDuplicatePerson(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { firstName, lastName, designation } = req.body as PersonBody;
+
+    if (!req.user?.sub) {
+      return res.status(401).json({ message: "Unauthorized." });
+    }
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({ message: "firstName and lastName are required." });
+    }
+
+    const existingPerson = await prisma.person.findFirst({
+      where: {
+        firstName: { equals: firstName, mode: "insensitive" },
+        lastName: { equals: lastName, mode: "insensitive" },
+        ...(designation ? { designation: { equals: designation, mode: "insensitive" } } : {}),
+      },
+    });
+
+    if (existingPerson) {
+      return res.status(200).json({ isDuplicate: true, duplicatePerson: existingPerson });
+    }
+
+    return res.status(200).json({ isDuplicate: false });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Unable to check for duplicate person.",
+      error: error instanceof Error ? error.message : error,
+    });
+  }
+}
+
 export async function createPerson(req: AuthenticatedRequest, res: Response) {
   try {
     const {
@@ -166,7 +197,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       companyIds,
       firstName,
       lastName,
-      role,
+      roles,
       designation,
       influence,
       email,
@@ -179,9 +210,9 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (!firstName || !lastName || !role || !influence) {
+    if (!firstName || !lastName || !roles || !roles.length || !influence) {
       return res.status(400).json({
-        message: "firstName, lastName, role and influence are required.",
+        message: "firstName, lastName, roles and influence are required.",
       });
     }
 
@@ -191,9 +222,10 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
     //   });
     // }
 
-    if (!isPersonRole(role)) {
+    const invalidRoles = roles.filter((role) => !isPersonRole(role));
+    if (invalidRoles.length > 0) {
       return res.status(400).json({
-        message: "Invalid person role.",
+        message: "Invalid person roles.",
         allowedRoles: Object.values(PersonRole),
       });
     }
@@ -238,7 +270,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
     const createData: any = {
       firstName,
       lastName,
-      role,
+      roles: { set: roles as PersonRole[] },
       designation,
       influence,
       email,
@@ -379,7 +411,7 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
     const {
       firstName,
       lastName,
-      role,
+      roles,
       designation,
       influence,
       email,
@@ -401,11 +433,14 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (role && !isPersonRole(role)) {
-      return res.status(400).json({
-        message: "Invalid person role.",
-        allowedRoles: Object.values(PersonRole),
-      });
+    if (roles) {
+      const invalidRoles = roles.filter((role) => !isPersonRole(role));
+      if (invalidRoles.length > 0) {
+        return res.status(400).json({
+          message: "Invalid person roles.",
+          allowedRoles: Object.values(PersonRole),
+        });
+      }
     }
 
     if (influence && !isInfluenceLevel(influence)) {
@@ -457,8 +492,8 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
       updateData.lastName = lastName;
     }
 
-    if (role !== undefined) {
-      updateData.role = role as PersonRole;
+    if (roles !== undefined) {
+      updateData.roles = { set: roles as PersonRole[] };
     }
 
     if (designation !== undefined) {
