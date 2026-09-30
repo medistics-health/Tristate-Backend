@@ -23,6 +23,7 @@ model User {
   approvedBillingRuns   BillingRun[]           @relation("BillingRunApprovedBy")
   createdBillingRuns    BillingRun[]           @relation("BillingRunCreatedBy")
   createdInvoices       Invoice[]              @relation("InvoiceCreatedByUser")
+  createdAgreements     Agreement[]            @relation("AgreementCreatedByUser")
   credentialingAssigned CredentialingRequest[] @relation("CredentialingAssignedToUser")
   credentialingCreated  CredentialingRequest[] @relation("CredentialingCreatedByUser")
   credentialingUpdated  CredentialingRequest[] @relation("CredentialingUpdatedByUser")
@@ -292,6 +293,7 @@ model Agreement {
   effectiveDate       DateTime?              @map("effective_date")
   renewalDate         DateTime?              @map("renewal_date")
   externalReference   String?                @map("external_reference")
+  createdByUserId     String?                @map("created_by_user_id") @db.Uuid
   services            Service[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at")
@@ -299,12 +301,14 @@ model Agreement {
   versions            AgreementVersion[]
   deal                Deal?                  @relation(fields: [dealId], references: [id])
   practice            Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  createdByUser       User?                  @relation("AgreementCreatedByUser", fields: [createdByUserId], references: [id])
   channelPartners     ChannelPartner[]
   docusealSubmissions DocusealSubmission[]
   invoices            Invoice[]
 
   @@index([practiceId])
   @@index([dealId])
+  @@index([createdByUserId])
   @@map("agreements")
 }
 
