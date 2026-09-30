@@ -1,4 +1,4 @@
-﻿import {
+import {
   PersonRole,
   InfluenceLevel,
   PersonStatus,
@@ -267,6 +267,8 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       }
     }
 
+    const { jobCategory, workLocation, state, dateOfJoining, payType, payRate, budgetedHours, bufferPercentage } = req.body as any;
+    
     const createData: any = {
       firstName,
       lastName,
@@ -275,6 +277,14 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       influence,
       email,
       phone,
+      jobCategory,
+      workLocation,
+      state,
+      dateOfJoining: dateOfJoining ? new Date(dateOfJoining) : null,
+      payType,
+      payRate,
+      budgetedHours,
+      bufferPercentage,
     };
 
     if (practiceIds?.length) {
@@ -515,6 +525,17 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
     if (status !== undefined) {
       updateData.status = status;
     }
+
+    const { jobCategory, workLocation, state, dateOfJoining, payType, payRate, budgetedHours, bufferPercentage } = req.body as any;
+
+    if (jobCategory !== undefined) updateData.jobCategory = jobCategory;
+    if (workLocation !== undefined) updateData.workLocation = workLocation;
+    if (state !== undefined) updateData.state = state;
+    if (dateOfJoining !== undefined) updateData.dateOfJoining = dateOfJoining ? new Date(dateOfJoining) : null;
+    if (payType !== undefined) updateData.payType = payType;
+    if (payRate !== undefined) updateData.payRate = payRate;
+    if (budgetedHours !== undefined) updateData.budgetedHours = budgetedHours;
+    if (bufferPercentage !== undefined) updateData.bufferPercentage = bufferPercentage;
 
     if (practiceIds !== undefined) {
       const existingPractices = await prisma.practicePerson.findMany({

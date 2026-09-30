@@ -1626,6 +1626,8 @@ enum PersonRole {
   CLINICAL
   PROCUREMENT
   OTHER
+  EMPLOYEE
+  MANAGER
 }
 
 enum PersonStatus {

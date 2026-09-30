@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+﻿import { Request, Response } from "express";
 import { UserRoles } from "../../../generated/prisma/client";
 import { prisma } from "../../lib/prisma";
 import bcrypt from "bcryptjs";
@@ -47,7 +47,8 @@ function issueAuthCookieAndResponse(res: Response, user: any) {
       userName: user.userName,
       email: user.email,
       role: user.role,
-    },
+        hasPrefundingAccess: user.hasPrefundingAccess,
+      },
     getJwtSecret(),
     { expiresIn: "7d" },
   );
@@ -401,6 +402,7 @@ export async function authenticateMe(req: any, res: Response) {
       lastName: user.lastName,
       email: user.email,
       role: user.role,
+      hasPrefundingAccess: user.hasPrefundingAccess,
       twoFactorEnabled: user.twoFactorEnabled,
     });
   } catch (error) {
