@@ -1225,15 +1225,20 @@ import {
         return res.status(400).json({ message: "Slug is required." });
       }
 
-      const templates = await docuseal.listTemplates({ limit: 100 });
+      const signer = await prisma.docuSigner.findFirst({
+        where: { submissionSlug: slug },
+        select: { id: true },
+      });
 
-      const template = templates.data.find((t: any) => t.slug === slug);
-
-      if (!template) {
-        return res.status(404).json({ message: "Form not found." });
+      if (!signer) {
+        return res.status(410).json({
+          status: "expired",
+          message:
+            "This signing link has expired. The document was updated and a new link was sent.",
+        });
       }
 
-      return res.status(200).json(template);
+      return res.status(200).json({ status: "active" });
     } catch (error) {
       return res.status(500).json({
         message: "Unable to fetch DocuSeal form.",
