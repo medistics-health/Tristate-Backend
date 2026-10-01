@@ -1219,7 +1219,8 @@ import {
 
   export async function getDocusealFormBySlug(req: Request, res: Response) {
     try {
-      const { slug } = req.params;
+      const slugParam = req.params.slug;
+      const slug = Array.isArray(slugParam) ? slugParam[0] : slugParam;
 
       if (!slug) {
         return res.status(400).json({ message: "Slug is required." });
