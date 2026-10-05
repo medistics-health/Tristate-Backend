@@ -311,6 +311,19 @@ model Person {
   influence           InfluenceLevel
   email               String?
   phone               String?
+  individualNpi       String?              @map("individual_npi")
+  individualPtan      String?              @map("individual_ptan")
+  individualRailroadMedicarePtan String?   @map("individual_railroad_medicare_ptan")
+  caqhId              String?              @map("caqh_id")
+  caqhLoginId         String?              @map("caqh_login_id")
+  caqhPassword        String?              @map("caqh_password")
+  groupPecosAccess    String?              @map("group_pecos_access")
+  individualMedicaidNumber String?         @map("individual_medicaid_number")
+  stateLicense        String?              @map("state_license")
+  dea                 String?
+  ein                 String?
+  specialty           String?
+  secondarySpecialty  String?              @map("secondary_specialty")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
   companies           CompanyPerson[]
