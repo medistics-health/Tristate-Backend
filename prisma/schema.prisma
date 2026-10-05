@@ -137,6 +137,22 @@ model Practice {
   credentialingChargeAmount Decimal?           @map("credentialing_charge_amount") @db.Decimal(12, 2)
   processingFeeConfig   Json?                  @map("processing_fee_config")
   billToTaxIdId         String?                @map("bill_to_tax_id_id") @db.Uuid
+  referredBy            String?                @map("referred_by")
+  addressLine1          String?                @map("address_line_1")
+  addressLine2          String?                @map("address_line_2")
+  city                  String?
+  state                 String?
+  zipCode               String?                @map("zip_code")
+  country               String?
+  faxes                 String[]               @default([])
+  phone                 String?
+  emails                String[]               @default([])
+  groupTaxId            String?                @map("group_tax_id")
+  groupMedicarePtan     String?                @map("group_medicare_ptan")
+  railroadMedicarePtan  String?                @map("railroad_medicare_ptan")
+  dmePtan               String?                @map("dme_ptan")
+  groupMedicaidPtan     String?                @map("group_medicaid_ptan")
+  sparkGroup            String?                @map("spark_group")
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
   agreements            Agreement[]
@@ -152,6 +168,9 @@ model Practice {
   onboardings           Onboarding[]
   onboardingProjects    OnboardingProject[]
   persons               PracticePerson[]
+  locations             PracticeLocation[]
+  contactPersons        PracticeContactPerson[]
+  contactNumbers        PracticeContactNumber[]
   credentialingRequests CredentialingRequest[]
   billToTaxId           TaxId?                 @relation("PracticeBillToTaxId", fields: [billToTaxIdId], references: [id])
   company               Company?               @relation(fields: [companyId], references: [id])
@@ -197,6 +216,57 @@ model PracticePerson {
   @@index([practiceId])
   @@index([personId])
   @@map("practice_persons")
+}
+
+model PracticeLocation {
+  id           String   @id @default(uuid()) @db.Uuid
+  practiceId   String   @map("practice_id") @db.Uuid
+  locationName String?  @map("location_name")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  addressLine1 String?  @map("address_line_1")
+  addressLine2 String?  @map("address_line_2")
+  city         String?
+  state        String?
+  zipCode      String?  @map("zip_code")
+  country      String?
+  phone        String?
+  fax          String?
+  email        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  practice     Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId])
+  @@map("practice_locations")
+}
+
+model PracticeContactPerson {
+  id         String   @id @default(uuid()) @db.Uuid
+  practiceId String   @map("practice_id") @db.Uuid
+  personId   String   @map("person_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  practice   Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceId, personId])
+  @@index([practiceId])
+  @@index([personId])
+  @@map("practice_contact_persons")
+}
+
+model PracticeContactNumber {
+  id         String   @id @default(uuid()) @db.Uuid
+  practiceId String   @map("practice_id") @db.Uuid
+  personId   String?  @map("person_id") @db.Uuid
+  phone      String
+  label      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  practice   Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  person     Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId])
+  @@index([personId])
+  @@map("practice_contact_numbers")
 }
 
 model CompanyPerson {
@@ -248,6 +318,8 @@ model Person {
   docusealSubmissions DocusealSubmission[]
   onboardings         Onboarding[]
   practices           PracticePerson[]
+  practiceContactPersons PracticeContactPerson[]
+  practiceContactNumbers PracticeContactNumber[]
   credentialingRequests CredentialingRequest[]
   managedOnboardingProjects OnboardingProject[]
   hubDocumentLinks          HubDocumentPerson[]
