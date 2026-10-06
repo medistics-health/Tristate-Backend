@@ -1,5 +1,8 @@
 import {
+  InfluenceLevel,
   OnboardingServiceLine,
+  PersonRole,
+  PersonStatus,
   PracticeSource,
   PracticeStatus,
 } from "../../../generated/prisma/client";
@@ -31,6 +34,33 @@ type GroupNpiInput = {
   status?: string;
 };
 
+type LocationInput = {
+  locationName?: string | null;
+  isPrimary?: boolean;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  fax?: string | null;
+  email?: string | null;
+};
+
+type PersonLinkInput = {
+  personId?: string;
+  firstName?: string;
+  lastName?: string;
+  role?: string;
+  designation?: string;
+  influence?: string;
+  email?: string;
+  phone?: string;
+  status?: string;
+  label?: string;
+};
+
 type PracticeBody = {
   name?: string;
   npi?: string;
@@ -51,6 +81,44 @@ type PracticeBody = {
   processingFeeConfig?: unknown;
   groupNpis?: GroupNpiInput[];
   goLiveTarget?: string | null;
+  referredBy?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
+  country?: string | null;
+  faxes?: string[] | string | null;
+  phone?: string | null;
+  emails?: string[] | string | null;
+  groupTaxId?: string | null;
+  groupMedicarePtan?: string | null;
+  railroadMedicarePtan?: string | null;
+  dmePtan?: string | null;
+  groupMedicaidPtan?: string | null;
+  sparkGroup?: string | null;
+  locations?: LocationInput[];
+  contactPersons?: PersonLinkInput[];
+  contactNumbers?: PersonLinkInput[];
+};
+
+class PracticeInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PracticeInputError";
+  }
+}
+
+const practiceProfileInclude = {
+  locations: { orderBy: { createdAt: "asc" as const } },
+  contactPersons: {
+    include: { person: true },
+    orderBy: { createdAt: "asc" as const },
+  },
+  contactNumbers: {
+    include: { person: true },
+    orderBy: { createdAt: "asc" as const },
+  },
 };
 
 type SendOnboardingEmailBody = {
@@ -143,6 +211,267 @@ function isOnboardingServiceLine(
   );
 }
 
+function isPersonRole(role: string): role is PersonRole {
+  return Object.values(PersonRole).includes(role as PersonRole);
+}
+
+function isInfluenceLevel(influence: string): influence is InfluenceLevel {
+  return Object.values(InfluenceLevel).includes(influence as InfluenceLevel);
+}
+
+function isPersonStatus(status: string): status is PersonStatus {
+  return Object.values(PersonStatus).includes(status as PersonStatus);
+}
+
+function nullableText(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function stringList(
+  value: unknown,
+  field: string,
+): { value: string[] } | { error: string } | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return { value: [] };
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,;]/)
+      : null;
+  if (!items) {
+    return { error: `${field} must be an array of strings.` };
+  }
+  return {
+    value: items.map((item) => String(item).trim()).filter(Boolean),
+  };
+}
+
+function profileScalarData(
+  body: PracticeBody,
+): { data: Record<string, unknown> } | { error: string } {
+  const data: Record<string, unknown> = {};
+  const textFields = [
+    "referredBy",
+    "addressLine1",
+    "addressLine2",
+    "city",
+    "state",
+    "zipCode",
+    "country",
+    "phone",
+    "groupTaxId",
+    "groupMedicarePtan",
+    "railroadMedicarePtan",
+    "dmePtan",
+    "groupMedicaidPtan",
+    "sparkGroup",
+  ] as const;
+
+  for (const field of textFields) {
+    if (body[field] !== undefined) {
+      data[field] = nullableText(body[field]);
+    }
+  }
+
+  const faxes = stringList(body.faxes, "faxes");
+  if (faxes && "error" in faxes) return faxes;
+  if (faxes) data.faxes = faxes.value;
+
+  const emails = stringList(body.emails, "emails");
+  if (emails && "error" in emails) return emails;
+  if (emails) data.emails = emails.value;
+
+  return { data };
+}
+
+function parseLocations(locations?: LocationInput[]) {
+  if (locations === undefined) return undefined;
+  if (!Array.isArray(locations)) {
+    return { error: "locations must be an array." as const };
+  }
+
+  return {
+    value: locations.map((location) => ({
+      locationName: nullableText(location.locationName) ?? null,
+      isPrimary: Boolean(location.isPrimary),
+      addressLine1: nullableText(location.addressLine1) ?? null,
+      addressLine2: nullableText(location.addressLine2) ?? null,
+      city: nullableText(location.city) ?? null,
+      state: nullableText(location.state) ?? null,
+      zipCode: nullableText(location.zipCode) ?? null,
+      country: nullableText(location.country) ?? null,
+      phone: nullableText(location.phone) ?? null,
+      fax: nullableText(location.fax) ?? null,
+      email: nullableText(location.email) ?? null,
+    })),
+  };
+}
+
+async function resolveOrCreatePerson(tx: any, input: PersonLinkInput, label: string) {
+  if (input.personId) {
+    const person = await tx.person.findFirst({ where: { id: input.personId } });
+    if (!person) {
+      return { error: `Invalid ${label} personId. Person not found.` as const };
+    }
+    return {
+      personId: person.id as string,
+      phone: (nullableText(input.phone) ?? person.phone ?? null) as string | null,
+    };
+  }
+
+  const firstName = nullableText(input.firstName);
+  const lastName = nullableText(input.lastName);
+  const hasCreateFields = Boolean(
+    firstName || lastName || input.role || input.email || input.designation,
+  );
+  if (!hasCreateFields) {
+    return {
+      error: `${label} requires personId, or firstName and lastName to create a person.` as const,
+    };
+  }
+  if (!firstName || !lastName) {
+    return {
+      error: `${label} requires firstName and lastName when creating a person.` as const,
+    };
+  }
+
+  const role = input.role?.trim() || PersonRole.OTHER;
+  const influence = input.influence?.trim() || InfluenceLevel.MEDIUM;
+  if (!isPersonRole(role)) {
+    return {
+      error: `Invalid ${label} role.` as const,
+      allowedRoles: Object.values(PersonRole),
+    };
+  }
+  if (!isInfluenceLevel(influence)) {
+    return {
+      error: `Invalid ${label} influence.` as const,
+      allowedInfluence: Object.values(InfluenceLevel),
+    };
+  }
+  if (input.status && !isPersonStatus(input.status)) {
+    return {
+      error: `Invalid ${label} status.` as const,
+      allowedStatuses: Object.values(PersonStatus),
+    };
+  }
+
+  const person = await tx.person.create({
+    data: {
+      firstName,
+      lastName,
+      role,
+      influence,
+      designation: nullableText(input.designation) ?? null,
+      email: nullableText(input.email) ?? null,
+      phone: nullableText(input.phone) ?? null,
+      status: input.status ? (input.status as PersonStatus) : PersonStatus.ACTIVE,
+    },
+  });
+
+  return { personId: person.id as string, phone: person.phone as string | null };
+}
+
+async function linkPersonToPractice(tx: any, practiceId: string, personId: string) {
+  await tx.practicePerson.upsert({
+    where: { practiceId_personId: { practiceId, personId } },
+    create: { practiceId, personId },
+    update: {},
+  });
+}
+
+async function syncPracticeRelations(tx: any, practiceId: string, body: PracticeBody) {
+  if (body.locations !== undefined) {
+    const parsed = parseLocations(body.locations);
+    if (parsed && "error" in parsed) return parsed;
+    await tx.practiceLocation.deleteMany({ where: { practiceId } });
+    if (parsed?.value.length) {
+      await tx.practiceLocation.createMany({
+        data: parsed.value.map((location) => ({ ...location, practiceId })),
+      });
+    }
+  }
+
+  if (body.contactPersons !== undefined) {
+    if (!Array.isArray(body.contactPersons)) {
+      return { error: "contactPersons must be an array." as const };
+    }
+
+    const personIds: string[] = [];
+    for (const input of body.contactPersons) {
+      const resolved = await resolveOrCreatePerson(tx, input, "contact person");
+      if ("error" in resolved) return resolved;
+      personIds.push(resolved.personId);
+      await linkPersonToPractice(tx, practiceId, resolved.personId);
+    }
+
+    await tx.practiceContactPerson.deleteMany({ where: { practiceId } });
+    const uniqueIds = [...new Set(personIds)];
+    if (uniqueIds.length) {
+      await tx.practiceContactPerson.createMany({
+        data: uniqueIds.map((personId) => ({ practiceId, personId })),
+      });
+    }
+  }
+
+  if (body.contactNumbers !== undefined) {
+    if (!Array.isArray(body.contactNumbers)) {
+      return { error: "contactNumbers must be an array." as const };
+    }
+
+    const rows: {
+      practiceId: string;
+      personId: string | null;
+      phone: string;
+      label: string | null;
+    }[] = [];
+
+    for (const input of body.contactNumbers) {
+      const creatingPerson = Boolean(
+        input.personId ||
+          nullableText(input.firstName) ||
+          nullableText(input.lastName) ||
+          input.role ||
+          input.email,
+      );
+      let personId: string | null = null;
+      let phone = nullableText(input.phone) ?? null;
+
+      if (creatingPerson) {
+        const resolved = await resolveOrCreatePerson(tx, input, "contact number");
+        if ("error" in resolved) return resolved;
+        personId = resolved.personId;
+        phone = phone ?? resolved.phone;
+        await linkPersonToPractice(tx, practiceId, resolved.personId);
+      }
+
+      if (!phone) {
+        return {
+          error:
+            "Each contact number requires a phone, or a selected person who has a phone." as const,
+        };
+      }
+
+      rows.push({
+        practiceId,
+        personId,
+        phone,
+        label: nullableText(input.label) ?? null,
+      });
+    }
+
+    await tx.practiceContactNumber.deleteMany({ where: { practiceId } });
+    if (rows.length) {
+      await tx.practiceContactNumber.createMany({ data: rows });
+    }
+  }
+
+  return {};
+}
+
 function parseOptionalDate(value?: string | null) {
   if (value === undefined) return undefined;
   if (value === null || String(value).trim() === "") {
@@ -223,6 +552,12 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
       const npiTerm = searchTerm.replace(/\D/g, "");
       const searchOr: any[] = [
         { name: { contains: searchTerm, mode: "insensitive" } },
+        { referredBy: { contains: searchTerm, mode: "insensitive" } },
+        { groupTaxId: { contains: searchTerm, mode: "insensitive" } },
+        { sparkGroup: { contains: searchTerm, mode: "insensitive" } },
+        { phone: { contains: searchTerm, mode: "insensitive" } },
+        { city: { contains: searchTerm, mode: "insensitive" } },
+        { emails: { has: searchTerm } },
       ];
       if (npiTerm) {
         searchOr.push({ npi: { contains: npiTerm, mode: "insensitive" } });
@@ -288,6 +623,7 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
               person: true,
             },
           },
+          ...practiceProfileInclude,
           _count: {
             select: { persons: true, deals: true, agreements: true },
           },
@@ -548,6 +884,12 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
         : {}),
     };
 
+    const profile = profileScalarData(req.body as PracticeBody);
+    if ("error" in profile) {
+      return res.status(400).json({ message: profile.error });
+    }
+    Object.assign(practiceData, profile.data);
+
     if (groupNpiConnect.length > 0) {
       practiceData.groupNpis = {
         connect: groupNpiConnect,
@@ -561,8 +903,22 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const practice = await prisma.practice.create({
-      data: practiceData,
+    const practice = await prisma.$transaction(async (tx) => {
+      const created = await tx.practice.create({
+        data: practiceData,
+      });
+      const relations = await syncPracticeRelations(
+        tx,
+        created.id,
+        req.body as PracticeBody,
+      );
+      if ("error" in relations && relations.error) {
+        throw new PracticeInputError(relations.error);
+      }
+      return tx.practice.findFirstOrThrow({
+        where: { id: created.id },
+        include: practiceProfileInclude,
+      });
     });
 
     if (parsedServiceLines?.value?.length) {
@@ -588,6 +944,9 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       practice: withGoLiveTarget(practice, goLiveTargetValue),
     });
   } catch (error) {
+    if (error instanceof PracticeInputError) {
+      return res.status(400).json({ message: error.message });
+    }
     console.log(error);
     return res.status(500).json({
       message: "Unable to create practice.",
@@ -627,6 +986,7 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
             person: true,
           },
         },
+        ...practiceProfileInclude,
         deals: true,
         agreements: true,
         invoices: true,
@@ -914,6 +1274,12 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         : {}),
     };
 
+    const profile = profileScalarData(req.body as PracticeBody);
+    if ("error" in profile) {
+      return res.status(400).json({ message: profile.error });
+    }
+    Object.assign(updateData, profile.data);
+
     if (groupNpis !== undefined) {
       updateData.groupNpis = {
         set: groupNpis.map((gn) => ({ groupNpiNumber: gn.groupNpiNumber })),
@@ -927,9 +1293,23 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    const practice = await prisma.practice.update({
-      where: { id },
-      data: updateData,
+    const practice = await prisma.$transaction(async (tx) => {
+      const updated = await tx.practice.update({
+        where: { id },
+        data: updateData,
+      });
+      const relations = await syncPracticeRelations(
+        tx,
+        updated.id,
+        req.body as PracticeBody,
+      );
+      if ("error" in relations && relations.error) {
+        throw new PracticeInputError(relations.error);
+      }
+      return tx.practice.findFirstOrThrow({
+        where: { id: updated.id },
+        include: practiceProfileInclude,
+      });
     });
 
     if (parsedGoLiveTarget) {
@@ -961,6 +1341,9 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       ),
     });
   } catch (error) {
+    if (error instanceof PracticeInputError) {
+      return res.status(400).json({ message: error.message });
+    }
     return res.status(500).json({
       message: "Unable to update practice.",
       error: error instanceof Error ? error.message : error,
@@ -1012,6 +1395,7 @@ export async function deletePractice(req: AuthenticatedRequest, res: Response) {
             person: true,
           },
         },
+        ...practiceProfileInclude,
       },
     });
 

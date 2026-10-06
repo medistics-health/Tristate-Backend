@@ -22,7 +22,52 @@ type PersonBody = {
   email?: string;
   phone?: string;
   status?: string;
+  individualNpi?: string | null;
+  individualPtan?: string | null;
+  individualRailroadMedicarePtan?: string | null;
+  caqhId?: string | null;
+  caqhLoginId?: string | null;
+  caqhPassword?: string | null;
+  groupPecosAccess?: string | null;
+  individualMedicaidNumber?: string | null;
+  stateLicense?: string | null;
+  dea?: string | null;
+  ein?: string | null;
+  specialty?: string | null;
+  secondarySpecialty?: string | null;
 };
+
+const personCredentialFields = [
+  "individualNpi",
+  "individualPtan",
+  "individualRailroadMedicarePtan",
+  "caqhId",
+  "caqhLoginId",
+  "caqhPassword",
+  "groupPecosAccess",
+  "individualMedicaidNumber",
+  "stateLicense",
+  "dea",
+  "ein",
+  "specialty",
+  "secondarySpecialty",
+] as const;
+
+function nullableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = String(value).trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function credentialData(body: PersonBody) {
+  const data: Record<string, string | null> = {};
+  for (const field of personCredentialFields) {
+    if (body[field] !== undefined) {
+      data[field] = nullableText(body[field]);
+    }
+  }
+  return data;
+}
 
 function isPersonRole(role: string): role is PersonRole {
   return Object.values(PersonRole).includes(role as PersonRole);
@@ -62,6 +107,8 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
             { firstName: { contains: search as string, mode: "insensitive" } },
             { lastName: { contains: search as string, mode: "insensitive" } },
             { email: { contains: search as string, mode: "insensitive" } },
+            { individualNpi: { contains: search as string, mode: "insensitive" } },
+            { caqhId: { contains: search as string, mode: "insensitive" } },
           ],
         },
       ];
@@ -243,6 +290,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       influence,
       email,
       phone,
+      ...credentialData(req.body as PersonBody),
     };
 
     if (practiceIds?.length) {
@@ -480,6 +528,8 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
     if (status !== undefined) {
       updateData.status = status;
     }
+
+    Object.assign(updateData, credentialData(req.body as PersonBody));
 
     if (practiceIds !== undefined) {
       const existingPractices = await prisma.practicePerson.findMany({

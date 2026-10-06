@@ -390,6 +390,130 @@ function mapActivity(activity: {
   };
 }
 
+const credentialingPracticeInclude = {
+  include: {
+    locations: { orderBy: { createdAt: "asc" as const } },
+    groupNpis: true,
+    persons: { include: { person: true } },
+    contactPersons: {
+      include: { person: true },
+      orderBy: { createdAt: "asc" as const },
+    },
+    contactNumbers: {
+      include: { person: true },
+      orderBy: { createdAt: "asc" as const },
+    },
+  },
+};
+
+function textOrNull(value: unknown) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function mapPracticeDetails(practice: any) {
+  if (!practice) return null;
+  return {
+    name: practice.name || "",
+    npi: textOrNull(practice.npi),
+    referredBy: textOrNull(practice.referredBy),
+    addressLine1: textOrNull(practice.addressLine1),
+    addressLine2: textOrNull(practice.addressLine2),
+    city: textOrNull(practice.city),
+    state: textOrNull(practice.state),
+    zipCode: textOrNull(practice.zipCode),
+    country: textOrNull(practice.country),
+    faxes: Array.isArray(practice.faxes) ? practice.faxes : [],
+    phone: textOrNull(practice.phone),
+    emails: Array.isArray(practice.emails) ? practice.emails : [],
+    groupTaxId: textOrNull(practice.groupTaxId),
+    groupNpi: Array.isArray(practice.groupNpis)
+      ? practice.groupNpis
+          .map((entry: any) => entry.groupNpiNumber)
+          .filter(Boolean)
+          .join(", ")
+      : "",
+    practicePersonNames: Array.isArray(practice.persons)
+      ? practice.persons
+          .map((entry: any) =>
+            [entry.person?.firstName, entry.person?.lastName]
+              .filter(Boolean)
+              .join(" "),
+          )
+          .filter(Boolean)
+          .join(", ")
+      : "",
+    providers: Array.isArray(practice.persons)
+      ? practice.persons
+          .map((entry: any) => mapProviderDetails(entry.person))
+          .filter(Boolean)
+      : [],
+    groupMedicarePtan: textOrNull(practice.groupMedicarePtan),
+    railroadMedicarePtan: textOrNull(practice.railroadMedicarePtan),
+    dmePtan: textOrNull(practice.dmePtan),
+    groupMedicaidPtan: textOrNull(practice.groupMedicaidPtan),
+    sparkGroup: textOrNull(practice.sparkGroup),
+    locations: Array.isArray(practice.locations)
+      ? practice.locations.map((location: any) => ({
+          locationName: textOrNull(location.locationName),
+          isPrimary: Boolean(location.isPrimary),
+          addressLine1: textOrNull(location.addressLine1),
+          addressLine2: textOrNull(location.addressLine2),
+          city: textOrNull(location.city),
+          state: textOrNull(location.state),
+          zipCode: textOrNull(location.zipCode),
+          country: textOrNull(location.country),
+          phone: textOrNull(location.phone),
+          fax: textOrNull(location.fax),
+          email: textOrNull(location.email),
+        }))
+      : [],
+    contactPersons: Array.isArray(practice.contactPersons)
+      ? practice.contactPersons.map((entry: any) => ({
+          name: [entry.person?.firstName, entry.person?.lastName]
+            .filter(Boolean)
+            .join(" "),
+          email: textOrNull(entry.person?.email),
+          phone: textOrNull(entry.person?.phone),
+        }))
+      : [],
+    contactNumbers: Array.isArray(practice.contactNumbers)
+      ? practice.contactNumbers.map((entry: any) => ({
+          phone: textOrNull(entry.phone),
+          label: textOrNull(entry.label),
+          name: [entry.person?.firstName, entry.person?.lastName]
+            .filter(Boolean)
+            .join(" "),
+        }))
+      : [],
+  };
+}
+
+function mapProviderDetails(provider: any) {
+  if (!provider) return null;
+  const name = [provider.firstName, provider.lastName].filter(Boolean).join(" ");
+  return {
+    id: provider.id || "",
+    name,
+    individualNpi: textOrNull(provider.individualNpi),
+    individualPtan: textOrNull(provider.individualPtan),
+    individualRailroadMedicarePtan: textOrNull(
+      provider.individualRailroadMedicarePtan,
+    ),
+    caqhId: textOrNull(provider.caqhId),
+    caqhLoginId: textOrNull(provider.caqhLoginId),
+    caqhPassword: textOrNull(provider.caqhPassword),
+    groupPecosAccess: textOrNull(provider.groupPecosAccess),
+    individualMedicaidNumber: textOrNull(provider.individualMedicaidNumber),
+    stateLicense: textOrNull(provider.stateLicense),
+    dea: textOrNull(provider.dea),
+    ein: textOrNull(provider.ein),
+    specialty: textOrNull(provider.specialty),
+    secondarySpecialty: textOrNull(provider.secondarySpecialty),
+  };
+}
+
 function mapRequest(request: any) {
   const practiceName = request.practice?.name || "";
   const providerName = request.provider
@@ -411,8 +535,25 @@ function mapRequest(request: any) {
     credentialingId: request.credentialingId,
     practiceId: request.practiceId,
     practice: practiceName,
+    practiceDetails: (() => {
+      const details = mapPracticeDetails(request.practice);
+      const providerDetails = mapProviderDetails(request.provider);
+      if (!details) {
+        return providerDetails
+          ? {
+              name: practiceName,
+              practicePersonNames: providerDetails.name,
+              providers: [providerDetails],
+            }
+          : null;
+      }
+      details.practicePersonNames = providerDetails?.name || "";
+      details.providers = providerDetails ? [providerDetails] : [];
+      return details;
+    })(),
     providerId: request.providerId || "",
     provider: providerName,
+    providerDetails: mapProviderDetails(request.provider),
     insuranceCompany: request.insurancePayerName,
     insurancePayerName: request.insurancePayerName,
     credentialingType: getRequestTypeLabel(request.requestType),
@@ -1267,7 +1408,7 @@ async function fetchCredentialingRequestWithDetails(requestId: string) {
   return prisma.credentialingRequest.findUniqueOrThrow({
     where: { id: requestId },
     include: {
-      practice: true,
+      practice: credentialingPracticeInclude,
       provider: true,
       assignedToUser: true,
       createdByUser: true,
@@ -1307,7 +1448,7 @@ export async function getCredentialingRequests(
       prisma.credentialingRequest.findMany({
         where,
         include: {
-          practice: true,
+          practice: credentialingPracticeInclude,
           provider: true,
           assignedToUser: true,
           createdByUser: true,
@@ -1360,7 +1501,7 @@ export async function getCredentialingDashboard(
     const credentialingRequests = await prisma.credentialingRequest.findMany({
       where,
       include: {
-        practice: true,
+        practice: credentialingPracticeInclude,
         provider: true,
         assignedToUser: true,
         documents: {
@@ -1490,7 +1631,7 @@ export async function getCredentialingRequest(
     const request = await prisma.credentialingRequest.findUnique({
       where: { id: String(req.params.id) },
       include: {
-        practice: true,
+        practice: credentialingPracticeInclude,
         provider: true,
         assignedToUser: true,
         createdByUser: true,
@@ -1660,7 +1801,7 @@ export async function updateCredentialingRequest(
     const existing = await prisma.credentialingRequest.findUnique({
       where: { id: String(req.params.id) },
       include: {
-        practice: true,
+        practice: credentialingPracticeInclude,
         provider: true,
         assignedToUser: true,
         documents: true,
