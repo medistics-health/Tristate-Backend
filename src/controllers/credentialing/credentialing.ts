@@ -443,6 +443,7 @@ function mapPracticeDetails(practice: any) {
       : "",
     practicePersonNames: Array.isArray(practice.persons)
       ? practice.persons
+          .filter((entry: any) => String(entry.person?.role || "").toUpperCase() === "OWNER")
           .map((entry: any) =>
             [entry.person?.firstName, entry.person?.lastName]
               .filter(Boolean)
@@ -549,12 +550,11 @@ function mapRequest(request: any) {
         return providerDetails
           ? {
               name: practiceName,
-              practicePersonNames: providerDetails.name,
+              practicePersonNames: "",
               providers: [providerDetails],
             }
           : null;
       }
-      details.practicePersonNames = providerDetails?.name || "";
       details.providers = providerDetails ? [providerDetails] : [];
       return details;
     })(),
