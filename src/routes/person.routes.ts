@@ -1,4 +1,4 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { verifyAuthToken, requireRoles, ROLE_GROUPS } from "../middleware/auth.middleware";
 import {
   createPerson,
@@ -14,6 +14,7 @@ const personRouter = Router();
 personRouter.use(verifyAuthToken);
 
 personRouter.get("/", getPersons);
+personRouter.post("/check-duplicate", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), checkDuplicatePerson);
 personRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createPerson);
 personRouter.get("/:id", getPerson);
 personRouter.patch("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updatePerson);

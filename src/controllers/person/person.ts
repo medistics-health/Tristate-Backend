@@ -159,7 +159,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
 
 export async function checkDuplicatePerson(req: AuthenticatedRequest, res: Response) {
   try {
-    const { firstName, lastName, designation } = req.body as PersonBody;
+    const { firstName, lastName, designation, excludePersonId } = req.body as PersonBody & { excludePersonId?: string };
 
     if (!req.user?.sub) {
       return res.status(401).json({ message: "Unauthorized." });
@@ -174,6 +174,7 @@ export async function checkDuplicatePerson(req: AuthenticatedRequest, res: Respo
         firstName: { equals: firstName, mode: "insensitive" },
         lastName: { equals: lastName, mode: "insensitive" },
         ...(designation ? { designation: { equals: designation, mode: "insensitive" } } : {}),
+        ...(excludePersonId ? { id: { not: excludePersonId } } : {}),
       },
     });
 
