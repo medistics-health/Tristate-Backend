@@ -809,6 +809,42 @@ export async function listPublicLinksForDocument(documentId: string) {
     });
 }
 
+export function parseExpiresAt(value: string): Date {
+  const trimmed = value.trim();
+  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(trimmed)) {
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) {
+      throw new Error("Invalid expiresAt.");
+    }
+    return date;
+  }
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(trimmed);
+  if (!match) {
+    throw new Error("Invalid expiresAt.");
+  }
+
+  const [, year, month, day, hour, minute, second = "00"] = match;
+  const local = new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+    0,
+  );
+  if (Number.isNaN(local.getTime())) {
+    throw new Error("Invalid expiresAt.");
+  }
+
+  const offsetMinutes = -local.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMinutes);
+  const offset = `${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`);
+}
+
 export async function createPublicLink(params: {
   documentId: string;
   createdById: string;

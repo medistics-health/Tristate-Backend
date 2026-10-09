@@ -10,6 +10,7 @@ import {
   listPublicLinksForDocument,
   logDocumentActivity,
   parseBoolean,
+  parseExpiresAt,
   publicLinkInclude,
   serializePublicLink,
 } from "../../services/documentHub/documentHub.service";
@@ -35,12 +36,13 @@ export async function createDocumentPublicLink(req: AuthenticatedRequest, res: R
     }
 
     const expiresAtRaw = req.body?.expiresAt;
-    const expiresAt =
-      expiresAtRaw === null || expiresAtRaw === undefined || expiresAtRaw === ""
-        ? null
-        : new Date(String(expiresAtRaw));
-    if (expiresAt && Number.isNaN(expiresAt.getTime())) {
-      return res.status(400).json({ message: "Invalid expiresAt." });
+    let expiresAt: Date | null = null;
+    if (expiresAtRaw !== null && expiresAtRaw !== undefined && expiresAtRaw !== "") {
+      try {
+        expiresAt = parseExpiresAt(String(expiresAtRaw));
+      } catch {
+        return res.status(400).json({ message: "Invalid expiresAt." });
+      }
     }
 
     const publicLink = await createPublicLink({
