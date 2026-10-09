@@ -7,6 +7,7 @@ import {
   canRevokePublicLink,
   createPublicLink,
   getRequestIp,
+  listPublicLinksForDocument,
   logDocumentActivity,
   parseBoolean,
   publicLinkInclude,
@@ -85,20 +86,14 @@ export async function listDocumentPublicLinks(req: AuthenticatedRequest, res: Re
       return res.status(400).json({ message: "Document id is required." });
     }
 
-    const document = await prisma.hubDocument.findUnique({ where: { id } });
-    if (!document) {
+    const publicLinks = await listPublicLinksForDocument(id);
+    if (!publicLinks) {
       return res.status(404).json({ message: "Document not found." });
     }
 
-    const publicLinks = await prisma.hubDocumentPublicLink.findMany({
-      where: { documentId: id },
-      include: publicLinkInclude,
-      orderBy: { createdAt: "desc" },
-    });
-
     return res.status(200).json({
       message: "Public links fetched successfully.",
-      publicLinks: publicLinks.map(serializePublicLink),
+      publicLinks,
     });
   } catch (error) {
     return res.status(500).json({

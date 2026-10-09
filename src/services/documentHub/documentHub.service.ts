@@ -757,6 +757,58 @@ export function serializePublicLink<
   };
 }
 
+export async function listPublicLinksForDocument(documentId: string) {
+  const document = await prisma.hubDocument.findUnique({
+    where: { id: documentId },
+    select: { id: true, rootDocumentId: true },
+  });
+  if (!document) {
+    return null;
+  }
+
+  const versions = await prisma.hubDocument.findMany({
+    where: { rootDocumentId: document.rootDocumentId },
+    select: { id: true, version: true, originalFilename: true },
+    orderBy: { version: "desc" },
+  });
+  const latestVersion = versions[0]?.version ?? 1;
+  const versionById = new Map(versions.map((version) => [version.id, version]));
+
+  const links = await prisma.hubDocumentPublicLink.findMany({
+    where: { documentId: { in: versions.map((version) => version.id) } },
+    include: publicLinkInclude,
+    orderBy: { createdAt: "desc" },
+  });
+
+  return links
+    .map((link) => {
+      const version = versionById.get(link.documentId);
+      const isCurrentVersion = (version?.version ?? 1) === latestVersion;
+      const serialized = serializePublicLink(link);
+      const payload = {
+        ...serialized,
+        documentVersion: version?.version ?? null,
+        originalFilename: version?.originalFilename ?? null,
+        isCurrentVersion,
+        hideActivity: !isCurrentVersion,
+      };
+
+      if (isCurrentVersion) {
+        return payload;
+      }
+
+      const { viewCount: _viewCount, lastAccessedAt: _lastAccessedAt, ...withoutActivity } =
+        payload;
+      return withoutActivity;
+    })
+    .sort((left, right) => {
+      if (left.isCurrentVersion !== right.isCurrentVersion) {
+        return left.isCurrentVersion ? -1 : 1;
+      }
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    });
+}
+
 export async function createPublicLink(params: {
   documentId: string;
   createdById: string;
@@ -804,6 +856,7 @@ export async function getValidPublicLink(token: string) {
           mimeType: true,
           originalFilename: true,
           fileKey: true,
+          version: true,
           isPublicShareable: true,
           status: true,
         },
