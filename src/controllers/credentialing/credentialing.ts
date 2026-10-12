@@ -412,6 +412,13 @@ function textOrNull(value: unknown) {
   return text || null;
 }
 
+function formatSpecialty(value: unknown) {
+  const text = textOrNull(value);
+  if (!text) return null;
+  const normalized = text.replace(/_/g, " ").toLowerCase();
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
 function mapPracticeDetails(practice: any) {
   if (!practice) return null;
   return {
@@ -436,6 +443,7 @@ function mapPracticeDetails(practice: any) {
       : "",
     practicePersonNames: Array.isArray(practice.persons)
       ? practice.persons
+          .filter((entry: any) => String(entry.person?.role || "").toUpperCase() === "OWNER")
           .map((entry: any) =>
             [entry.person?.firstName, entry.person?.lastName]
               .filter(Boolean)
@@ -509,8 +517,8 @@ function mapProviderDetails(provider: any) {
     stateLicense: textOrNull(provider.stateLicense),
     dea: textOrNull(provider.dea),
     ein: textOrNull(provider.ein),
-    specialty: textOrNull(provider.specialty),
-    secondarySpecialty: textOrNull(provider.secondarySpecialty),
+    specialty: formatSpecialty(provider.specialty),
+    secondarySpecialty: formatSpecialty(provider.secondarySpecialty),
   };
 }
 
@@ -542,12 +550,11 @@ function mapRequest(request: any) {
         return providerDetails
           ? {
               name: practiceName,
-              practicePersonNames: providerDetails.name,
+              practicePersonNames: "",
               providers: [providerDetails],
             }
           : null;
       }
-      details.practicePersonNames = providerDetails?.name || "";
       details.providers = providerDetails ? [providerDetails] : [];
       return details;
     })(),

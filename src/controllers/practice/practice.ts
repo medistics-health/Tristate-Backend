@@ -293,21 +293,25 @@ function parseLocations(locations?: LocationInput[]) {
     return { error: "locations must be an array." as const };
   }
 
-  return {
-    value: locations.map((location) => ({
-      locationName: nullableText(location.locationName) ?? null,
-      isPrimary: Boolean(location.isPrimary),
-      addressLine1: nullableText(location.addressLine1) ?? null,
-      addressLine2: nullableText(location.addressLine2) ?? null,
-      city: nullableText(location.city) ?? null,
-      state: nullableText(location.state) ?? null,
-      zipCode: nullableText(location.zipCode) ?? null,
-      country: nullableText(location.country) ?? null,
-      phone: nullableText(location.phone) ?? null,
-      fax: nullableText(location.fax) ?? null,
-      email: nullableText(location.email) ?? null,
-    })),
-  };
+  const value = locations.map((location) => ({
+    locationName: nullableText(location.locationName) ?? null,
+    isPrimary: Boolean(location.isPrimary),
+    addressLine1: nullableText(location.addressLine1) ?? null,
+    addressLine2: nullableText(location.addressLine2) ?? null,
+    city: nullableText(location.city) ?? null,
+    state: nullableText(location.state) ?? null,
+    zipCode: nullableText(location.zipCode) ?? null,
+    country: nullableText(location.country) ?? null,
+    phone: nullableText(location.phone) ?? null,
+    fax: nullableText(location.fax) ?? null,
+    email: nullableText(location.email) ?? null,
+  }));
+
+  if (value.filter((location) => location.isPrimary).length > 1) {
+    return { error: "A practice can have only one primary location." as const };
+  }
+
+  return { value };
 }
 
 async function resolveOrCreatePerson(tx: any, input: PersonLinkInput, label: string) {
