@@ -1310,7 +1310,14 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
       ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
       ...(prefundingState !== undefined ? { prefundingState } : {}),
-      ...(prefundingRateIds !== undefined ? { prefundingRates: { deleteMany: {}, create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })) } } : {}),
+      ...(Array.isArray(prefundingRateIds) && prefundingRateIds.length > 0
+        ? {
+            prefundingRates: {
+              deleteMany: {},
+              create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })),
+            },
+          }
+        : {}),
       ...(billingPaymentMethod !== undefined
         ? {
             billingPaymentMethod:

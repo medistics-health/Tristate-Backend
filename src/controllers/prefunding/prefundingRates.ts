@@ -92,10 +92,12 @@ export async function createPrefundingRate(req: AuthenticatedRequest, res: Respo
       return res.status(400).json({ message: `Invalid pricing model. Supported models are: ${SUPPORTED_PRICING_MODELS.join(", ")}` });
     }
 
+    const formattedBasis = Array.isArray(basis) ? basis.join(", ") : String(basis).trim();
+
     const prefundingRate = await prisma.prefundingRate.create({
       data: {
         name,
-        basis,
+        basis: formattedBasis,
         pricingModel,
         rate,
         practiceRates: practiceIds && practiceIds.length > 0 ? {
@@ -122,12 +124,16 @@ export async function updatePrefundingRate(req: AuthenticatedRequest, res: Respo
       return res.status(400).json({ message: `Invalid pricing model. Supported models are: ${SUPPORTED_PRICING_MODELS.join(", ")}` });
     }
 
+    const formattedBasis = basis !== undefined
+      ? (Array.isArray(basis) ? basis.join(", ") : String(basis).trim())
+      : undefined;
+
     // Update the rate
     const updatedRate = await prisma.prefundingRate.update({
       where: { id },
       data: {
         name,
-        basis,
+        ...(formattedBasis !== undefined && { basis: formattedBasis }),
         pricingModel,
         rate,
         // If practiceIds is provided, we sync them

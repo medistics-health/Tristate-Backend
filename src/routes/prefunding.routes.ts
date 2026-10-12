@@ -6,7 +6,14 @@ import {
   updatePrefundingRate,
   deletePrefundingRate
 } from "../controllers/prefunding/prefundingRates";
-import { createPrefundingInvoice } from "../controllers/prefunding/prefundingInvoices";
+import {
+  createPrefundingInvoice,
+  getPrefundingInvoices,
+  getPrefundingInvoiceById,
+  getPrefundingInvoicePdf,
+  updatePrefundingInvoiceStatus,
+  deletePrefundingInvoice
+} from "../controllers/prefunding/prefundingInvoices";
 
 const prefundingRouter = Router();
 
@@ -19,6 +26,11 @@ prefundingRouter.put("/rates/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), upd
 prefundingRouter.delete("/rates/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deletePrefundingRate);
 
 // Prefunding Invoices
+prefundingRouter.get("/invoices", getPrefundingInvoices);
+prefundingRouter.get("/invoices/:id", getPrefundingInvoiceById);
+prefundingRouter.get("/invoices/:id/pdf", getPrefundingInvoicePdf);
 prefundingRouter.post("/invoices", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createPrefundingInvoice);
+prefundingRouter.put("/invoices/:id/status", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updatePrefundingInvoiceStatus);
+prefundingRouter.delete("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deletePrefundingInvoice);
 
 export default prefundingRouter;

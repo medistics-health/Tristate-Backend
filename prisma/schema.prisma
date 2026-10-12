@@ -46,6 +46,7 @@ model User {
   hubDocumentActivityLogs       HubDocumentActivityLog[]     @relation("HubDocumentActivityByUser")
   hubDocumentCategoriesCreated  HubDocumentCategory[]        @relation("HubDocumentCategoryCreatedBy")
   agreementsCreated             Agreement[]                  @relation("AgreementCreatedByUser")
+  prefundingInvoicesCreated     PrefundingInvoice[]          @relation("PrefundingInvoiceCreatedByUser")
 
   @@map("User")
 }
@@ -2787,13 +2788,16 @@ model PrefundingInvoice {
   invoiceDate DateTime                    @map("invoice_date")
   dueDate     DateTime                    @map("due_date")
   totalAmount Decimal                     @map("total_amount") @db.Decimal(12, 2)
-  status      String
-  practice    Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  lineItems   PrefundingInvoiceLineItem[]
-  createdAt   DateTime                    @default(now()) @map("created_at")
-  updatedAt   DateTime                    @updatedAt @map("updated_at")
+  status          String
+  createdByUserId String?                     @map("created_by_user_id") @db.Uuid
+  createdByUser   User?                       @relation("PrefundingInvoiceCreatedByUser", fields: [createdByUserId], references: [id])
+  practice        Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  lineItems       PrefundingInvoiceLineItem[]
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
 
   @@index([practiceId])
+  @@index([createdByUserId])
   @@map("prefunding_invoices")
 }
 
