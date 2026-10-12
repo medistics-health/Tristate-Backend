@@ -11,8 +11,8 @@ import {
   getDocusealTemplates,
   getDocusealFormBySlug,
   handleDocusealWebhook,
-} from "../controllers/agreement/agreementV3";
-import { sendOnboardingForm } from "../controllers/agreement/agreementV3";
+} from "../controllers/agreement/agreementV4";
+import { sendOnboardingForm } from "../controllers/agreement/agreementV4";
 import {
   createAgreementVersion,
   getAgreementVersion,

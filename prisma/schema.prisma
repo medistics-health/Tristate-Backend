@@ -45,6 +45,7 @@ model User {
   hubDocumentPublicLinksRevoked HubDocumentPublicLink[]      @relation("HubDocumentPublicLinkRevokedBy")
   hubDocumentActivityLogs       HubDocumentActivityLog[]     @relation("HubDocumentActivityByUser")
   hubDocumentCategoriesCreated  HubDocumentCategory[]        @relation("HubDocumentCategoryCreatedBy")
+  agreementsCreated             Agreement[]                  @relation("AgreementCreatedByUser")
 
   @@map("User")
 }
@@ -149,6 +150,22 @@ model Practice {
   prefundingRates              PrefundingPracticeRate[]
   prefundingInvoices           PrefundingInvoice[]
 
+  referredBy            String?                @map("referred_by")
+  addressLine1          String?                @map("address_line_1")
+  addressLine2          String?                @map("address_line_2")
+  city                  String?
+  state                 String?
+  zipCode               String?                @map("zip_code")
+  country               String?
+  faxes                 String[]               @default([])
+  phone                 String?
+  emails                String[]               @default([])
+  groupTaxId            String?                @map("group_tax_id")
+  groupMedicarePtan     String?                @map("group_medicare_ptan")
+  railroadMedicarePtan  String?                @map("railroad_medicare_ptan")
+  dmePtan               String?                @map("dme_ptan")
+  groupMedicaidPtan     String?                @map("group_medicaid_ptan")
+  sparkGroup            String?                @map("spark_group")
   createdAt             DateTime               @default(now()) @map("created_at")
   updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
   agreements            Agreement[]
@@ -164,6 +181,9 @@ model Practice {
   onboardings           Onboarding[]
   onboardingProjects    OnboardingProject[]
   persons               PracticePerson[]
+  locations             PracticeLocation[]
+  contactPersons        PracticeContactPerson[]
+  contactNumbers        PracticeContactNumber[]
   credentialingRequests CredentialingRequest[]
   billToTaxId           TaxId?                 @relation("PracticeBillToTaxId", fields: [billToTaxIdId], references: [id])
   company               Company?               @relation(fields: [companyId], references: [id])
@@ -209,6 +229,57 @@ model PracticePerson {
   @@index([practiceId])
   @@index([personId])
   @@map("practice_persons")
+}
+
+model PracticeLocation {
+  id           String   @id @default(uuid()) @db.Uuid
+  practiceId   String   @map("practice_id") @db.Uuid
+  locationName String?  @map("location_name")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  addressLine1 String?  @map("address_line_1")
+  addressLine2 String?  @map("address_line_2")
+  city         String?
+  state        String?
+  zipCode      String?  @map("zip_code")
+  country      String?
+  phone        String?
+  fax          String?
+  email        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  practice     Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+
+  @@index([practiceId])
+  @@map("practice_locations")
+}
+
+model PracticeContactPerson {
+  id         String   @id @default(uuid()) @db.Uuid
+  practiceId String   @map("practice_id") @db.Uuid
+  personId   String   @map("person_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  practice   Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  person     Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([practiceId, personId])
+  @@index([practiceId])
+  @@index([personId])
+  @@map("practice_contact_persons")
+}
+
+model PracticeContactNumber {
+  id         String   @id @default(uuid()) @db.Uuid
+  practiceId String   @map("practice_id") @db.Uuid
+  personId   String?  @map("person_id") @db.Uuid
+  phone      String
+  label      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  practice   Practice @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  person     Person?  @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([practiceId])
+  @@index([personId])
+  @@map("practice_contact_numbers")
 }
 
 model CompanyPerson {
@@ -262,6 +333,20 @@ model Person {
   budgetedHours    Decimal?       @map("budgeted_hours") @db.Decimal(10, 2)
   bufferPercentage Decimal?       @map("buffer_percentage") @db.Decimal(5, 2)
 
+  individualNpi       String?              @map("individual_npi")
+  individualPtan      String?              @map("individual_ptan")
+  individualRailroadMedicarePtan String?   @map("individual_railroad_medicare_ptan")
+  caqhId              String?              @map("caqh_id")
+  caqhLoginId         String?              @map("caqh_login_id")
+  caqhPassword        String?              @map("caqh_password")
+  groupPecosAccess    String?              @map("group_pecos_access")
+  individualMedicaidNumber String?         @map("individual_medicaid_number")
+  stateLicense        String?              @map("state_license")
+  dea                 String?
+  ein                 String?
+  specialty           String?
+  secondarySpecialty  String?              @map("secondary_specialty")
+
   createdAt                 DateTime               @default(now()) @map("created_at")
   updatedAt                 DateTime               @updatedAt @map("updated_at")
   companies                 CompanyPerson[]
@@ -269,6 +354,8 @@ model Person {
   docusealSubmissions       DocusealSubmission[]
   onboardings               Onboarding[]
   practices                 PracticePerson[]
+  practiceContactPersons    PracticeContactPerson[]
+  practiceContactNumbers    PracticeContactNumber[]
   credentialingRequests     CredentialingRequest[]
   managedOnboardingProjects OnboardingProject[]
   hubDocumentLinks          HubDocumentPerson[]
@@ -314,6 +401,7 @@ model Agreement {
   effectiveDate       DateTime?              @map("effective_date")
   renewalDate         DateTime?              @map("renewal_date")
   externalReference   String?                @map("external_reference")
+  createdByUserId     String?                @map("created_by_user_id") @db.Uuid
   services            Service[]
   createdAt           DateTime               @default(now()) @map("created_at")
   updatedAt           DateTime               @default(now()) @updatedAt @map("updated_at")
@@ -321,12 +409,14 @@ model Agreement {
   versions            AgreementVersion[]
   deal                Deal?                  @relation(fields: [dealId], references: [id])
   practice            Practice               @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  createdByUser       User?                  @relation("AgreementCreatedByUser", fields: [createdByUserId], references: [id])
   channelPartners     ChannelPartner[]
   docusealSubmissions DocusealSubmission[]
   invoices            Invoice[]
 
   @@index([practiceId])
   @@index([dealId])
+  @@index([createdByUserId])
   @@map("agreements")
 }
 

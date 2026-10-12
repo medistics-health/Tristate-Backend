@@ -34,6 +34,7 @@ export async function getPublicShare(req: Request, res: Response) {
       description: document.description,
       mimeType: document.mimeType,
       originalFilename: document.originalFilename,
+      version: document.version,
       allowDownload: result.publicLink.allowDownload,
       expiresAt: result.publicLink.expiresAt,
     });
