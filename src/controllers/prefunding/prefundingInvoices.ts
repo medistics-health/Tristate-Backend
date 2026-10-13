@@ -23,11 +23,11 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
         lineItems: {
           create: (lineItems || []).map((item: any) => ({
             name: item.name,
-            basis: item.basis,
-            pricingModel: item.pricingModel,
-            rate: item.rate,
-            amount: item.amount,
-            isOneTime: item.isOneTime || false,
+            basis: item.basis || null,
+            pricingModel: item.pricingModel || null,
+            rate: item.rate !== undefined && item.rate !== null && item.rate !== "" ? Number(item.rate) : null,
+            amount: Number(item.amount) || 0,
+            isOneTime: Boolean(item.isOneTime),
           }))
         }
       },
