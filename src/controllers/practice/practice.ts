@@ -563,6 +563,9 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
         { city: { contains: searchTerm, mode: "insensitive" } },
         { emails: { has: searchTerm } },
       ];
+      if (/^\d{5}$/.test(searchTerm)) {
+        searchOr.push({ practiceId: Number(searchTerm) });
+      }
       if (npiTerm) {
         searchOr.push({ npi: { contains: npiTerm, mode: "insensitive" } });
         searchOr.push({
@@ -607,6 +610,8 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
       orderBy = { source: orderDir };
     } else if (sortBy === "npi") {
       orderBy = { npi: orderDir };
+    } else if (sortBy === "practiceId") {
+      orderBy = { practiceId: orderDir };
     } else if (sortBy === "updatedAt" || sortBy === "lastUpdate") {
       orderBy = { updatedAt: orderDir };
     } else if (sortBy === "createdAt" || sortBy === "creationDate") {

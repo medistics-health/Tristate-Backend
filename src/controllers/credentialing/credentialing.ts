@@ -423,6 +423,7 @@ function mapPracticeDetails(practice: any) {
   if (!practice) return null;
   return {
     name: practice.name || "",
+    practiceId: practice.practiceId ?? null,
     npi: textOrNull(practice.npi),
     referredBy: textOrNull(practice.referredBy),
     addressLine1: textOrNull(practice.addressLine1),
