@@ -21,12 +21,15 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
         status: "Draft",
         createdByUserId: req.user?.sub || null,
         lineItems: {
-          create: (lineItems || []).map((item: any) => ({
+          create: (lineItems || []).map((item: any, idx: number) => ({
             name: item.name,
             basis: item.basis || null,
             pricingModel: item.pricingModel || null,
             rate: item.rate !== undefined && item.rate !== null && item.rate !== "" ? Number(item.rate) : null,
             amount: Number(item.amount) || 0,
+            notes: item.notes !== undefined && item.notes !== null ? String(item.notes).trim() : null,
+            includeInGrandTotal: item.includeInGrandTotal !== undefined ? Boolean(item.includeInGrandTotal) : true,
+            sequence: item.sequence !== undefined && item.sequence !== null ? Number(item.sequence) : idx,
             isOneTime: Boolean(item.isOneTime),
           }))
         }
@@ -115,7 +118,9 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
               },
             }
           },
-          lineItems: true,
+          lineItems: {
+            orderBy: { sequence: "asc" }
+          },
         }
       })
     ]);
@@ -157,6 +162,8 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
           ...item,
           rate: item.rate !== null ? Number(item.rate) : null,
           amount: Number(item.amount),
+          includeInGrandTotal: item.includeInGrandTotal !== false,
+          sequence: item.sequence ?? 0,
         })),
       };
     });
@@ -198,7 +205,9 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
             }
           }
         },
-        lineItems: true,
+        lineItems: {
+          orderBy: { sequence: "asc" }
+        },
       }
     });
 
@@ -241,6 +250,8 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
         ...item,
         rate: item.rate !== null ? Number(item.rate) : null,
         amount: Number(item.amount),
+        includeInGrandTotal: item.includeInGrandTotal !== false,
+        sequence: item.sequence ?? 0,
       })),
     };
 
@@ -265,7 +276,9 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
             }
           }
         },
-        lineItems: true,
+        lineItems: {
+          orderBy: { sequence: "asc" }
+        },
       }
     });
 
@@ -295,6 +308,8 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
         ...item,
         rate: item.rate !== null ? Number(item.rate) : null,
         amount: Number(item.amount),
+        includeInGrandTotal: item.includeInGrandTotal !== false,
+        sequence: item.sequence ?? 0,
       })),
     });
 

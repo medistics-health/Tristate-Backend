@@ -1,4 +1,4 @@
-﻿import PDFDocument from "pdfkit";
+import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
 import { getLogoBuffer } from "./logoHelper";
@@ -27,6 +27,9 @@ export interface PrefundingPdfData {
     pricingModel?: string | null;
     rate?: number | string | null;
     amount: number;
+    notes?: string | null;
+    includeInGrandTotal?: boolean;
+    sequence?: number;
   }[];
 }
 
@@ -193,53 +196,137 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
       doc.text("AMOUNT", 495, tableTop + 7, { width: 55, align: "right" });
 
       let currentY = tableTop + 28;
-      const items = data.lineItems || [];
+      const rawItems = data.lineItems || [];
 
-      if (items.length === 0) {
+      // Sort: Gross Wages first, then checked items by sequence, then unchecked items by sequence
+      const grossWageItem = rawItems.find((i) =>
+        (i.name || "").toLowerCase().includes("gross wage") ||
+        (i.basis || "").toLowerCase().includes("gross wage")
+      );
+      const otherItems = rawItems.filter((i) => i !== grossWageItem);
+      const checkedItems = otherItems
+        .filter((i) => i.includeInGrandTotal !== false)
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+      const uncheckedItems = otherItems
+        .filter((i) => i.includeInGrandTotal === false)
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+
+      const grossWagesAmount = grossWageItem ? Number(grossWageItem.amount) : 0;
+      const checkedAmount = checkedItems.reduce((acc, curr) => acc + Number(curr.amount), 0);
+      const prefundingSubtotal = grossWagesAmount + checkedAmount;
+      const uncheckedAmount = uncheckedItems.reduce((acc, curr) => acc + Number(curr.amount), 0);
+
+      const renderRow = (item: typeof rawItems[0], index: number, isCheckedGroup = true) => {
+        // Alternate row fill
+        if (index % 2 === 1) {
+          doc.rect(40, currentY - 3, 515, 20).fill("#fafafa");
+        }
+
+        doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text(String(index + 1), 48, currentY, { width: 25 });
+        doc.font(fMedium).fontSize(8.5).fillColor("#1e293b").text(item.name || "Prefunding Item", 75, currentY, { width: 200 });
+        doc.font(fRegular).fontSize(8.5).fillColor("#475569").text(item.basis || "-", 280, currentY, { width: 75 });
+        doc.font(fRegular).fontSize(8.5).fillColor("#475569").text(item.pricingModel || "-", 360, currentY, { width: 85 });
+        doc.font(fRegular).fontSize(8.5).fillColor("#475569").text(formatRate(item.rate, item.pricingModel), 450, currentY, { width: 45 });
+        doc.font(fBold).fontSize(8.5).fillColor("#0f172a").text(
+          `$${Number(item.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          495,
+          currentY,
+          { width: 55, align: "right" }
+        );
+
+        currentY += 21;
+      };
+
+      if (rawItems.length === 0) {
         doc.font(fRegular).fontSize(9).fillColor("#94a3b8").text("No line items specified", 48, currentY + 10);
         currentY += 30;
       } else {
-        items.forEach((item, index) => {
-          // Row background alternate
-          if (index % 2 === 1) {
-            doc.rect(40, currentY - 3, 515, 20).fill("#fafafa");
-          }
+        let rowIdx = 0;
 
-          doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text(String(index + 1), 48, currentY, { width: 25 });
-          doc.font(fMedium).fontSize(8.5).fillColor("#1e293b").text(item.name || "Prefunding Charge", 75, currentY, { width: 200 });
-          doc.font(fRegular).fontSize(8.5).fillColor("#475569").text(item.basis || "-", 280, currentY, { width: 75 });
-          doc.font(fRegular).fontSize(8.5).fillColor("#475569").text(item.pricingModel || "-", 360, currentY, { width: 85 });
-          doc.font(fRegular).fontSize(8.5).fillColor("#475569").text(formatRate(item.rate, item.pricingModel), 450, currentY, { width: 45 });
-          doc.font(fBold).fontSize(8.5).fillColor("#0f172a").text(
-            `$${Number(item.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-            495,
-            currentY,
-            { width: 55, align: "right" }
-          );
+        // 1. Employee Gross Wages Row
+        if (grossWageItem) {
+          renderRow(grossWageItem, rowIdx++, true);
+        }
 
-          currentY += 22;
+        // 2. Checked Adjustments (Taxes & Deductions)
+        checkedItems.forEach((item) => {
+          renderRow(item, rowIdx++, true);
         });
+
+        // 3. Total Prefunding Adjustments Subtotal Row
+        doc.rect(40, currentY - 2, 515, 26).fill("#f8fafc");
+        doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1).strokeColor("#e2e8f0").stroke();
+
+        doc.font(fBold).fontSize(8.5).fillColor("#0f172a").text("Total Prefunding Adjustments:", 150, currentY + 2, { width: 335, align: "right" });
+        doc.font(fRegular).fontSize(7.5).fillColor("#64748b").text(
+          `Gross Wages ($${grossWagesAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) + Adjustments ($${checkedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+          150,
+          currentY + 13,
+          { width: 335, align: "right" }
+        );
+        doc.font(fBold).fontSize(9.5).fillColor("#4f63ea").text(
+          `$${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          495,
+          currentY + 6,
+          { width: 55, align: "right" }
+        );
+        currentY += 28;
+
+        // 4. Unchecked Line Items (One-Time / Additional Fees)
+        uncheckedItems.forEach((item) => {
+          renderRow(item, rowIdx++, false);
+        });
+
+        // 5. Total Grand Total Row
+        doc.rect(40, currentY - 2, 515, 28).fill("#ede9fe");
+        doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.2).strokeColor("#c4b5fd").stroke();
+
+        doc.font(fBold).fontSize(9).fillColor("#4338ca").text("TOTAL GRAND TOTAL:", 150, currentY + 3, { width: 335, align: "right" });
+        doc.font(fRegular).fontSize(7.5).fillColor("#6366f1").text(
+          `Total Prefunding Adjustments ($${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) + Additional Line Items ($${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+          150,
+          currentY + 14,
+          { width: 335, align: "right" }
+        );
+        doc.font(fBold).fontSize(10.5).fillColor("#4338ca").text(
+          `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          490,
+          currentY + 7,
+          { width: 60, align: "right" }
+        );
+        currentY += 34;
       }
 
       // Divider line
       doc.moveTo(40, currentY + 2).lineTo(555, currentY + 2).lineWidth(1).strokeColor("#e2e8f0").stroke();
       currentY += 12;
 
-      // 5. Totals Area
-      const totalsX = 350;
-      doc.font(fRegular).fontSize(9).fillColor("#64748b").text("Subtotal:", totalsX, currentY);
-      doc.font(fRegular).fontSize(9).fillColor("#0f172a").text(
-        `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        totalsX + 110,
+      // 5. Totals Summary Box at bottom right
+      const totalsX = 330;
+      doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Prefunding Adjustments:", totalsX, currentY);
+      doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
+        `$${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        totalsX + 125,
         currentY,
         { width: 95, align: "right" }
       );
 
+      if (uncheckedItems.length > 0) {
+        currentY += 15;
+        doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Additional Line Items:", totalsX, currentY);
+        doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
+          `$${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          totalsX + 125,
+          currentY,
+          { width: 95, align: "right" }
+        );
+      }
+
       currentY += 16;
-      doc.font(fBold).fontSize(11).fillColor("#0f172a").text("Total Prefunding Due:", totalsX, currentY);
-      doc.font(fBold).fontSize(12).fillColor("#4f63ea").text(
+      doc.font(fBold).fontSize(10).fillColor("#0f172a").text("Total Grand Total Due:", totalsX, currentY);
+      doc.font(fBold).fontSize(11).fillColor("#4f63ea").text(
         `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        totalsX + 110,
+        totalsX + 125,
         currentY,
         { width: 95, align: "right" }
       );

@@ -2759,7 +2759,8 @@ model PrefundingRate {
   name         String
   basis        String
   pricingModel String   @map("pricing_model")
-  rate         Decimal  @db.Decimal(12, 2)
+  rate         Decimal  @db.Decimal(12, 6)
+  notes        String?  @map("notes")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -2807,8 +2808,11 @@ model PrefundingInvoiceLineItem {
   name                String
   basis               String?
   pricingModel        String?           @map("pricing_model")
-  rate                Decimal?          @db.Decimal(12, 2)
+  rate                Decimal?          @db.Decimal(12, 6)
   amount              Decimal           @db.Decimal(12, 2)
+  notes               String?           @map("notes")
+  includeInGrandTotal Boolean           @default(true) @map("include_in_grand_total")
+  sequence            Int               @default(0) @map("sequence")
   isOneTime           Boolean           @default(false) @map("is_one_time")
   invoice             PrefundingInvoice @relation(fields: [prefundingInvoiceId], references: [id], onDelete: Cascade)
 
