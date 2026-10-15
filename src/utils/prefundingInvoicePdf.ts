@@ -155,8 +155,9 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
         }
       }
 
-      // Right Box: INVOICE DETAILS
-      const rightX = 350;
+      // Right Box: INVOICE DETAILS (Expanded width: rightX 315 to 555 = 240 width)
+      const rightX = 315;
+      const rightWidth = 240;
       doc.font(fBold).fontSize(9).fillColor("#94a3b8").text("INVOICE DETAILS", rightX, gridY);
 
       const meta = [
@@ -168,12 +169,12 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
       let metaY = gridY + 16;
       for (const m of meta) {
         doc.font(fRegular).fontSize(9).fillColor("#64748b").text(m.label, rightX, metaY);
-        doc.font(fMedium).fontSize(9).fillColor("#0f172a").text(m.val, rightX + 110, metaY, { align: "right", width: 95 });
+        doc.font(fMedium).fontSize(9).fillColor("#0f172a").text(m.val, rightX + 115, metaY, { align: "right", width: rightWidth - 115 });
         metaY += 16;
       }
 
       // Total Due Highlight Card
-      doc.roundedRect(rightX, metaY + 6, 205, 34, 6).fill("#f8fafc");
+      doc.roundedRect(rightX, metaY + 6, rightWidth, 34, 6).fill("#f8fafc");
       doc.rect(rightX, metaY + 6, 4, 34).fill("#4f63ea");
       doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Total Amount Due", rightX + 14, metaY + 12);
       doc.font(fBold).fontSize(14).fillColor("#1e293b").text(
@@ -253,11 +254,11 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
           renderRow(item, rowIdx++, true);
         });
 
-        // 3. Total Prefunding Adjustments Subtotal Row
+        // 3. GMS Projection Subtotal Row
         doc.rect(40, currentY - 2, 515, 26).fill("#f8fafc");
         doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1).strokeColor("#e2e8f0").stroke();
 
-        doc.font(fBold).fontSize(8.5).fillColor("#0f172a").text("Total Prefunding Adjustments:", 150, currentY + 2, { width: 335, align: "right" });
+        doc.font(fBold).fontSize(8.5).fillColor("#0f172a").text("GMS Projection:", 150, currentY + 2, { width: 335, align: "right" });
         doc.font(fRegular).fontSize(7.5).fillColor("#64748b").text(
           `Gross Wages ($${grossWagesAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) + Adjustments ($${checkedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
           150,
@@ -277,18 +278,17 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
           renderRow(item, rowIdx++, false);
         });
 
-        // 5. Total Grand Total Row
-        doc.rect(40, currentY - 2, 515, 28).fill("#ede9fe");
-        doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.2).strokeColor("#c4b5fd").stroke();
+        // 5. Total Grand Total Row (Background removed as requested)
+        doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.2).strokeColor("#cbd5e1").stroke();
 
-        doc.font(fBold).fontSize(9).fillColor("#4338ca").text("TOTAL GRAND TOTAL:", 150, currentY + 3, { width: 335, align: "right" });
-        doc.font(fRegular).fontSize(7.5).fillColor("#6366f1").text(
-          `Total Prefunding Adjustments ($${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) + Additional Line Items ($${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+        doc.font(fBold).fontSize(9).fillColor("#0f172a").text("TOTAL GRAND TOTAL:", 150, currentY + 3, { width: 335, align: "right" });
+        doc.font(fRegular).fontSize(7.5).fillColor("#64748b").text(
+          `GMS Projection ($${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) + Additional Line Items ($${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
           150,
           currentY + 14,
           { width: 335, align: "right" }
         );
-        doc.font(fBold).fontSize(10.5).fillColor("#4338ca").text(
+        doc.font(fBold).fontSize(10.5).fillColor("#4f63ea").text(
           `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           490,
           currentY + 7,
@@ -303,7 +303,7 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
 
       // 5. Totals Summary Box at bottom right
       const totalsX = 330;
-      doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Prefunding Adjustments:", totalsX, currentY);
+      doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("GMS Projection:", totalsX, currentY);
       doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
         `$${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         totalsX + 125,
@@ -331,20 +331,7 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
         { width: 95, align: "right" }
       );
 
-      // 6. Notes & Terms Section
-      const notesY = Math.max(currentY + 45, 680);
-      doc.roundedRect(40, notesY, 515, 65, 4).fill("#f8fafc");
-      doc.font(fBold).fontSize(8.5).fillColor("#475569").text("PREFUNDING TERMS & CONDITIONS", 52, notesY + 10);
-      doc.font(fRegular).fontSize(8).fillColor("#64748b").text(
-        "1. This invoice represents prefunding disbursements and administrative line item adjustments for the stated cycle.\n" +
-        "2. Payments are executed via registered Stripe ACH / direct debit on or before the due date.\n" +
-        "3. Questions or discrepancies regarding calculations should be directed to billing@tristatemso.com.",
-        52,
-        notesY + 24,
-        { width: 490, lineGap: 2 }
-      );
-
-      // 7. Footer
+      // 6. Footer (PREFUNDING TERMS & CONDITIONS box removed as requested)
       doc.font(fRegular).fontSize(8).fillColor("#94a3b8").text(
         "Tristate MSO • Healthcare Management & Prefunding Services • Page 1 of 1",
         40,
