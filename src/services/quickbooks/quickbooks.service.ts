@@ -1704,8 +1704,10 @@ export async function syncQuickBooksPayment(paymentId: string) {
         payment.practice.company?.email || null,
       );
 
-      for (const allocation of payment.allocations) {
-        if (!allocation.invoice.quickbooksInvoiceId) {
+      const invoiceAllocations = payment.allocations.filter((a) => Boolean(a.invoice));
+
+      for (const allocation of invoiceAllocations) {
+        if (!allocation.invoice?.quickbooksInvoiceId) {
           throw new QuickBooksServiceError(
             400,
             `Invoice ${allocation.invoiceId} must be synced to QuickBooks before syncing the payment.`,
@@ -1714,7 +1716,7 @@ export async function syncQuickBooksPayment(paymentId: string) {
       }
 
       const totalAmount = roundMoney(
-        payment.allocations.reduce(
+        invoiceAllocations.reduce(
           (sum, allocation) => sum + Number(allocation.allocatedAmount),
           0,
         ),
@@ -1726,11 +1728,11 @@ export async function syncQuickBooksPayment(paymentId: string) {
         },
         TxnDate: toQuickBooksDate(payment.paymentDate || new Date()),
         TotalAmt: totalAmount,
-        Line: payment.allocations.map((allocation) => ({
+        Line: invoiceAllocations.map((allocation) => ({
           Amount: roundMoney(Number(allocation.allocatedAmount)),
           LinkedTxn: [
             {
-              TxnId: allocation.invoice.quickbooksInvoiceId,
+              TxnId: allocation.invoice!.quickbooksInvoiceId,
               TxnType: "Invoice",
             },
           ],

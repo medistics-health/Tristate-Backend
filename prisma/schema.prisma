@@ -575,7 +575,8 @@ model InvoiceLineItem {
 
 model InvoiceConnectedAccountTransfer {
   id                       String               @id @default(uuid()) @db.Uuid
-  invoiceId                String               @map("invoice_id") @db.Uuid
+  invoiceId                String?              @map("invoice_id") @db.Uuid
+  prefundingInvoiceId      String?              @map("prefunding_invoice_id") @db.Uuid
   stripeConnectedAccountId String               @map("stripe_connected_account_id")
   stripeTransferId         String?              @map("stripe_transfer_id")
   amount                   Decimal              @db.Decimal(12, 2)
@@ -587,10 +588,12 @@ model InvoiceConnectedAccountTransfer {
   invoiceLineItemIds       String[]             @default([]) @map("invoice_line_item_ids")
   createdAt                DateTime             @default(now()) @map("created_at")
   updatedAt                DateTime             @default(now()) @updatedAt @map("updated_at")
-  invoice                  Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice                  Invoice?             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  prefundingInvoice        PrefundingInvoice?   @relation(fields: [prefundingInvoiceId], references: [id], onDelete: Cascade)
 
   @@unique([invoiceId, stripeConnectedAccountId])
   @@index([invoiceId])
+  @@index([prefundingInvoiceId])
   @@index([stripeConnectedAccountId])
   @@index([status])
   @@map("invoice_connected_account_transfers")
@@ -949,17 +952,20 @@ model Payment {
 }
 
 model PaymentAllocation {
-  id              String   @id @default(uuid()) @db.Uuid
-  paymentId       String   @map("payment_id") @db.Uuid
-  invoiceId       String   @map("invoice_id") @db.Uuid
-  allocatedAmount Decimal  @map("allocated_amount") @db.Decimal(12, 2)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
-  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  id                  String             @id @default(uuid()) @db.Uuid
+  paymentId           String             @map("payment_id") @db.Uuid
+  invoiceId           String?            @map("invoice_id") @db.Uuid
+  prefundingInvoiceId String?            @map("prefunding_invoice_id") @db.Uuid
+  allocatedAmount     Decimal            @map("allocated_amount") @db.Decimal(12, 2)
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @default(now()) @updatedAt @map("updated_at")
+  invoice             Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  prefundingInvoice   PrefundingInvoice? @relation(fields: [prefundingInvoiceId], references: [id], onDelete: Cascade)
+  payment             Payment            @relation(fields: [paymentId], references: [id], onDelete: Cascade)
 
   @@index([paymentId])
   @@index([invoiceId])
+  @@index([prefundingInvoiceId])
   @@map("payment_allocations")
 }
 
@@ -2783,22 +2789,37 @@ model PrefundingPracticeRate {
 }
 
 model PrefundingInvoice {
-  id          String                      @id @default(uuid()) @db.Uuid
-  practiceId  String                      @map("practice_id") @db.Uuid
-  cycle       String
-  invoiceDate DateTime                    @map("invoice_date")
-  dueDate     DateTime                    @map("due_date")
-  totalAmount Decimal                     @map("total_amount") @db.Decimal(12, 2)
-  status          String
-  createdByUserId String?                     @map("created_by_user_id") @db.Uuid
-  createdByUser   User?                       @relation("PrefundingInvoiceCreatedByUser", fields: [createdByUserId], references: [id])
-  practice        Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
-  lineItems       PrefundingInvoiceLineItem[]
-  createdAt       DateTime                    @default(now()) @map("created_at")
-  updatedAt       DateTime                    @updatedAt @map("updated_at")
+  id                     String                      @id @default(uuid()) @db.Uuid
+  invoiceNumber          String?                     @unique @map("invoice_number")
+  practiceId             String                      @map("practice_id") @db.Uuid
+  cycle                  String
+  invoiceDate            DateTime                    @map("invoice_date")
+  dueDate                DateTime                    @map("due_date")
+  totalAmount            Decimal                     @map("total_amount") @db.Decimal(12, 2)
+  subtotalAmount         Decimal?                    @map("subtotal_amount") @db.Decimal(12, 2)
+  currency               String?                     @default("USD")
+  paymentMethod          String?                     @map("payment_method")
+  feeBearer              String?                     @map("fee_bearer")
+  processingFeeAmount    Decimal?                    @map("processing_fee_amount") @db.Decimal(12, 2)
+  companyFeeAmount       Decimal?                    @map("company_fee_amount") @db.Decimal(12, 2)
+  status                 String
+  stripeInvoiceId        String?                     @map("stripe_invoice_id")
+  stripeHostedInvoiceUrl String?                     @map("stripe_hosted_invoice_url")
+  stripeInvoicePdfUrl    String?                     @map("stripe_invoice_pdf_url")
+  dueReminderDaysSent    Boolean                     @default(false) @map("due_reminder_days_sent")
+  dueReminderOverdueSent Boolean                     @default(false) @map("due_reminder_overdue_sent")
+  createdByUserId        String?                     @map("created_by_user_id") @db.Uuid
+  createdByUser          User?                       @relation("PrefundingInvoiceCreatedByUser", fields: [createdByUserId], references: [id])
+  practice               Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
+  lineItems              PrefundingInvoiceLineItem[]
+  paymentAllocations     PaymentAllocation[]
+  stripeTransfers        InvoiceConnectedAccountTransfer[]
+  createdAt              DateTime                    @default(now()) @map("created_at")
+  updatedAt              DateTime                    @updatedAt @map("updated_at")
 
   @@index([practiceId])
   @@index([createdByUserId])
+  @@index([stripeInvoiceId])
   @@map("prefunding_invoices")
 }
 

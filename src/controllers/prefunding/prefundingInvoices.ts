@@ -2,6 +2,7 @@ import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { generatePrefundingInvoicePdfBuffer } from "../../utils/prefundingInvoicePdf";
+import { processAndEmailPrefundingInvoice } from "./prefundingStripe";
 
 export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Response) {
   try {
@@ -11,13 +12,19 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    const year = new Date(invoiceDate).getFullYear();
+    const uniqueSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
+    const invoiceNumber = `INV-${year}-${uniqueSuffix}`;
+
     const prefundingInvoice = await prisma.prefundingInvoice.create({
       data: {
+        invoiceNumber,
         practiceId,
         cycle,
         invoiceDate: new Date(invoiceDate),
         dueDate: new Date(dueDate),
         totalAmount,
+        subtotalAmount: totalAmount,
         status: "Draft",
         createdByUserId: req.user?.sub || null,
         lineItems: {
@@ -121,6 +128,12 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
           lineItems: {
             orderBy: { sequence: "asc" }
           },
+          paymentAllocations: {
+            include: {
+              payment: true,
+            },
+            take: 1,
+          },
         }
       })
     ]);
@@ -128,7 +141,7 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
     const formattedInvoices = invoices.map((inv: any) => {
       const year = new Date(inv.createdAt).getFullYear();
       const code = inv.id.replace(/-/g, "").slice(0, 5).toUpperCase();
-      const invoiceNumber = `INV-${year}-${code}`;
+      const invoiceNumber = inv.invoiceNumber || `INV-${year}-${code}`;
 
       const firstPerson = inv.practice?.persons?.[0]?.person;
       const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : "";
@@ -142,6 +155,10 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         ? (`${creator.firstName || ""} ${creator.lastName || ""}`.trim() || creator.userName || creator.email)
         : "Prince Akabari";
 
+      const firstPaymentAlloc = inv.paymentAllocations?.[0];
+      const paymentRecord = firstPaymentAlloc?.payment;
+      const paymentMethodDisplay = paymentRecord?.paymentMethod || inv.paymentMethod || null;
+
       return {
         id: inv.id,
         invoiceNumber,
@@ -149,6 +166,11 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         practiceId: inv.practiceId,
         prefundingCycle: inv.cycle,
         totalAmount: Number(inv.totalAmount),
+        subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
+        processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
+        companyFeeAmount: inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0,
+        paymentMethod: inv.paymentMethod || null,
+        paymentMethodDisplay,
         status: inv.status,
         dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().split("T")[0] : "",
         invoiceDate: inv.invoiceDate ? new Date(inv.invoiceDate).toISOString().split("T")[0] : "",
@@ -158,6 +180,10 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         createdBy,
         createdDate: new Date(inv.createdAt).toISOString().split("T")[0],
         postedDate: inv.status.toLowerCase() === "posted" ? new Date(inv.updatedAt).toISOString().split("T")[0] : null,
+        stripeInvoiceId: inv.stripeInvoiceId || null,
+        stripeHostedInvoiceUrl: inv.stripeHostedInvoiceUrl || null,
+        stripeInvoicePdfUrl: inv.stripeInvoicePdfUrl || null,
+        paidDate: paymentRecord?.paymentDate ? new Date(paymentRecord.paymentDate).toISOString().split("T")[0] : null,
         lineItems: (inv.lineItems || []).map((item: any) => ({
           ...item,
           rate: item.rate !== null ? Number(item.rate) : null,
@@ -208,6 +234,12 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
         lineItems: {
           orderBy: { sequence: "asc" }
         },
+        paymentAllocations: {
+          include: {
+            payment: true,
+          },
+          take: 1,
+        },
       }
     });
 
@@ -217,6 +249,7 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
 
     const year = new Date(inv.createdAt).getFullYear();
     const code = inv.id.replace(/-/g, "").slice(0, 5).toUpperCase();
+    const invoiceNumber = inv.invoiceNumber || `INV-${year}-${code}`;
 
     const firstPerson = inv.practice?.persons?.[0]?.person;
     const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : "";
@@ -230,13 +263,22 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       ? (`${creator.firstName || ""} ${creator.lastName || ""}`.trim() || creator.userName || creator.email)
       : "Prince Akabari";
 
+    const firstPaymentAlloc = inv.paymentAllocations?.[0];
+    const paymentRecord = firstPaymentAlloc?.payment;
+    const paymentMethodDisplay = paymentRecord?.paymentMethod || inv.paymentMethod || null;
+
     const formatted = {
       id: inv.id,
-      invoiceNumber: `INV-${year}-${code}`,
+      invoiceNumber,
       practice: inv.practice?.name || "N/A",
       practiceId: inv.practiceId,
       prefundingCycle: inv.cycle,
       totalAmount: Number(inv.totalAmount),
+      subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
+      processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
+      companyFeeAmount: inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0,
+      paymentMethod: inv.paymentMethod || null,
+      paymentMethodDisplay,
       status: inv.status,
       dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().split("T")[0] : "",
       invoiceDate: inv.invoiceDate ? new Date(inv.invoiceDate).toISOString().split("T")[0] : "",
@@ -246,6 +288,10 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       createdBy,
       createdDate: new Date(inv.createdAt).toISOString().split("T")[0],
       postedDate: inv.status.toLowerCase() === "posted" ? new Date(inv.updatedAt).toISOString().split("T")[0] : null,
+      stripeInvoiceId: inv.stripeInvoiceId || null,
+      stripeHostedInvoiceUrl: inv.stripeHostedInvoiceUrl || null,
+      stripeInvoicePdfUrl: inv.stripeInvoicePdfUrl || null,
+      paidDate: paymentRecord?.paymentDate ? new Date(paymentRecord.paymentDate).toISOString().split("T")[0] : null,
       lineItems: (inv.lineItems || []).map((item: any) => ({
         ...item,
         rate: item.rate !== null ? Number(item.rate) : null,
@@ -271,7 +317,6 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
           include: {
             persons: {
               include: { person: true },
-              
               take: 1,
             }
           }
@@ -292,13 +337,23 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
 
     const year = new Date(inv.createdAt).getFullYear();
     const code = inv.id.replace(/-/g, "").slice(0, 5).toUpperCase();
-    const invoiceNumber = `INV-${year}-${code}`;
+    const invoiceNumber = inv.invoiceNumber || `INV-${year}-${code}`;
+
+    const subtotalAmount = inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount);
+    const processingFeeAmount = inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0;
+    const isCc = inv.paymentMethod === "CREDIT_CARD";
+    const processingFeeDescription = processingFeeAmount > 0
+      ? `Payment Processing Fee (${isCc ? "Credit Card" : "ACH"}):`
+      : undefined;
 
     const pdfBuffer = await generatePrefundingInvoicePdfBuffer({
       invoiceNumber,
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
       cycle: inv.cycle,
+      subtotalAmount,
+      processingFeeAmount,
+      processingFeeDescription,
       totalAmount: Number(inv.totalAmount),
       status: inv.status,
       practice: inv.practice,
@@ -331,6 +386,15 @@ export async function updatePrefundingInvoiceStatus(req: AuthenticatedRequest, r
       return res.status(400).json({ message: "Status is required" });
     }
 
+    if (status.toLowerCase() === "posted") {
+      // Validate and process Stripe Invoice + Email dispatch with A4 PDF
+      const postedInvoice = await processAndEmailPrefundingInvoice(id);
+      return res.status(200).json({
+        message: "Invoice posted successfully and Stripe invoice sent via email.",
+        invoice: postedInvoice,
+      });
+    }
+
     const updated = await prisma.prefundingInvoice.update({
       where: { id },
       data: { status },
@@ -342,7 +406,8 @@ export async function updatePrefundingInvoiceStatus(req: AuthenticatedRequest, r
 
     return res.status(200).json({ message: "Status updated successfully", invoice: updated });
   } catch (error: any) {
-    return res.status(500).json({ message: "Failed to update invoice status", error: error.message });
+    console.error("Error in updatePrefundingInvoiceStatus:", error);
+    return res.status(400).json({ message: error.message || "Failed to update invoice status" });
   }
 }
 

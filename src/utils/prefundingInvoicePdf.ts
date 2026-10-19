@@ -9,6 +9,9 @@ export interface PrefundingPdfData {
   dueDate: string | Date;
   cycle: string;
   totalAmount: number;
+  subtotalAmount?: number;
+  processingFeeAmount?: number;
+  processingFeeDescription?: string;
   status: string;
   practice: {
     name: string;
@@ -278,7 +281,10 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
           renderRow(item, rowIdx++, false);
         });
 
-        // 5. Total Grand Total Row (Background removed as requested)
+        // 5. Total Line Items Subtotal Row
+        const lineItemsSubtotal = data.subtotalAmount ?? (prefundingSubtotal + uncheckedAmount);
+        const feeAmount = data.processingFeeAmount ?? 0;
+
         doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.2).strokeColor("#cbd5e1").stroke();
 
         doc.font(fBold).fontSize(9).fillColor("#0f172a").text("TOTAL GRAND TOTAL:", 150, currentY + 3, { width: 335, align: "right" });
@@ -289,12 +295,43 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
           { width: 335, align: "right" }
         );
         doc.font(fBold).fontSize(10.5).fillColor("#4f63ea").text(
-          `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          `$${lineItemsSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           490,
           currentY + 7,
           { width: 60, align: "right" }
         );
         currentY += 34;
+
+        if (feeAmount > 0) {
+          doc.rect(40, currentY - 2, 515, 24).fill("#f8fafc");
+          doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1).strokeColor("#e2e8f0").stroke();
+
+          doc.font(fMedium).fontSize(8.5).fillColor("#64748b").text(
+            data.processingFeeDescription || "Payment Processing Fee:",
+            150,
+            currentY + 5,
+            { width: 335, align: "right" }
+          );
+          doc.font(fBold).fontSize(9.5).fillColor("#0f172a").text(
+            `+$${feeAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            490,
+            currentY + 5,
+            { width: 60, align: "right" }
+          );
+          currentY += 26;
+
+          doc.rect(40, currentY - 2, 515, 26).fill("#eff6ff");
+          doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.5).strokeColor("#bfdbfe").stroke();
+
+          doc.font(fBold).fontSize(9.5).fillColor("#1e3a8a").text("TOTAL AMOUNT DUE:", 150, currentY + 6, { width: 335, align: "right" });
+          doc.font(fBold).fontSize(11).fillColor("#4f63ea").text(
+            `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            490,
+            currentY + 6,
+            { width: 60, align: "right" }
+          );
+          currentY += 30;
+        }
       }
 
       // Divider line
@@ -303,6 +340,7 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
 
       // 5. Totals Summary Box at bottom right
       const totalsX = 330;
+      const feeAmount = data.processingFeeAmount ?? 0;
       doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("GMS Projection:", totalsX, currentY);
       doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
         `$${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
@@ -316,6 +354,17 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
         doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Additional Line Items:", totalsX, currentY);
         doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
           `$${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          totalsX + 125,
+          currentY,
+          { width: 95, align: "right" }
+        );
+      }
+
+      if (feeAmount > 0) {
+        currentY += 15;
+        doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Processing Fee:", totalsX, currentY);
+        doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
+          `+$${feeAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
           totalsX + 125,
           currentY,
           { width: 95, align: "right" }

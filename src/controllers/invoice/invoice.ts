@@ -56,7 +56,7 @@ function isInvoiceStatus(status: string): status is InvoiceStatus {
   return Object.values(InvoiceStatus).includes(status as InvoiceStatus);
 }
 
-async function ensureStripeCustomerForPractice(practice: {
+export async function ensureStripeCustomerForPractice(practice: {
   id: string;
   name: string;
   stripeCustomerId?: string | null;

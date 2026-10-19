@@ -215,6 +215,80 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
   return createdTransfers;
 }
 
+export async function transferPrefundingInvoiceToConnectedAccount(params: {
+  prefundingInvoice: {
+    id: string;
+    currency?: string | null;
+    stripeInvoiceId?: string | null;
+    totalAmount: any;
+    subtotalAmount?: any;
+    practice: {
+      id: string;
+      name: string;
+      prefundingStripeAccountId?: string | null;
+    };
+  };
+  sourceTransactionId?: string | null;
+}) {
+  const destination = params.prefundingInvoice.practice?.prefundingStripeAccountId?.trim();
+  if (!destination) {
+    console.warn(
+      `Skipping Stripe transfer for Prefunding Invoice ${params.prefundingInvoice.id} because practice has no prefundingStripeAccountId.`
+    );
+    return;
+  }
+
+  const grossAmount = toMinorUnit(params.prefundingInvoice.subtotalAmount ?? params.prefundingInvoice.totalAmount);
+  if (grossAmount <= 0) {
+    return;
+  }
+
+  const currency = normalizeCurrency(params.prefundingInvoice.currency);
+  const transferGroup = params.prefundingInvoice.stripeInvoiceId || params.prefundingInvoice.id;
+  const storedAmount = Number((grossAmount / 100).toFixed(2));
+
+  // Check if transfer already exists
+  const existingTransfer = await prisma.invoiceConnectedAccountTransfer.findFirst({
+    where: {
+      prefundingInvoiceId: params.prefundingInvoice.id,
+      stripeConnectedAccountId: destination,
+    },
+  });
+
+  if (existingTransfer?.status === "SENT" && existingTransfer.stripeTransferId) {
+    return;
+  }
+
+  if (existingTransfer) {
+    await prisma.invoiceConnectedAccountTransfer.update({
+      where: { id: existingTransfer.id },
+      data: {
+        amount: storedAmount,
+        currency: currency.toUpperCase(),
+        status: "PENDING",
+        failureMessage: null,
+        transferGroup,
+      },
+    });
+  } else {
+    await prisma.invoiceConnectedAccountTransfer.create({
+      data: {
+        prefundingInvoiceId: params.prefundingInvoice.id,
+        stripeConnectedAccountId: destination,
+        amount: storedAmount,
+        currency: currency.toUpperCase(),
+        status: "PENDING",
+        failureMessage: null,
+        transferGroup,
+      },
+    });
+  }
+
+  console.info(
+    `Saved Stripe transfer ${storedAmount} as PENDING for Prefunding Invoice ${params.prefundingInvoice.id} to practice Connected Account ${destination}.`
+  );
+}
+
 type StripeConnectedAccountSummary = {
   id: string;
   displayName: string;
@@ -904,6 +978,90 @@ async function processStripeWebhookEvent(event: any) {
       });
 
       if (!invoice) {
+        // Check if this charge belongs to a Prefunding Invoice
+        const prefundingInv = await prisma.prefundingInvoice.findFirst({
+          where: { stripeInvoiceId: invoiceId },
+          include: { practice: true },
+        });
+
+        if (prefundingInv) {
+          const paymentMethodInfo = await extractPaymentMethodInfo(charge, undefined, stripe);
+          const amountPaid = Number(charge.amount || 0) / 100;
+
+          let dbPaymentMethod = "stripe";
+          if (paymentMethodInfo.type === "credit_card") {
+            dbPaymentMethod = `${paymentMethodInfo.brand || "Card"} ••••${paymentMethodInfo.last4 || ""}`;
+          } else if (paymentMethodInfo.type === "ach") {
+            dbPaymentMethod = `Bank Transfer (ACH) - ${paymentMethodInfo.bankName || "Bank"} (••••${paymentMethodInfo.last4 || ""})`;
+          }
+
+          const existingPayment = await prisma.payment.findFirst({
+            where: {
+              practiceId: prefundingInv.practiceId,
+              stripePaymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : null,
+            },
+          });
+
+          if (existingPayment) {
+            await prisma.payment.update({
+              where: { id: existingPayment.id },
+              data: {
+                paymentMethod: dbPaymentMethod,
+                stripeChargeId: charge.id,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+          } else {
+            const payment = await prisma.payment.create({
+              data: {
+                practiceId: prefundingInv.practiceId,
+                amount: amountPaid,
+                currency: (charge.currency || prefundingInv.currency || "usd").toUpperCase(),
+                status: PaymentStatus.ALLOCATED,
+                paymentDate: new Date(charge.created * 1000),
+                paymentMethod: dbPaymentMethod,
+                stripePaymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+                stripeChargeId: charge.id,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+
+            await prisma.paymentAllocation.create({
+              data: {
+                paymentId: payment.id,
+                prefundingInvoiceId: prefundingInv.id,
+                allocatedAmount: amountPaid,
+              },
+            });
+          }
+
+          // Transfer funds to practice's prefundingStripeAccountId
+          try {
+            await transferPrefundingInvoiceToConnectedAccount({
+              prefundingInvoice: prefundingInv,
+              sourceTransactionId: charge.id,
+            });
+          } catch (tErr) {
+            console.error(
+              `Failed to transfer prefunding invoice ${prefundingInv.id} funds from charge.succeeded:`,
+              tErr
+            );
+          }
+          return;
+        }
+
         console.warn("Invoice not found for charge.succeeded:", invoiceId);
         return;
       }
@@ -1081,7 +1239,107 @@ async function processStripeWebhookEvent(event: any) {
         },
       });
 
-      if (!invoice) return;
+      if (!invoice) {
+        // Check if this invoice is a Prefunding Invoice
+        const prefundingInv = await prisma.prefundingInvoice.findFirst({
+          where: { stripeInvoiceId: stripeInvoice.id },
+          include: { practice: true },
+        });
+
+        if (prefundingInv) {
+          await prisma.prefundingInvoice.update({
+            where: { id: prefundingInv.id },
+            data: {
+              status: "Paid",
+              stripeHostedInvoiceUrl: stripeInvoice.hosted_invoice_url,
+              stripeInvoicePdfUrl: stripeInvoice.invoice_pdf,
+            },
+          });
+
+          // Extract charge ID and payment method info
+          let chargeId = typeof stripeInvoice.charge === "string" ? stripeInvoice.charge : (stripeInvoice.charge?.id || undefined);
+          let chargeObj: any = undefined;
+          if (chargeId) {
+            try {
+              chargeObj = await stripe.charges.retrieve(chargeId);
+            } catch (cErr) {
+              console.warn("Failed to retrieve charge for prefunding invoice:", cErr);
+            }
+          }
+
+          let paymentMethodInfo = { type: "stripe" } as any;
+          try {
+            paymentMethodInfo = await extractPaymentMethodInfo(chargeObj, undefined, stripe);
+          } catch (pmErr) {
+            console.warn("Failed to extract pm info for prefunding invoice:", pmErr);
+          }
+
+          const amountPaid = Number(stripeInvoice.amount_paid || 0) / 100;
+          let dbPaymentMethod = "stripe";
+          if (paymentMethodInfo.type === "credit_card") {
+            dbPaymentMethod = `${paymentMethodInfo.brand || "Card"} ••••${paymentMethodInfo.last4 || ""}`;
+          } else if (paymentMethodInfo.type === "ach") {
+            dbPaymentMethod = `Bank Transfer (ACH) - ${paymentMethodInfo.bankName || "Bank"} (••••${paymentMethodInfo.last4 || ""})`;
+          }
+
+          const existingPayment = await prisma.payment.findFirst({
+            where: {
+              allocations: {
+                some: { prefundingInvoiceId: prefundingInv.id },
+              },
+            },
+          });
+
+          if (!existingPayment) {
+            const payment = await prisma.payment.create({
+              data: {
+                practiceId: prefundingInv.practiceId,
+                amount: amountPaid,
+                currency: (stripeInvoice.currency || prefundingInv.currency || "usd").toUpperCase(),
+                status: PaymentStatus.ALLOCATED,
+                paymentDate: stripeInvoice.status_transitions?.paid_at
+                  ? new Date(stripeInvoice.status_transitions.paid_at * 1000)
+                  : new Date(),
+                paymentMethod: dbPaymentMethod,
+                stripePaymentIntentId: typeof stripeInvoice.payment_intent === "string" ? stripeInvoice.payment_intent : undefined,
+                stripeChargeId: typeof chargeId === "string" ? chargeId : undefined,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+
+            await prisma.paymentAllocation.create({
+              data: {
+                paymentId: payment.id,
+                prefundingInvoiceId: prefundingInv.id,
+                allocatedAmount: amountPaid,
+              },
+            });
+          }
+
+          // Transfer funds to practice's Prefunding Stripe Account
+          try {
+            await transferPrefundingInvoiceToConnectedAccount({
+              prefundingInvoice: prefundingInv,
+              sourceTransactionId: chargeId,
+            });
+          } catch (tErr) {
+            console.error(
+              `Failed to transfer prefunding invoice ${prefundingInv.id} to connected account on invoice.paid:`,
+              tErr
+            );
+          }
+
+          return;
+        }
+
+        return;
+      }
 
       await logStripeWebhookEvent(event, invoice.id);
 
