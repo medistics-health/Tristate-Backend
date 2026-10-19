@@ -5,3 +5,5 @@ prisma.config.js
 generated
 .env
 .env.*
+storage/form-exports
+storage/form-uploads

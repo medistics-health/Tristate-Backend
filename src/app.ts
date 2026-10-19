@@ -47,6 +47,7 @@ import {
   documentPublicLinkRouter,
 } from "./routes/documentHub.routes";
 import documentHubPublicRouter from "./routes/documentHubPublic.routes";
+import { formRouter, publicFormRouter } from "./routes/form.routes";
 
 const app = express();
 
@@ -99,6 +100,8 @@ app.use("/api/v1/settings", settingsRouter);
 app.use("/api/v1/mercury", mercuryRouter);
 app.use("/api/v1/onboarding-projects", onboardingProjectsRouter);
 app.use("/api/v1/public/share", documentHubPublicRouter);
+app.use("/api/v1/f", publicFormRouter);
+app.use("/api/v1/forms", formRouter);
 app.use("/api/v1/documents", documentRouter);
 app.use("/api/v1/categories", documentCategoryRouter);
 app.use("/api/v1/tags", documentTagRouter);
