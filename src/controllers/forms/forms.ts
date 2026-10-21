@@ -122,6 +122,7 @@ async function locked(formId: string) {
 export async function listForms(req: AuthenticatedRequest, res: Response) {
   try {
     const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize || 25)));
     const search = String(req.query.search || "").trim();
     const status = String(req.query.status || "").trim().toUpperCase();
     const where: Record<string, unknown> = {
@@ -146,8 +147,8 @@ export async function listForms(req: AuthenticatedRequest, res: Response) {
       prisma.form.findMany({
         where,
         orderBy: { [sortField]: direction },
-        skip: (page - 1) * 25,
-        take: 25,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
         include: {
           owner: { select: { id: true, firstName: true, lastName: true, email: true } },
           _count: { select: { recipients: true, responses: true } },
@@ -157,19 +158,21 @@ export async function listForms(req: AuthenticatedRequest, res: Response) {
     return res.json({
       message: "Forms fetched.",
       page,
-      pageSize: 25,
+      pageSize,
       total,
       forms: forms.map((form) => ({
         id: form.id,
         refCode: form.refCode,
         title: form.title,
         status: form.status,
+        scheduled: form.status === "PUBLISHED" && !!form.sendAt && form.sendAt.getTime() > Date.now(),
         owner: form.owner,
         createdAt: form.createdAt,
         updatedAt: form.updatedAt,
         recipients: form._count.recipients,
         responses: form._count.responses,
         closeAt: form.closeAt,
+        sendAt: form.sendAt,
       })),
     });
   } catch (error) {
@@ -1569,7 +1572,9 @@ export async function myForms(req: AuthenticatedRequest, res: Response) {
         title: recipient.form.title,
         formStatus: recipient.form.status,
         closeAt: recipient.form.closeAt,
-        status: recipient.status === "COMPLETED" ? "Completed" : recipient.status === "IN_PROGRESS" ? "In progress" : "Pending",
+        status: recipient.status,
+        practice: recipient.practiceName || "",
+        token: decryptToken(recipient.tokenEncrypted),
       })),
     });
   } catch (error) {

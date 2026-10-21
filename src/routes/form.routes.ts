@@ -51,6 +51,7 @@ import {
   updateTemplate,
   useTemplate,
 } from "../controllers/forms/forms";
+import { getFormDocument, listFormActivity, saveFormDocument } from "../controllers/forms/editor";
 import {
   getCaptcha,
   getPublicForm,
@@ -69,6 +70,7 @@ const formRouter = Router();
 formRouter.use(verifyAuthToken);
 
 formRouter.get("/", listForms);
+formRouter.get("/activity", listFormActivity);
 formRouter.get("/analytics/overview", analyticsOverview);
 formRouter.get("/my-forms", myForms);
 formRouter.post("/", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createForm);
@@ -81,6 +83,8 @@ formRouter.post("/templates/:tid/use", requireRoles(ROLE_GROUPS.BUSINESS_WRITE),
 
 formRouter.get("/exports/:eid", downloadExport);
 
+formRouter.get("/:id/document", getFormDocument);
+formRouter.put("/:id/document", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), saveFormDocument);
 formRouter.get("/:id", getForm);
 formRouter.put("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateForm);
 formRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteForm);
