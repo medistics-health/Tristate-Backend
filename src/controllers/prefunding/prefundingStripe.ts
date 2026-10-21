@@ -5,6 +5,7 @@ import { sendOutlookEmail } from "../../utils/outlook";
 import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
 import { generatePrefundingInvoicePdfBuffer } from "../../utils/prefundingInvoicePdf";
 import { ensureStripeCustomerForPractice } from "../invoice/invoice";
+import { uploadPrefundingInvoiceBufferToAzureBlob } from "../../utils/prefundingBlob";
 import {
   isBillingPaymentMethod,
   getStripePaymentMethodTypes,
@@ -189,23 +190,33 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     }
   }
 
-  // Finalize Invoice in Stripe if not finalized
+  // Finalize Invoice in Stripe if draft, or fetch latest finalized invoice details
   if (stripeInvoiceId) {
     let finalizedInvoice: any;
-    if (!hostedUrl) {
+    if (inv.status?.toLowerCase() === "posted" || hostedUrl) {
+      // If already posted or hostedUrl exists, just fetch the latest from Stripe to get fresh URL
+      finalizedInvoice = await stripeRequest("GET", `/v1/invoices/${stripeInvoiceId}`);
+    } else {
       try {
         finalizedInvoice = await stripeRequest(
           "POST",
           `/v1/invoices/${stripeInvoiceId}/finalize`
         );
       } catch (err: any) {
-        if (err.message && err.message.includes("can only be finalized in draft")) {
+        const errMsg = (err.message || "").toLowerCase();
+        if (
+          errMsg.includes("can only be finalized in draft") ||
+          errMsg.includes("already finalized") ||
+          errMsg.includes("not a draft")
+        ) {
           finalizedInvoice = await stripeRequest("GET", `/v1/invoices/${stripeInvoiceId}`);
         } else {
           throw err;
         }
       }
-    } else {
+    }
+
+    if (!finalizedInvoice) {
       finalizedInvoice = await stripeRequest("GET", `/v1/invoices/${stripeInvoiceId}`);
     }
 
@@ -219,6 +230,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     data: {
       invoiceNumber,
       status: "Posted",
+      postedAt: new Date(),
       subtotalAmount,
       totalAmount: customerInvoiceAmount,
       currency: currency.toUpperCase(),
@@ -266,6 +278,31 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     });
   } catch (pdfErr) {
     console.error("[prefundingStripe] Failed to generate PDF buffer:", pdfErr);
+  }
+
+  // Upload generated PDF to Azure Blob Storage
+  if (pdfBuffer) {
+    try {
+      const year = String(new Date().getFullYear());
+      const month = String(new Date().getMonth() + 1).padStart(2, "0");
+      const day = String(new Date().getDate()).padStart(2, "0");
+      const safeInvoice = (invoiceNumber || inv.id).replace(/[^a-zA-Z0-9._-]/g, "_");
+      const folder = `invoices/${year}/${month}/${day}/${safeInvoice}`;
+
+      const upload = await uploadPrefundingInvoiceBufferToAzureBlob({
+        folder,
+        fileName: `${safeInvoice}.pdf`,
+        buffer: pdfBuffer,
+        contentType: "application/pdf",
+      });
+
+      await prisma.prefundingInvoice.update({
+        where: { id: inv.id },
+        data: { invoicePdfBlobUrl: upload.url } as any,
+      });
+    } catch (uploadErr) {
+      console.error("[prefundingStripe] Failed to upload invoice PDF to Azure blob:", uploadErr);
+    }
   }
 
   // 6. Gather Recipients & Send Email

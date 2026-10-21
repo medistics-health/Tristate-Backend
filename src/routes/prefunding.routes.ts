@@ -8,10 +8,12 @@ import {
 } from "../controllers/prefunding/prefundingRates";
 import {
   createPrefundingInvoice,
+  updatePrefundingInvoice,
   getPrefundingInvoices,
   getPrefundingInvoiceById,
   getPrefundingInvoicePdf,
   updatePrefundingInvoiceStatus,
+  resendPrefundingInvoice,
   deletePrefundingInvoice
 } from "../controllers/prefunding/prefundingInvoices";
 
@@ -30,7 +32,9 @@ prefundingRouter.get("/invoices", getPrefundingInvoices);
 prefundingRouter.get("/invoices/:id", getPrefundingInvoiceById);
 prefundingRouter.get("/invoices/:id/pdf", getPrefundingInvoicePdf);
 prefundingRouter.post("/invoices", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), createPrefundingInvoice);
+prefundingRouter.put("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updatePrefundingInvoice);
 prefundingRouter.put("/invoices/:id/status", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updatePrefundingInvoiceStatus);
+prefundingRouter.post("/invoices/:id/resend", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), resendPrefundingInvoice);
 prefundingRouter.delete("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deletePrefundingInvoice);
 
 export default prefundingRouter;

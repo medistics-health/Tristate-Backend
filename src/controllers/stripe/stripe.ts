@@ -247,17 +247,27 @@ export async function transferPrefundingInvoiceToConnectedAccount(params: {
   const transferGroup = params.prefundingInvoice.stripeInvoiceId || params.prefundingInvoice.id;
   const storedAmount = Number((grossAmount / 100).toFixed(2));
 
-  // Check if transfer already exists
-  const existingTransfer = await prisma.invoiceConnectedAccountTransfer.findFirst({
+  // Check if transfer already exists (SENT, PENDING, or FAILED)
+  const existingTransfers = await prisma.invoiceConnectedAccountTransfer.findMany({
     where: {
       prefundingInvoiceId: params.prefundingInvoice.id,
       stripeConnectedAccountId: destination,
     },
+    orderBy: { createdAt: "asc" },
   });
 
-  if (existingTransfer?.status === "SENT" && existingTransfer.stripeTransferId) {
+  if (existingTransfers.some((t) => t.status === "SENT" && t.stripeTransferId)) {
+    // If there are duplicate pending transfers alongside a completed one, remove the pending duplicates
+    const pendingDups = existingTransfers.filter((t) => t.status === "PENDING" && !t.stripeTransferId);
+    if (pendingDups.length > 0) {
+      await prisma.invoiceConnectedAccountTransfer.deleteMany({
+        where: { id: { in: pendingDups.map((d) => d.id) } },
+      });
+    }
     return;
   }
+
+  const existingTransfer = existingTransfers[0];
 
   if (existingTransfer) {
     await prisma.invoiceConnectedAccountTransfer.update({
@@ -270,18 +280,30 @@ export async function transferPrefundingInvoiceToConnectedAccount(params: {
         transferGroup,
       },
     });
+
+    // Remove any accidental duplicate pending rows
+    if (existingTransfers.length > 1) {
+      const extraIds = existingTransfers.slice(1).map((t) => t.id);
+      await prisma.invoiceConnectedAccountTransfer.deleteMany({
+        where: { id: { in: extraIds } },
+      });
+    }
   } else {
-    await prisma.invoiceConnectedAccountTransfer.create({
-      data: {
-        prefundingInvoiceId: params.prefundingInvoice.id,
-        stripeConnectedAccountId: destination,
-        amount: storedAmount,
-        currency: currency.toUpperCase(),
-        status: "PENDING",
-        failureMessage: null,
-        transferGroup,
-      },
-    });
+    try {
+      await prisma.invoiceConnectedAccountTransfer.create({
+        data: {
+          prefundingInvoiceId: params.prefundingInvoice.id,
+          stripeConnectedAccountId: destination,
+          amount: storedAmount,
+          currency: currency.toUpperCase(),
+          status: "PENDING",
+          failureMessage: null,
+          transferGroup,
+        },
+      });
+    } catch (createErr: any) {
+      console.warn("Transfer record already created concurrently:", createErr?.message);
+    }
   }
 
   console.info(

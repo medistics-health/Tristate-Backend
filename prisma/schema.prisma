@@ -47,6 +47,7 @@ model User {
   hubDocumentCategoriesCreated  HubDocumentCategory[]        @relation("HubDocumentCategoryCreatedBy")
   agreementsCreated             Agreement[]                  @relation("AgreementCreatedByUser")
   prefundingInvoicesCreated     PrefundingInvoice[]          @relation("PrefundingInvoiceCreatedByUser")
+  prefundingInvoicesApproved    PrefundingInvoice[]          @relation("PrefundingInvoiceApprovedByUser")
 
   @@map("User")
 }
@@ -2806,10 +2807,16 @@ model PrefundingInvoice {
   stripeInvoiceId        String?                     @map("stripe_invoice_id")
   stripeHostedInvoiceUrl String?                     @map("stripe_hosted_invoice_url")
   stripeInvoicePdfUrl    String?                     @map("stripe_invoice_pdf_url")
+  invoicePdfBlobUrl      String?                     @map("invoice_pdf_blob_url")
+  receiptPdfBlobUrl      String?                     @map("receipt_pdf_blob_url")
   dueReminderDaysSent    Boolean                     @default(false) @map("due_reminder_days_sent")
   dueReminderOverdueSent Boolean                     @default(false) @map("due_reminder_overdue_sent")
   createdByUserId        String?                     @map("created_by_user_id") @db.Uuid
   createdByUser          User?                       @relation("PrefundingInvoiceCreatedByUser", fields: [createdByUserId], references: [id])
+  approvedByUserId       String?                     @map("approved_by_user_id") @db.Uuid
+  approvedByUser         User?                       @relation("PrefundingInvoiceApprovedByUser", fields: [approvedByUserId], references: [id])
+  approvedAt             DateTime?                   @map("approved_at")
+  postedAt               DateTime?                   @map("posted_at")
   practice               Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   lineItems              PrefundingInvoiceLineItem[]
   paymentAllocations     PaymentAllocation[]
@@ -2819,6 +2826,7 @@ model PrefundingInvoice {
 
   @@index([practiceId])
   @@index([createdByUserId])
+  @@index([approvedByUserId])
   @@index([stripeInvoiceId])
   @@map("prefunding_invoices")
 }

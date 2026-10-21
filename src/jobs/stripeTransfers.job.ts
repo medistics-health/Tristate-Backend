@@ -12,6 +12,7 @@ export async function processPendingTransfers() {
   try {
     const pendingTransfers = await prisma.invoiceConnectedAccountTransfer.findMany({
       where: {
+        invoiceId: { not: null },
         status: { in: ["PENDING", "FAILED"] },
       },
       include: { invoice: true }

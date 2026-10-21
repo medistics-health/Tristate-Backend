@@ -13,6 +13,8 @@ export interface PrefundingPdfData {
   processingFeeAmount?: number;
   processingFeeDescription?: string;
   status: string;
+  paymentMethod?: string | null;
+  paidDate?: string | Date | null;
   practice: {
     name: string;
     addressLine1?: string | null;
@@ -105,16 +107,20 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
       }
 
       // Title on Left
-      doc.font(fBold).fontSize(20).fillColor("#0f172a").text("PREFUNDING INVOICE", 40, startY);
-      doc.font(fMedium).fontSize(10).fillColor("#64748b").text(`INVOICE #: ${data.invoiceNumber}`, 40, startY + 26);
+      const isPaidDoc = (data.status || "").toUpperCase() === "PAID";
+      doc.font(fBold).fontSize(20).fillColor("#0f172a").text(isPaidDoc ? "PREFUNDING PAYMENT RECEIPT" : "PREFUNDING INVOICE", 40, startY);
+      doc.font(fMedium).fontSize(10).fillColor("#64748b").text(isPaidDoc ? `RECEIPT #: ${data.invoiceNumber}` : `INVOICE #: ${data.invoiceNumber}`, 40, startY + 26);
 
       // Status pill badge under title
       const statusText = (data.status || "DRAFT").toUpperCase();
       let statusColor = "#64748b";
       let statusBg = "#f1f5f9";
-      if (statusText === "POSTED") {
-        statusColor = "#166534";
+      if (statusText === "PAID") {
+        statusColor = "#15803d";
         statusBg = "#dcfce7";
+      } else if (statusText === "POSTED") {
+        statusColor = "#0f766e";
+        statusBg = "#ccfbf1";
       } else if (statusText === "APPROVED") {
         statusColor = "#1e40af";
         statusBg = "#dbeafe";
@@ -167,6 +173,9 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
         { label: "Invoice Date:", val: formatDate(data.invoiceDate) },
         { label: "Payment Due Date:", val: formatDate(data.dueDate) },
         { label: "Prefunding Cycle:", val: data.cycle || "N/A" },
+        ...(data.paymentMethod ? [{ label: "Payment Method:", val: data.paymentMethod }] : []),
+        ...(data.paidDate ? [{ label: "Paid Date:", val: formatDate(data.paidDate) }] : []),
+        ...(isPaidDoc && !data.paidDate ? [{ label: "Paid Date:", val: formatDate(new Date()) }] : [])
       ];
 
       let metaY = gridY + 16;
@@ -177,10 +186,11 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
       }
 
       // Total Due Highlight Card
-      doc.roundedRect(rightX, metaY + 6, rightWidth, 34, 6).fill("#f8fafc");
-      doc.rect(rightX, metaY + 6, 4, 34).fill("#4f63ea");
-      doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Total Amount Due", rightX + 14, metaY + 12);
-      doc.font(fBold).fontSize(14).fillColor("#1e293b").text(
+      // Total Due / Paid Highlight Card
+      doc.roundedRect(rightX, metaY + 6, rightWidth, 34, 6).fill(isPaidDoc ? "#f0fdf4" : "#f8fafc");
+      doc.rect(rightX, metaY + 6, 4, 34).fill(isPaidDoc ? "#16a34a" : "#4f63ea");
+      doc.font(fRegular).fontSize(8.5).fillColor(isPaidDoc ? "#166534" : "#64748b").text(isPaidDoc ? "Total Amount Paid" : "Total Amount Due", rightX + 14, metaY + 12);
+      doc.font(fBold).fontSize(14).fillColor(isPaidDoc ? "#15803d" : "#1e293b").text(
         `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
         rightX + 14,
         metaY + 23
@@ -287,7 +297,7 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
 
         doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.2).strokeColor("#cbd5e1").stroke();
 
-        doc.font(fBold).fontSize(9).fillColor("#0f172a").text("TOTAL GRAND TOTAL:", 150, currentY + 3, { width: 335, align: "right" });
+        doc.font(fBold).fontSize(9).fillColor("#0f172a").text("PREFUNDING AMOUNT (SUBTOTAL):", 150, currentY + 3, { width: 335, align: "right" });
         doc.font(fRegular).fontSize(7.5).fillColor("#64748b").text(
           `GMS Projection ($${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) + Additional Line Items ($${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
           150,
@@ -321,10 +331,10 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
           currentY += 26;
 
           doc.rect(40, currentY - 2, 515, 26).fill("#eff6ff");
-          doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.5).strokeColor("#bfdbfe").stroke();
-
-          doc.font(fBold).fontSize(9.5).fillColor("#1e3a8a").text("TOTAL AMOUNT DUE:", 150, currentY + 6, { width: 335, align: "right" });
-          doc.font(fBold).fontSize(11).fillColor("#4f63ea").text(
+          doc.rect(40, currentY - 2, 515, 26).fill(isPaidDoc ? "#f0fdf4" : "#eff6ff");
+          doc.moveTo(40, currentY - 2).lineTo(555, currentY - 2).lineWidth(1.5).strokeColor(isPaidDoc ? "#86efac" : "#bfdbfe").stroke();
+          doc.font(fBold).fontSize(9.5).fillColor(isPaidDoc ? "#166534" : "#1e3a8a").text(isPaidDoc ? "TOTAL AMOUNT PAID:" : "GROSS INVOICE TOTAL:", 150, currentY + 6, { width: 335, align: "right" });
+          doc.font(fBold).fontSize(11).fillColor(isPaidDoc ? "#16a34a" : "#4f63ea").text(
             `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
             490,
             currentY + 6,
@@ -337,48 +347,6 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
       // Divider line
       doc.moveTo(40, currentY + 2).lineTo(555, currentY + 2).lineWidth(1).strokeColor("#e2e8f0").stroke();
       currentY += 12;
-
-      // 5. Totals Summary Box at bottom right
-      const totalsX = 330;
-      const feeAmount = data.processingFeeAmount ?? 0;
-      doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("GMS Projection:", totalsX, currentY);
-      doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
-        `$${prefundingSubtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        totalsX + 125,
-        currentY,
-        { width: 95, align: "right" }
-      );
-
-      if (uncheckedItems.length > 0) {
-        currentY += 15;
-        doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Additional Line Items:", totalsX, currentY);
-        doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
-          `$${uncheckedAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          totalsX + 125,
-          currentY,
-          { width: 95, align: "right" }
-        );
-      }
-
-      if (feeAmount > 0) {
-        currentY += 15;
-        doc.font(fRegular).fontSize(8.5).fillColor("#64748b").text("Processing Fee:", totalsX, currentY);
-        doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(
-          `+$${feeAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          totalsX + 125,
-          currentY,
-          { width: 95, align: "right" }
-        );
-      }
-
-      currentY += 16;
-      doc.font(fBold).fontSize(10).fillColor("#0f172a").text("Total Grand Total Due:", totalsX, currentY);
-      doc.font(fBold).fontSize(11).fillColor("#4f63ea").text(
-        `$${data.totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-        totalsX + 125,
-        currentY,
-        { width: 95, align: "right" }
-      );
 
       // 6. Footer (PREFUNDING TERMS & CONDITIONS box removed as requested)
       doc.font(fRegular).fontSize(8).fillColor("#94a3b8").text(
