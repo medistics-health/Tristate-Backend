@@ -14,12 +14,20 @@ import {
   getPrefundingInvoicePdf,
   updatePrefundingInvoiceStatus,
   resendPrefundingInvoice,
-  deletePrefundingInvoice
+  deletePrefundingInvoice,
+  validatePracticePrefundingEligibility
 } from "../controllers/prefunding/prefundingInvoices";
+import { getPrefundingDashboardData } from "../controllers/prefunding/prefundingDashboard.controller";
 
 const prefundingRouter = Router();
 
 prefundingRouter.use(verifyAuthToken);
+
+// Dashboard
+prefundingRouter.get("/dashboard", getPrefundingDashboardData);
+
+// Practice Validation
+prefundingRouter.get("/practices/:practiceId/validate", validatePracticePrefundingEligibility);
 
 // Prefunding Rates
 prefundingRouter.get("/rates", getPrefundingRates);

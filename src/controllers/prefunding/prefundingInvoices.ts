@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { generatePrefundingInvoicePdfBuffer } from "../../utils/prefundingInvoicePdf";
 import { processAndEmailPrefundingInvoice } from "./prefundingStripe";
 import { createPrefundingInvoiceSasUrlFromBlobUrl } from "../../utils/prefundingBlob";
+import { validatePracticeForPrefunding } from "../../utils/prefundingValidation";
 
 function formatPaymentMethodDisplay(rawMethod?: string | null, fallbackMethod?: string | null): string {
   if (!rawMethod || rawMethod.toLowerCase() === "stripe") {
@@ -16,12 +17,37 @@ function formatPaymentMethodDisplay(rawMethod?: string | null, fallbackMethod?: 
   return rawMethod;
 }
 
+export async function validatePracticePrefundingEligibility(req: AuthenticatedRequest, res: Response) {
+  try {
+    const practiceId = (Array.isArray(req.params.practiceId) ? req.params.practiceId[0] : req.params.practiceId) as string;
+    if (!practiceId) {
+      return res.status(400).json({ message: "Practice ID is required" });
+    }
+
+    const result = await validatePracticeForPrefunding(practiceId);
+    return res.status(200).json(result);
+  } catch (error: any) {
+    console.error("Error in validatePracticePrefundingEligibility:", error);
+    return res.status(500).json({ message: "Failed to validate practice for prefunding", error: error.message });
+  }
+}
+
 export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Response) {
   try {
     const { practiceId, cycle, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
 
     if (!practiceId || !cycle || !invoiceDate || !dueDate || totalAmount === undefined) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // Practice Validation before invoice creation
+    const validation = await validatePracticeForPrefunding(practiceId);
+    if (!validation.isValid) {
+      return res.status(422).json({
+        message: "Practice fails Prefunding Validation requirements.",
+        errors: validation.errors,
+        details: validation.details,
+      });
     }
 
     const year = new Date(invoiceDate).getFullYear();

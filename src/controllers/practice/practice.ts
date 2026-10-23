@@ -631,6 +631,9 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
           taxId: true,
           groupNpis: true,
           agreements: true,
+          prefundingRates: {
+            include: { prefundingRate: true },
+          },
           persons: {
             include: {
               person: true,
@@ -1022,6 +1025,9 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         taxId: true,
         billToTaxId: true,
         groupNpis: true,
+        prefundingRates: {
+          include: { prefundingRate: true },
+        },
         persons: {
           include: {
             person: true,
