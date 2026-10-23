@@ -498,33 +498,41 @@ import {
         if (!dbSubmission) {
           return res.status(200).send("OK");
         }
-        if (dbSubmission.status === "completed") {
-          return res.status(200).send("OK");
+
+        if (dbSubmission.status !== "completed") {
+          await prisma.docusealSubmission.update({
+            where: { docusealSubmissionId: externalId },
+            data: {
+              signedDocUrl: data.documents?.[0]?.url ?? undefined,
+              auditLogUrl: data.audit_log_url ?? undefined,
+              status: "completed",
+            },
+          });
         }
 
-        await prisma.docusealSubmission.update({
-          where: { docusealSubmissionId: externalId },
-          data: {
-            signedDocUrl: data.documents?.[0]?.url ?? undefined,
-            auditLogUrl: data.audit_log_url ?? undefined,
-            status: data.status,
+        const agreementDocs = await prisma.docusealSubmission.findMany({
+          where: {
+            agreementId: dbSubmission.agreementId,
+            docusealSubmissionId: { not: null },
           },
+          select: { status: true },
         });
 
-        if (dbSubmission.personId) {
-          const allDocs = await prisma.docusealSubmission.findMany({
-            where: { personId: dbSubmission.personId },
+        const allCompleted =
+          agreementDocs.length > 0 &&
+          agreementDocs.every((doc) => doc.status === "completed");
+
+        if (allCompleted) {
+          const updated = await prisma.agreement.updateMany({
+            where: {
+              id: dbSubmission.agreementId,
+              status: { not: AgreementStatus.SIGNED },
+            },
+            data: { status: AgreementStatus.SIGNED },
           });
 
-          const allCompleted = allDocs.every((doc) => doc.status === "completed");
-          if (allCompleted) {
-            await prisma.agreement.update({
-              where: { id: dbSubmission.agreementId },
-              data: { status: AgreementStatus.SIGNED },
-            });
-
+          if (updated.count > 0) {
             await updateDealAfterAgreementSigned(dbSubmission.agreementId);
-
           }
         }
       }
