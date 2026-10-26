@@ -173,16 +173,25 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
         { label: "Invoice Date:", val: formatDate(data.invoiceDate) },
         { label: "Payment Due Date:", val: formatDate(data.dueDate) },
         { label: "Prefunding Cycle:", val: data.cycle || "N/A" },
-        ...(data.paymentMethod ? [{ label: "Payment Method:", val: data.paymentMethod }] : []),
+        ...(data.paymentMethod ? [{ label: "Payment Method:", val: data.paymentMethod, isPaymentMethod: true }] : []),
         ...(data.paidDate ? [{ label: "Paid Date:", val: formatDate(data.paidDate) }] : []),
         ...(isPaidDoc && !data.paidDate ? [{ label: "Paid Date:", val: formatDate(new Date()) }] : [])
       ];
 
       let metaY = gridY + 16;
       for (const m of meta) {
-        doc.font(fRegular).fontSize(9).fillColor("#64748b").text(m.label, rightX, metaY);
-        doc.font(fMedium).fontSize(9).fillColor("#0f172a").text(m.val, rightX + 115, metaY, { align: "right", width: rightWidth - 115 });
-        metaY += 16;
+        if ((m as any).isPaymentMethod) {
+          // Render Payment Method across 2 lines to prevent mixing with the label
+          doc.font(fRegular).fontSize(9).fillColor("#64748b").text(m.label, rightX, metaY);
+          metaY += 12;
+          doc.font(fMedium).fontSize(8.5).fillColor("#0f172a").text(m.val, rightX, metaY, { width: rightWidth, lineGap: 1 });
+          const valHeight = doc.heightOfString(m.val, { width: rightWidth, lineGap: 1 });
+          metaY += Math.max(14, valHeight + 3);
+        } else {
+          doc.font(fRegular).fontSize(9).fillColor("#64748b").text(m.label, rightX, metaY);
+          doc.font(fMedium).fontSize(9).fillColor("#0f172a").text(m.val, rightX + 115, metaY, { align: "right", width: rightWidth - 115 });
+          metaY += 15;
+        }
       }
 
       // Total Due Highlight Card

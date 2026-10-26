@@ -747,6 +747,33 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    if (isPrefundingEnabled) {
+      if (!prefundingCycle || !String(prefundingCycle).trim()) {
+        return res.status(400).json({ message: "Prefunding Cycle is required when Prefunding is enabled." });
+      }
+      if (!prefundingStartDate) {
+        return res.status(400).json({ message: "Prefunding Start Date is required when Prefunding is enabled." });
+      }
+      if (prefundingDueOn === undefined || prefundingDueOn === null || Number(prefundingDueOn) <= 0) {
+        return res.status(400).json({ message: "Due On (Days Before Start) is required and must be greater than 0." });
+      }
+      if (!prefundingState || !String(prefundingState).trim()) {
+        return res.status(400).json({ message: "State of Operation is required when Prefunding is enabled." });
+      }
+      if (prefundingReminderOn === undefined || prefundingReminderOn === null || Number(prefundingReminderOn) <= 0) {
+        return res.status(400).json({ message: "Reminder On (Days Before Due) is required and must be greater than 0." });
+      }
+      if (!prefundingStripeAccountId || !String(prefundingStripeAccountId).trim()) {
+        return res.status(400).json({ message: "Stripe Account is required when Prefunding is enabled." });
+      }
+      if (!prefundingInvoiceRecipientId || !String(prefundingInvoiceRecipientId).trim()) {
+        return res.status(400).json({ message: "Prefunding Invoice Recipient is required when Prefunding is enabled." });
+      }
+      if (!Array.isArray(prefundingRateIds) || prefundingRateIds.length === 0) {
+        return res.status(400).json({ message: "At least one Applicable Prefunding Rate must be assigned when Prefunding is enabled." });
+      }
+    }
+
     if (
       billingPaymentMethod &&
       !isBillingPaymentMethod(billingPaymentMethod.trim().toUpperCase())
@@ -1140,6 +1167,33 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
       });
+    }
+
+    if (isPrefundingEnabled) {
+      if (!prefundingCycle || !String(prefundingCycle).trim()) {
+        return res.status(400).json({ message: "Prefunding Cycle is required when Prefunding is enabled." });
+      }
+      if (!prefundingStartDate) {
+        return res.status(400).json({ message: "Prefunding Start Date is required when Prefunding is enabled." });
+      }
+      if (prefundingDueOn === undefined || prefundingDueOn === null || Number(prefundingDueOn) <= 0) {
+        return res.status(400).json({ message: "Due On (Days Before Start) is required and must be greater than 0." });
+      }
+      if (!prefundingState || !String(prefundingState).trim()) {
+        return res.status(400).json({ message: "State of Operation is required when Prefunding is enabled." });
+      }
+      if (prefundingReminderOn === undefined || prefundingReminderOn === null || Number(prefundingReminderOn) <= 0) {
+        return res.status(400).json({ message: "Reminder On (Days Before Due) is required and must be greater than 0." });
+      }
+      if (!prefundingStripeAccountId || !String(prefundingStripeAccountId).trim()) {
+        return res.status(400).json({ message: "Stripe Account is required when Prefunding is enabled." });
+      }
+      if (!prefundingInvoiceRecipientId || !String(prefundingInvoiceRecipientId).trim()) {
+        return res.status(400).json({ message: "Prefunding Invoice Recipient is required when Prefunding is enabled." });
+      }
+      if (!Array.isArray(prefundingRateIds) || prefundingRateIds.length === 0) {
+        return res.status(400).json({ message: "At least one Applicable Prefunding Rate must be assigned when Prefunding is enabled." });
+      }
     }
 
     if (

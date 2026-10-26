@@ -5,6 +5,12 @@ import { generatePrefundingInvoicePdfBuffer } from "../../utils/prefundingInvoic
 import { processAndEmailPrefundingInvoice } from "./prefundingStripe";
 import { createPrefundingInvoiceSasUrlFromBlobUrl } from "../../utils/prefundingBlob";
 import { validatePracticeForPrefunding } from "../../utils/prefundingValidation";
+import {
+  BillingPaymentMethod,
+  calculateBearerProcessingAmounts,
+  buildProcessingFeeAllocationSettings,
+  materializeProcessingFeeSettings,
+} from "../../utils/paymentProcessing";
 
 function formatPaymentMethodDisplay(rawMethod?: string | null, fallbackMethod?: string | null): string {
   if (!rawMethod || rawMethod.toLowerCase() === "stripe") {
@@ -54,6 +60,47 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
     const uniqueSuffix = Math.random().toString(36).substring(2, 7).toUpperCase();
     const invoiceNumber = `INV-${year}-${uniqueSuffix}`;
 
+    // Prefunding invoices use ACH and Practice ACH fee configuration
+    const practice = await prisma.practice.findUnique({
+      where: { id: practiceId },
+      select: { billingPaymentMethod: true, processingFeeConfig: true }
+    });
+
+    const paymentMethod: BillingPaymentMethod = "ACH";
+    const subtotal = Number(totalAmount);
+    const settings = await prisma.systemSettings.findFirst();
+
+    const processingFeeAllocation = practice?.processingFeeConfig
+      ? buildProcessingFeeAllocationSettings(practice.processingFeeConfig)
+      : {
+          allocationMode: "PERCENT" as const,
+          creditCard: {
+            COMPANY: { ratePercent: 100, fixedFee: 100, capAmount: null },
+            CLIENT: { ratePercent: 0, fixedFee: 0, capAmount: null },
+          },
+          ach: {
+            COMPANY: { ratePercent: 100, fixedFee: 0, capAmount: 100 },
+            CLIENT: { ratePercent: 0, fixedFee: 0, capAmount: 0 },
+          },
+        };
+
+    const processingFeeConfig = materializeProcessingFeeSettings(
+      processingFeeAllocation,
+      settings,
+    );
+
+    const processingAmounts = calculateBearerProcessingAmounts({
+      baseAmount: subtotal,
+      paymentMethod,
+      feeBearer: "CLIENT",
+      settings: processingFeeConfig,
+    });
+
+    const clientFee = processingAmounts.clientFeeAmount || 0;
+    const companyFee = processingAmounts.companyFeeAmount || 0;
+    const finalTotal = processingAmounts.customerInvoiceAmount;
+    const netAmount = Math.max(0, subtotal - companyFee);
+
     const prefundingInvoice = await prisma.prefundingInvoice.create({
       data: {
         invoiceNumber,
@@ -61,8 +108,13 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
         cycle,
         invoiceDate: new Date(invoiceDate),
         dueDate: new Date(dueDate),
-        totalAmount,
-        subtotalAmount: totalAmount,
+        totalAmount: finalTotal,
+        subtotalAmount: subtotal,
+        paymentMethod,
+        feeBearer: clientFee > 0 ? "CLIENT" : "COMPANY",
+        processingFeeAmount: clientFee,
+        companyFeeAmount: companyFee,
+        netAmount,
         status: "Draft",
         createdByUserId: req.user?.sub || null,
         lineItems: {
@@ -100,7 +152,7 @@ export async function updatePrefundingInvoice(req: AuthenticatedRequest, res: Re
 
     const existing = await prisma.prefundingInvoice.findUnique({
       where: { id },
-      select: { status: true }
+      select: { status: true, practiceId: true }
     });
 
     if (!existing) {
@@ -119,6 +171,60 @@ export async function updatePrefundingInvoice(req: AuthenticatedRequest, res: Re
       });
     }
 
+    let updateAmounts: any = {};
+    if (totalAmount !== undefined) {
+      const targetPracticeId = practiceId || existing.practiceId;
+      const practice = await prisma.practice.findUnique({
+        where: { id: targetPracticeId },
+        select: { billingPaymentMethod: true, processingFeeConfig: true }
+      });
+
+      const paymentMethod: BillingPaymentMethod = "ACH";
+      const subtotal = Number(totalAmount);
+      const settings = await prisma.systemSettings.findFirst();
+
+      const processingFeeAllocation = practice?.processingFeeConfig
+        ? buildProcessingFeeAllocationSettings(practice.processingFeeConfig)
+        : {
+            allocationMode: "PERCENT" as const,
+            creditCard: {
+              COMPANY: { ratePercent: 100, fixedFee: 100, capAmount: null },
+              CLIENT: { ratePercent: 0, fixedFee: 0, capAmount: null },
+            },
+            ach: {
+              COMPANY: { ratePercent: 100, fixedFee: 0, capAmount: 100 },
+              CLIENT: { ratePercent: 0, fixedFee: 0, capAmount: 0 },
+            },
+          };
+
+      const processingFeeConfig = materializeProcessingFeeSettings(
+        processingFeeAllocation,
+        settings,
+      );
+
+      const processingAmounts = calculateBearerProcessingAmounts({
+        baseAmount: subtotal,
+        paymentMethod,
+        feeBearer: "CLIENT",
+        settings: processingFeeConfig,
+      });
+
+      const clientFee = processingAmounts.clientFeeAmount || 0;
+      const companyFee = processingAmounts.companyFeeAmount || 0;
+      const finalTotal = processingAmounts.customerInvoiceAmount;
+      const netAmount = Math.max(0, subtotal - companyFee);
+
+      updateAmounts = {
+        totalAmount: finalTotal,
+        subtotalAmount: subtotal,
+        paymentMethod,
+        feeBearer: clientFee > 0 ? "CLIENT" : "COMPANY",
+        processingFeeAmount: clientFee,
+        companyFeeAmount: companyFee,
+        netAmount,
+      };
+    }
+
     const updated = await prisma.prefundingInvoice.update({
       where: { id },
       data: {
@@ -126,7 +232,7 @@ export async function updatePrefundingInvoice(req: AuthenticatedRequest, res: Re
         ...(cycle ? { cycle } : {}),
         ...(invoiceDate ? { invoiceDate: new Date(invoiceDate) } : {}),
         ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
-        ...(totalAmount !== undefined ? { totalAmount, subtotalAmount: totalAmount } : {}),
+        ...updateAmounts,
         ...(Array.isArray(lineItems) ? {
           lineItems: {
             create: lineItems.map((item: any, idx: number) => ({
@@ -291,6 +397,7 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
         processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
         companyFeeAmount: inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0,
+        netAmount: inv.netAmount !== null && inv.netAmount !== undefined ? Number(inv.netAmount) : Math.max(0, (inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount)) - (inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0)),
         paymentMethod: inv.paymentMethod || null,
         paymentMethodDisplay,
         feeBearer: inv.feeBearer || "CLIENT",
@@ -430,6 +537,7 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
       processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
       companyFeeAmount: inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0,
+      netAmount: inv.netAmount !== null && inv.netAmount !== undefined ? Number(inv.netAmount) : Math.max(0, (inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount)) - (inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0)),
       paymentMethod: inv.paymentMethod || null,
       paymentMethodDisplay,
       feeBearer: inv.feeBearer || "CLIENT",

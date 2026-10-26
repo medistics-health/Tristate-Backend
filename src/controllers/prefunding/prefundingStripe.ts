@@ -4,6 +4,7 @@ import { stripe } from "../../lib/stripe";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { getPrimaryPracticeEmail } from "../../utils/practiceEmail";
 import { generatePrefundingInvoicePdfBuffer } from "../../utils/prefundingInvoicePdf";
+import { wrapPrefundingEmailLayout } from "../../utils/prefundingEmailLayout";
 import { ensureStripeCustomerForPractice } from "../invoice/invoice";
 import { uploadPrefundingInvoiceBufferToAzureBlob } from "../../utils/prefundingBlob";
 import {
@@ -53,11 +54,8 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
   const currency = (inv.currency || inv.practice.defaultCurrency || "USD").toLowerCase();
   const invoiceNumber = inv.invoiceNumber || `INV-${new Date(inv.createdAt).getFullYear()}-${inv.id.replace(/-/g, "").slice(0, 5).toUpperCase()}`;
 
-  // 2. Billing Payment Method & Processing Fee Calculation (Exact Billing Run Logic)
-  const practicePaymentMethod = (inv.practice.billingPaymentMethod || "ACH").toUpperCase();
-  const paymentMethod: BillingPaymentMethod = isBillingPaymentMethod(practicePaymentMethod)
-    ? practicePaymentMethod
-    : "ACH";
+  // 2. Billing Payment Method & Processing Fee Calculation (Prefunding strictly uses ACH)
+  const paymentMethod = ("ACH" as BillingPaymentMethod);
 
   const subtotalAmount = Number(inv.subtotalAmount ?? inv.totalAmount);
   const settings = await prisma.systemSettings.findFirst();
@@ -238,6 +236,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
       feeBearer: clientFee > 0 ? "CLIENT" : "COMPANY",
       processingFeeAmount: clientFee,
       companyFeeAmount: companyFee,
+      netAmount: Math.max(0, subtotalAmount - companyFee),
       stripeInvoiceId,
       stripeHostedInvoiceUrl: hostedUrl,
       stripeInvoicePdfUrl: pdfUrl,
@@ -561,61 +560,8 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     `
         : "";
 
-    const emailBody = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Prefunding Invoice ${invoiceNumber}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700;900&display=swap" rel="stylesheet">
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700;900&display=swap');
-    * {
-      font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    }
-    body {
-      margin: 0;
-      padding: 24px 12px;
-      background-color: #f8fafc;
-      font-family: 'Google Sans', sans-serif !important;
-      -webkit-font-smoothing: antialiased;
-    }
-  </style>
-</head>
-<body style="margin: 0; padding: 24px 12px; background-color: #f8fafc; font-family: 'Google Sans', sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 680px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-    
-    <!-- Top Header matching brand bar -->
-    <tr>
-      <td style="background-color: #0f172a; padding: 22px 30px; text-align: left;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td>
-              <span style="display: block; font-size: 11px; font-weight: 700; color: #c3a97c; letter-spacing: 0.1em; text-transform: uppercase; font-family: 'Google Sans', sans-serif;">
-                TRISTATE MSO • PREFUNDING INVOICE
-              </span>
-              <h1 style="margin: 4px 0 0 0; color: #ffffff; font-size: 20px; font-weight: 700; font-family: 'Google Sans', sans-serif;">
-                ${invoiceNumber}
-              </h1>
-            </td>
-            <td align="right" valign="middle">
-              <span style="display: inline-block; background-color: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; padding: 4px 12px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-family: 'Google Sans', sans-serif;">
-                Posted
-              </span>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-
-    <!-- Main Content Area -->
-    <tr>
-      <td style="padding: 28px 32px;">
-        
-        <!-- Practice & Cycle Header (Matches Details Page) -->
+    const emailContentHtml = `
+<!-- Practice & Cycle Header (Matches Details Page) -->
         <div style="margin-bottom: 24px;">
           <h2 style="margin: 0; font-size: 22px; font-weight: 700; color: #0f172a; font-family: 'Google Sans', sans-serif;">
             ${practiceName}
@@ -683,34 +629,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
           </tr>
         </table>
 
-        <!-- Audit Information Box (Matches Details Page) -->
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 20px;">
-          <tr>
-            <td style="padding: 14px 18px;">
-              <span style="display: block; font-size: 12px; font-weight: 700; color: #1e293b; font-family: 'Google Sans', sans-serif; margin-bottom: 8px;">
-                Audit Information
-              </span>
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td width="33%" style="font-size: 11px; font-family: 'Google Sans', sans-serif;">
-                    <span style="display: block; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Created By</span>
-                    <span style="display: block; font-size: 12px; font-weight: 600; color: #1e293b; margin-top: 2px;">${createdByName}</span>
-                  </td>
-                  <td width="33%" style="font-size: 11px; font-family: 'Google Sans', sans-serif;">
-                    <span style="display: block; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Created Date</span>
-                    <span style="display: block; font-size: 12px; font-weight: 600; color: #1e293b; margin-top: 2px;">${createdDateFormatted}</span>
-                  </td>
-                  <td width="34%" style="font-size: 11px; font-family: 'Google Sans', sans-serif;">
-                    <span style="display: block; color: #94a3b8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;">Posted Date</span>
-                    <span style="display: block; font-size: 12px; font-weight: 600; color: #1e293b; margin-top: 2px;">${postedDateFormatted}</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-
-        <!-- Payment & Stripe Details Box (Shown after Audit Information) -->
+        <!-- Payment & Stripe Details Box -->
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; margin-bottom: 24px;">
           <tr>
             <td style="padding: 14px 18px;">
@@ -782,22 +701,15 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
             If you have any questions or require support, please contact our team at <a href="mailto:info@tristatemso.com" style="color: #4f63ea; text-decoration: none; font-weight: 600;">info@tristatemso.com</a>.
           </p>
         </div>
-      </td>
-    </tr>
-
-    <!-- Footer -->
-    <tr>
-      <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 18px 32px; text-align: center;">
-        <p style="margin: 0; font-size: 11px; color: #94a3b8; line-height: 1.5; font-family: 'Google Sans', sans-serif;">
-          &copy; ${new Date().getFullYear()} Tristate MSO • 155 Willowbrook Blvd, Ste 110 #3408 Wayne, NJ 07470<br />
-          All rights reserved. Prefunding & Management Services.
-        </p>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
 `;
+
+    const emailBody = wrapPrefundingEmailLayout({
+      title: "Prefunding Invoice Payment Request",
+      subtitle: "Tristate MSO Billing Department",
+      preheader: `Prefunding Invoice ${invoiceNumber} for ${practiceName}. Total amount $${totalAmountFormatted}. Due ${dueDateFormatted}.`,
+      contentHtml: emailContentHtml,
+      invoiceNumber,
+    });
 
     const pdfFileName = `Prefunding-Invoice-${invoiceNumber}.pdf`;
 

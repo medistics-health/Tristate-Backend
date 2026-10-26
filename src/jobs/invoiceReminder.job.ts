@@ -2,6 +2,7 @@ import { InvoiceStatus } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { sendOutlookEmail } from "../utils/outlook";
 import { getPrimaryPracticeEmail } from "../utils/practiceEmail";
+import { wrapPrefundingEmailLayout } from "../utils/prefundingEmailLayout";
 
 const DEFAULT_INTERVAL_MINUTES = 60;
 
@@ -234,20 +235,34 @@ export async function processInvoiceReminders() {
 
           if (uniquePEmails.length > 0) {
             const subject = `URGENT: Prefunding Invoice #${invNum} is OVERDUE`;
-            const body = `
-              <div style="font-family: 'Google Sans', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #fee2e2; border-radius: 12px;">
-                <h2 style="color: #dc2626; margin-top: 0; font-family: 'Google Sans', sans-serif;">Prefunding Invoice Overdue Notice</h2>
-                <p style="color: #334155; font-size: 14px; line-height: 1.5; font-family: 'Google Sans', sans-serif;">Dear <strong>${pInv.practice.name}</strong>,</p>
-                <p style="color: #475569; font-size: 14px; line-height: 1.5; font-family: 'Google Sans', sans-serif;">This is an urgent reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: ${pInv.cycle}) was due on <strong>${formatUTCDate(dueDate)}</strong> and is now overdue.</p>
-                <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 14px 18px; margin: 18px 0;">
-                  <span style="font-size: 11px; text-transform: uppercase; color: #991b1b; font-weight: 700; display: block; font-family: 'Google Sans', sans-serif;">Total Amount Due</span>
-                  <span style="font-size: 20px; font-weight: 800; color: #dc2626; font-family: 'Google Sans', sans-serif;">$${Number(pInv.totalAmount).toFixed(2)}</span>
-                </div>
-                ${pInv.stripeHostedInvoiceUrl ? `<p style="margin: 20px 0;"><a href="${pInv.stripeHostedInvoiceUrl}" style="background-color: #dc2626; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 700; font-family: 'Google Sans', sans-serif;">Pay Overdue Invoice with Stripe &rarr;</a></p>` : ""}
-                <p style="color: #64748b; font-size: 12px; margin-top: 24px; font-family: 'Google Sans', sans-serif;">Please settle the payment immediately. If you have questions, contact info@tristatemso.com.</p>
-                <p style="color: #334155; font-size: 13px; font-weight: 600; font-family: 'Google Sans', sans-serif;">Best regards,<br/>The Tristate Prefunding Team</p>
+            const contentHtml = `
+              <p style="margin: 0 0 14px 0; font-size: 16px; line-height: 24px; color: #0f2d46; font-weight: 700;">
+                Hello ${pInv.practice.name},
+              </p>
+              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
+                This is an urgent reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${pInv.cycle}</strong>) was due on <strong style="color: #dc2626;">${formatUTCDate(dueDate)}</strong> and is now overdue.
+              </p>
+              <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+                <span style="font-size: 11px; text-transform: uppercase; color: #991b1b; font-weight: 700; display: block; letter-spacing: 0.05em;">Total Overdue Amount</span>
+                <span style="font-size: 24px; font-weight: 900; color: #dc2626; margin-top: 4px; display: block;">${Number(pInv.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              ${pInv.stripeHostedInvoiceUrl ? `
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${pInv.stripeHostedInvoiceUrl}" target="_blank" style="display: inline-block; background-color: #dc2626; color: #ffffff; text-decoration: none; padding: 14px 36px; font-size: 14px; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.3);">
+                  Pay Overdue Invoice with Stripe &rarr;
+                </a>
+              </div>` : ""}
+              <p style="margin: 20px 0 0 0; font-size: 13px; line-height: 20px; color: #64748b;">
+                Please settle the payment immediately to avoid interruption in services. If you have any questions or have already initiated the payment via bank transfer, please disregard this notice or contact us at <a href="mailto:info@tristatemso.com" style="color: #0f4c81; font-weight: 600;">info@tristatemso.com</a>.
+              </p>
             `;
+            const body = wrapPrefundingEmailLayout({
+              title: "Prefunding Invoice Overdue Notice",
+              subtitle: "Urgent Payment Reminder",
+              preheader: `Prefunding Invoice #${invNum} is overdue. Total amount ${Number(pInv.totalAmount).toFixed(2)}.`,
+              contentHtml,
+              invoiceNumber: invNum,
+            });
 
             for (const email of uniquePEmails) {
               try {
@@ -269,20 +284,34 @@ export async function processInvoiceReminders() {
 
           if (uniquePEmails.length > 0) {
             const subject = `Reminder: Prefunding Invoice #${invNum} is due in ${Math.ceil(daysToDue)} day(s)`;
-            const body = `
-              <div style="font-family: 'Google Sans', sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
-                <h2 style="color: #0f172a; margin-top: 0; font-family: 'Google Sans', sans-serif;">Prefunding Invoice Reminder</h2>
-                <p style="color: #334155; font-size: 14px; line-height: 1.5; font-family: 'Google Sans', sans-serif;">Dear <strong>${pInv.practice.name}</strong>,</p>
-                <p style="color: #475569; font-size: 14px; line-height: 1.5; font-family: 'Google Sans', sans-serif;">This is a friendly reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: ${pInv.cycle}) is due on <strong>${formatUTCDate(dueDate)}</strong>.</p>
-                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin: 18px 0;">
-                  <span style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; display: block; font-family: 'Google Sans', sans-serif;">Total Amount Due</span>
-                  <span style="font-size: 20px; font-weight: 800; color: #4f63ea; font-family: 'Google Sans', sans-serif;">$${Number(pInv.totalAmount).toFixed(2)}</span>
-                </div>
-                ${pInv.stripeHostedInvoiceUrl ? `<p style="margin: 20px 0;"><a href="${pInv.stripeHostedInvoiceUrl}" style="background-color: #4f63ea; color: white; padding: 12px 28px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: 700; font-family: 'Google Sans', sans-serif;">Pay Prefunding Invoice with Stripe &rarr;</a></p>` : ""}
-                <p style="color: #64748b; font-size: 12px; margin-top: 24px; font-family: 'Google Sans', sans-serif;">Thank you for partnering with Tristate MSO. If you have questions, contact info@tristatemso.com.</p>
-                <p style="color: #334155; font-size: 13px; font-weight: 600; font-family: 'Google Sans', sans-serif;">Best regards,<br/>The Tristate Prefunding Team</p>
+            const contentHtml = `
+              <p style="margin: 0 0 14px 0; font-size: 16px; line-height: 24px; color: #0f2d46; font-weight: 700;">
+                Hello ${pInv.practice.name},
+              </p>
+              <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
+                This is a friendly reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${pInv.cycle}</strong>) is due on <strong>${formatUTCDate(dueDate)}</strong>.
+              </p>
+              <div style="background-color: #f8fbfe; border: 1px solid #dbe8f3; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+                <span style="font-size: 11px; text-transform: uppercase; color: #0f4c81; font-weight: 700; display: block; letter-spacing: 0.05em;">Total Amount Due</span>
+                <span style="font-size: 24px; font-weight: 900; color: #0f4c81; margin-top: 4px; display: block;">${Number(pInv.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+              ${pInv.stripeHostedInvoiceUrl ? `
+              <div style="text-align: center; margin: 24px 0;">
+                <a href="${pInv.stripeHostedInvoiceUrl}" target="_blank" style="display: inline-block; background-color: #0f4c81; color: #ffffff; text-decoration: none; padding: 14px 36px; font-size: 14px; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(15, 76, 129, 0.3);">
+                  Pay Prefunding Invoice with Stripe &rarr;
+                </a>
+              </div>` : ""}
+              <p style="margin: 20px 0 0 0; font-size: 13px; line-height: 20px; color: #64748b;">
+                Thank you for partnering with Tristate MSO. If you have any questions, please contact our team at <a href="mailto:info@tristatemso.com" style="color: #0f4c81; font-weight: 600;">info@tristatemso.com</a>.
+              </p>
             `;
+            const body = wrapPrefundingEmailLayout({
+              title: "Prefunding Invoice Reminder",
+              subtitle: `Due in ${Math.ceil(daysToDue)} day(s)`,
+              preheader: `Prefunding Invoice #${invNum} is due on ${formatUTCDate(dueDate)}.`,
+              contentHtml,
+              invoiceNumber: invNum,
+            });
 
             for (const email of uniquePEmails) {
               try {

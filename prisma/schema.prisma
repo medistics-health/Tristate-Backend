@@ -2803,6 +2803,7 @@ model PrefundingInvoice {
   feeBearer              String?                     @map("fee_bearer")
   processingFeeAmount    Decimal?                    @map("processing_fee_amount") @db.Decimal(12, 2)
   companyFeeAmount       Decimal?                    @map("company_fee_amount") @db.Decimal(12, 2)
+  netAmount              Decimal?                    @map("net_amount") @db.Decimal(12, 2)
   status                 String
   stripeInvoiceId        String?                     @map("stripe_invoice_id")
   stripeHostedInvoiceUrl String?                     @map("stripe_hosted_invoice_url")

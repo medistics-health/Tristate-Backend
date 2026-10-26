@@ -249,6 +249,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
     let overdueAmount = 0;
 
     let totalAmountSum = 0;
+    let totalNetAmountSum = 0;
     let upcomingDueAmountSum = 0;
 
     const now = new Date();
@@ -271,6 +272,11 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
     for (const inv of invoices) {
       const amt = Number(inv.totalAmount) || 0;
       totalAmountSum += amt;
+
+      const subtotal = inv.subtotalAmount ? Number(inv.subtotalAmount) : amt;
+      const companyFee = inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0;
+      const net = inv.netAmount !== null && inv.netAmount !== undefined ? Number(inv.netAmount) : Math.max(0, subtotal - companyFee);
+      totalNetAmountSum += net;
 
       const normStatus = (inv.status || "").toLowerCase().trim();
       switch (normStatus) {
@@ -411,6 +417,10 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
       totalAmount: Number(inv.totalAmount),
+      subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
+      processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
+      companyFeeAmount: inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0,
+      netAmount: inv.netAmount !== null && inv.netAmount !== undefined ? Number(inv.netAmount) : Math.max(0, (inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount)) - (inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0)),
       status: inv.status,
       paymentMethod: inv.paymentMethod,
       stripeInvoiceId: inv.stripeInvoiceId,
@@ -431,6 +441,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
         totalCalculations: totalCalculationsCount,
         ratesCount: totalPrefundingRates,
         totalPrefundingAmount: totalAmountSum,
+        totalNetAmount: totalNetAmountSum,
         upcomingDueAmount: upcomingDueAmountSum,
         statusCounts: {
           draft: draftCount,

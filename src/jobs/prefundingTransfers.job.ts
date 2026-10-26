@@ -97,6 +97,8 @@ export async function processPendingPrefundingTransfers() {
 
           (transfer as any).resolvedChargeId = chargeId;
           (transfer as any).resolvedDestination = destination;
+          (transfer as any).resolvedNetBalance = typeof balanceTx.net === "number" ? balanceTx.net : undefined;
+          (transfer as any).resolvedFee = typeof balanceTx.fee === "number" ? balanceTx.fee : 0;
           readyTransfers.push(transfer);
           totalReadyGrossAmount += Math.round(Number(transfer.amount) * 100);
         } else {
@@ -148,18 +150,24 @@ export async function processPendingPrefundingTransfers() {
 
     for (const transfer of readyTransfers) {
       const amountInCents = Math.round(Number(transfer.amount) * 100);
-      let transferAmount = amountInCents;
+      const netFromBt = (transfer as any).resolvedNetBalance;
+      
+      // If Stripe balance transaction provides the net cleared amount after fees (e.g. $99.20 for $100 payment after $0.80 fee),
+      // cap the target transfer amount to the net cleared amount
+      let transferAmount = typeof netFromBt === "number" && netFromBt > 0
+        ? Math.min(amountInCents, netFromBt)
+        : amountInCents;
 
-      if (remainingBalance < amountInCents) {
-        const diff = amountInCents - remainingBalance;
-        if (diff <= 10000 && remainingBalance > 0) {
-          transferAmount = remainingBalance;
+      if (remainingBalance < transferAmount) {
+        const diff = transferAmount - remainingBalance;
+        if (remainingBalance > 0) {
           console.log(
-            `[prefunding-transfers] Platform balance short by $${(diff / 100).toFixed(2)}. Adjusting transfer amount.`
+            `[prefunding-transfers] Platform balance short by $${(diff / 100).toFixed(2)}. Adjusting transfer amount from $${(transferAmount / 100).toFixed(2)} to $${(remainingBalance / 100).toFixed(2)}.`
           );
+          transferAmount = remainingBalance;
         } else {
           console.log(
-            `[prefunding-transfers] Remaining balance (${remainingBalance}) too low for transfer (${amountInCents}). Skipping.`
+            `[prefunding-transfers] Remaining balance (${remainingBalance}) too low for transfer (${transferAmount}). Skipping until balance is available.`
           );
           continue;
         }
@@ -221,7 +229,7 @@ export async function processPendingPrefundingTransfers() {
 }
 
 export function startPrefundingTransfersJob(
-  cronExpression: string = "0 * * * *", // Runs at minute 0 of every hour
+  cronExpression: string = "*/10 * * * *", // Runs every 10 minutes
 ) {
   cron.schedule(cronExpression, async () => {
     if (isRunning) return;
