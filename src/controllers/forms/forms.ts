@@ -129,7 +129,14 @@ export async function listForms(req: AuthenticatedRequest, res: Response) {
       deletedAt: null,
       ...ownerWhere(req.user?.role, userId(req)),
     };
-    if (search) where.title = { contains: search, mode: "insensitive" };
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: "insensitive" } },
+        { refCode: { contains: search, mode: "insensitive" } },
+        { owner: { firstName: { contains: search, mode: "insensitive" } } },
+        { owner: { lastName: { contains: search, mode: "insensitive" } } },
+      ];
+    }
     if (status && status in FormStatus) where.status = status;
     if (isAdmin(req.user?.role) && req.query.ownerId) where.ownerId = String(req.query.ownerId);
     if (req.query.from || req.query.to) {
@@ -160,6 +167,12 @@ export async function listForms(req: AuthenticatedRequest, res: Response) {
       page,
       pageSize,
       total,
+      pagination: {
+        totalRecords: total,
+        totalPages: Math.ceil(total / pageSize),
+        currentPage: page,
+        limit: pageSize,
+      },
       forms: forms.map((form) => ({
         id: form.id,
         refCode: form.refCode,
