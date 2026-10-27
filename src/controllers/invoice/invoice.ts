@@ -56,7 +56,7 @@ function isInvoiceStatus(status: string): status is InvoiceStatus {
   return Object.values(InvoiceStatus).includes(status as InvoiceStatus);
 }
 
-async function ensureStripeCustomerForPractice(practice: {
+export async function ensureStripeCustomerForPractice(practice: {
   id: string;
   name: string;
   stripeCustomerId?: string | null;
@@ -889,10 +889,14 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     });
   }
 
-  // Fetch recipient emails
+  // Fetch recipient emails (exclude people with EMPLOYEE role)
   const emails =
     invoice.practice.persons
-      ?.map((cp) => cp.person?.email)
+      ?.filter((cp) => {
+        const roles = (cp.person?.roles || []) as string[];
+        return !roles.includes("EMPLOYEE");
+      })
+      .map((cp) => cp.person?.email)
       .filter(
         (email): email is string =>
           typeof email === "string" && email.includes("@"),

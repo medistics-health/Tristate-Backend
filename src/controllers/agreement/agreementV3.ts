@@ -1,4 +1,4 @@
-import {
+﻿import {
     DealStage,
     AgreementStatus,
     AgreementType,
@@ -1489,7 +1489,7 @@ import {
                 practiceId,
               },
             },
-            OR: [{ role: "ADMIN" }, { role: "OWNER" }],
+            OR: [{ roles: { has: "ADMIN" } }, { roles: { has: "OWNER" } }],
           },
         });
 
@@ -2072,7 +2072,7 @@ import {
                   practiceId: agreementForAutoSend.practiceId,
                 },
               },
-              OR: [{ role: "ADMIN" }, { role: "OWNER" }],
+              OR: [{ roles: { has: "ADMIN" } }, { roles: { has: "OWNER" } }],
             },
           });
 

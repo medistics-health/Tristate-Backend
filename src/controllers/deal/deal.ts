@@ -1,4 +1,4 @@
-import { DealStage, Prisma, AgreementStatus } from "../../../generated/prisma/client";
+﻿import { DealStage, Prisma, AgreementStatus } from "../../../generated/prisma/client";
 import { Response } from "express";
 import { prisma } from "../../lib/prisma";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
@@ -32,7 +32,7 @@ const dealInclude = {
       lastName: true,
       email: true,
       phone: true,
-      role: true,
+      roles: true,
       influence: true,
     },
   },

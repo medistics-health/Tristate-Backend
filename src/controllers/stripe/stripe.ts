@@ -9,6 +9,9 @@ import { stripeRequest } from "../../lib/stripeApi";
 import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { generateReceiptPdfBufferFromDb } from "../../utils/receiptPdf";
+import { generatePrefundingInvoicePdfBuffer } from "../../utils/prefundingInvoicePdf";
+import { wrapPrefundingEmailLayout } from "../../utils/prefundingEmailLayout";
+import { uploadPrefundingInvoiceBufferToAzureBlob } from "../../utils/prefundingBlob";
 import { uploadInvoiceReceiptBufferToAzureBlob } from "../../utils/invoiceReceiptBlob";
 import {
   extractPaymentMethodInfo,
@@ -213,6 +216,102 @@ async function transferInvoiceLineItemsToConnectedAccounts(params: {
   }
 
   return createdTransfers;
+}
+
+export async function transferPrefundingInvoiceToConnectedAccount(params: {
+  prefundingInvoice: {
+    id: string;
+    currency?: string | null;
+    stripeInvoiceId?: string | null;
+    totalAmount: any;
+    subtotalAmount?: any;
+    practice: {
+      id: string;
+      name: string;
+      prefundingStripeAccountId?: string | null;
+    };
+  };
+  sourceTransactionId?: string | null;
+}) {
+  const destination = params.prefundingInvoice.practice?.prefundingStripeAccountId?.trim();
+  if (!destination) {
+    console.warn(
+      `Skipping Stripe transfer for Prefunding Invoice ${params.prefundingInvoice.id} because practice has no prefundingStripeAccountId.`
+    );
+    return;
+  }
+
+  const grossAmount = toMinorUnit(params.prefundingInvoice.subtotalAmount ?? params.prefundingInvoice.totalAmount);
+  if (grossAmount <= 0) {
+    return;
+  }
+
+  const currency = normalizeCurrency(params.prefundingInvoice.currency);
+  const transferGroup = params.prefundingInvoice.stripeInvoiceId || params.prefundingInvoice.id;
+  const storedAmount = Number((grossAmount / 100).toFixed(2));
+
+  // Check if transfer already exists (SENT, PENDING, or FAILED)
+  const existingTransfers = await prisma.invoiceConnectedAccountTransfer.findMany({
+    where: {
+      prefundingInvoiceId: params.prefundingInvoice.id,
+      stripeConnectedAccountId: destination,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (existingTransfers.some((t) => t.status === "SENT" && t.stripeTransferId)) {
+    // If there are duplicate pending transfers alongside a completed one, remove the pending duplicates
+    const pendingDups = existingTransfers.filter((t) => t.status === "PENDING" && !t.stripeTransferId);
+    if (pendingDups.length > 0) {
+      await prisma.invoiceConnectedAccountTransfer.deleteMany({
+        where: { id: { in: pendingDups.map((d) => d.id) } },
+      });
+    }
+    return;
+  }
+
+  const existingTransfer = existingTransfers[0];
+
+  if (existingTransfer) {
+    await prisma.invoiceConnectedAccountTransfer.update({
+      where: { id: existingTransfer.id },
+      data: {
+        amount: storedAmount,
+        currency: currency.toUpperCase(),
+        status: "PENDING",
+        failureMessage: null,
+        transferGroup,
+      },
+    });
+
+    // Remove any accidental duplicate pending rows
+    if (existingTransfers.length > 1) {
+      const extraIds = existingTransfers.slice(1).map((t) => t.id);
+      await prisma.invoiceConnectedAccountTransfer.deleteMany({
+        where: { id: { in: extraIds } },
+      });
+    }
+  } else {
+    try {
+      await prisma.invoiceConnectedAccountTransfer.create({
+        data: {
+          prefundingInvoiceId: params.prefundingInvoice.id,
+          stripeConnectedAccountId: destination,
+          amount: storedAmount,
+          currency: currency.toUpperCase(),
+          status: "PENDING",
+          failureMessage: null,
+          transferGroup,
+        },
+      });
+    } catch (createErr: any) {
+      console.warn("Transfer record already created concurrently:", createErr?.message);
+    }
+  }
+
+  console.info(
+    `Saved Stripe transfer ${storedAmount} as PENDING for Prefunding Invoice ${params.prefundingInvoice.id} to practice Connected Account ${destination}.`
+  );
 }
 
 type StripeConnectedAccountSummary = {
@@ -904,6 +1003,90 @@ async function processStripeWebhookEvent(event: any) {
       });
 
       if (!invoice) {
+        // Check if this charge belongs to a Prefunding Invoice
+        const prefundingInv = await prisma.prefundingInvoice.findFirst({
+          where: { stripeInvoiceId: invoiceId },
+          include: { practice: true },
+        });
+
+        if (prefundingInv) {
+          const paymentMethodInfo = await extractPaymentMethodInfo(charge, undefined, stripe);
+          const amountPaid = Number(charge.amount || 0) / 100;
+
+          let dbPaymentMethod = "stripe";
+          if (paymentMethodInfo.type === "credit_card") {
+            dbPaymentMethod = `${paymentMethodInfo.brand || "Card"} ••••${paymentMethodInfo.last4 || ""}`;
+          } else if (paymentMethodInfo.type === "ach") {
+            dbPaymentMethod = `Bank Transfer (ACH) - ${paymentMethodInfo.bankName || "Bank"} (••••${paymentMethodInfo.last4 || ""})`;
+          }
+
+          const existingPayment = await prisma.payment.findFirst({
+            where: {
+              practiceId: prefundingInv.practiceId,
+              stripePaymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : null,
+            },
+          });
+
+          if (existingPayment) {
+            await prisma.payment.update({
+              where: { id: existingPayment.id },
+              data: {
+                paymentMethod: dbPaymentMethod,
+                stripeChargeId: charge.id,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+          } else {
+            const payment = await prisma.payment.create({
+              data: {
+                practiceId: prefundingInv.practiceId,
+                amount: amountPaid,
+                currency: (charge.currency || prefundingInv.currency || "usd").toUpperCase(),
+                status: PaymentStatus.ALLOCATED,
+                paymentDate: new Date(charge.created * 1000),
+                paymentMethod: dbPaymentMethod,
+                stripePaymentIntentId: typeof charge.payment_intent === "string" ? charge.payment_intent : undefined,
+                stripeChargeId: charge.id,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+
+            await prisma.paymentAllocation.create({
+              data: {
+                paymentId: payment.id,
+                prefundingInvoiceId: prefundingInv.id,
+                allocatedAmount: amountPaid,
+              },
+            });
+          }
+
+          // Transfer funds to practice's prefundingStripeAccountId
+          try {
+            await transferPrefundingInvoiceToConnectedAccount({
+              prefundingInvoice: prefundingInv,
+              sourceTransactionId: charge.id,
+            });
+          } catch (tErr) {
+            console.error(
+              `Failed to transfer prefunding invoice ${prefundingInv.id} funds from charge.succeeded:`,
+              tErr
+            );
+          }
+          return;
+        }
+
         console.warn("Invoice not found for charge.succeeded:", invoiceId);
         return;
       }
@@ -1081,7 +1264,347 @@ async function processStripeWebhookEvent(event: any) {
         },
       });
 
-      if (!invoice) return;
+      if (!invoice) {
+        // Check if this invoice is a Prefunding Invoice
+        const prefundingInv = await prisma.prefundingInvoice.findFirst({
+          where: { stripeInvoiceId: stripeInvoice.id },
+          include: { practice: true },
+        });
+
+        if (prefundingInv) {
+          await prisma.prefundingInvoice.update({
+            where: { id: prefundingInv.id },
+            data: {
+              status: "Paid",
+              stripeHostedInvoiceUrl: stripeInvoice.hosted_invoice_url,
+              stripeInvoicePdfUrl: stripeInvoice.invoice_pdf,
+            },
+          });
+
+          // Retrieve fully expanded Stripe invoice to get payments/charges/payment_intent
+          let stripeInvoiceWithPayments = stripeInvoice;
+          try {
+            stripeInvoiceWithPayments = await stripe.invoices.retrieve(stripeInvoice.id, {
+              expand: ["charge", "payment_intent", "payments.data.payment.payment_intent"],
+            });
+          } catch (rInvErr) {
+            console.warn("Failed to retrieve expanded invoice in prefunding invoice.paid:", rInvErr);
+          }
+
+          let chargeId =
+            typeof stripeInvoiceWithPayments.charge === "string"
+              ? stripeInvoiceWithPayments.charge
+              : (stripeInvoiceWithPayments.charge?.id || undefined);
+
+          let piObj: any =
+            stripeInvoiceWithPayments.payment_intent && typeof stripeInvoiceWithPayments.payment_intent === "object"
+              ? stripeInvoiceWithPayments.payment_intent
+              : undefined;
+
+          let piId =
+            typeof stripeInvoiceWithPayments.payment_intent === "string"
+              ? stripeInvoiceWithPayments.payment_intent
+              : (stripeInvoiceWithPayments.payment_intent?.id || undefined);
+
+          // If no direct charge/pi, look in invoice.payments.data
+          if (!chargeId && !piId && stripeInvoiceWithPayments.payments?.data?.length > 0) {
+            const firstPayment = stripeInvoiceWithPayments.payments.data[0];
+            const pObj = firstPayment.payment;
+            if (pObj?.payment_intent) {
+              if (typeof pObj.payment_intent === "object") {
+                piObj = pObj.payment_intent;
+                piId = piObj.id;
+                chargeId = piObj.latest_charge || chargeId;
+              } else if (typeof pObj.payment_intent === "string") {
+                piId = pObj.payment_intent;
+              }
+            }
+          }
+
+          if (piId && !piObj) {
+            try {
+              piObj = await stripe.paymentIntents.retrieve(piId);
+              if (piObj?.latest_charge && !chargeId) {
+                chargeId = typeof piObj.latest_charge === "string" ? piObj.latest_charge : piObj.latest_charge.id;
+              }
+            } catch (piErr) {
+              console.warn("Failed to retrieve payment intent for prefunding invoice:", piErr);
+            }
+          }
+
+          let chargeObj: any =
+            stripeInvoiceWithPayments.charge && typeof stripeInvoiceWithPayments.charge === "object"
+              ? stripeInvoiceWithPayments.charge
+              : undefined;
+
+          if (chargeId && !chargeObj) {
+            try {
+              chargeObj = await stripe.charges.retrieve(chargeId);
+            } catch (cErr) {
+              console.warn("Failed to retrieve charge for prefunding invoice:", cErr);
+            }
+          }
+
+          let paymentMethodInfo = { type: "stripe" } as any;
+          try {
+            paymentMethodInfo = await extractPaymentMethodInfo(chargeObj, piObj, stripe);
+          } catch (pmErr) {
+            console.warn("Failed to extract pm info for prefunding invoice:", pmErr);
+          }
+
+          const amountPaid = Number(stripeInvoice.amount_paid || 0) / 100;
+          let dbPaymentMethod = "stripe";
+          if (paymentMethodInfo.type === "credit_card") {
+            dbPaymentMethod = `${paymentMethodInfo.brand || "Card"} ••••${paymentMethodInfo.last4 || ""}`;
+          } else if (paymentMethodInfo.type === "ach") {
+            dbPaymentMethod = `Bank Transfer (ACH) - ${paymentMethodInfo.bankName || "Bank"} (••••${paymentMethodInfo.last4 || ""})`;
+          } else if (prefundingInv.paymentMethod === "ACH") {
+            dbPaymentMethod = "Bank Transfer (ACH)";
+          } else if (prefundingInv.paymentMethod === "CREDIT_CARD") {
+            dbPaymentMethod = "Credit Card";
+          }
+
+          const existingPayment = await prisma.payment.findFirst({
+            where: {
+              allocations: {
+                some: { prefundingInvoiceId: prefundingInv.id },
+              },
+            },
+          });
+
+          if (!existingPayment) {
+            const payment = await prisma.payment.create({
+              data: {
+                practiceId: prefundingInv.practiceId,
+                amount: amountPaid,
+                currency: (stripeInvoice.currency || prefundingInv.currency || "usd").toUpperCase(),
+                status: PaymentStatus.ALLOCATED,
+                paymentDate: stripeInvoice.status_transitions?.paid_at
+                  ? new Date(stripeInvoice.status_transitions.paid_at * 1000)
+                  : new Date(),
+                paymentMethod: dbPaymentMethod,
+                stripePaymentIntentId: piId,
+                stripeChargeId: chargeId,
+                externalReference: JSON.stringify({
+                  type: paymentMethodInfo.type,
+                  brand: paymentMethodInfo.brand,
+                  last4: paymentMethodInfo.last4,
+                  bankName: paymentMethodInfo.bankName,
+                  isAch: paymentMethodInfo.isAch,
+                }),
+              },
+            });
+
+            await prisma.paymentAllocation.create({
+              data: {
+                paymentId: payment.id,
+                prefundingInvoiceId: prefundingInv.id,
+                allocatedAmount: amountPaid,
+              },
+            });
+          } else {
+            // Update existing payment with the rich details if it was previously generic "stripe"
+            if (existingPayment.paymentMethod === "stripe" && dbPaymentMethod !== "stripe") {
+              await prisma.payment.update({
+                where: { id: existingPayment.id },
+                data: {
+                  paymentMethod: dbPaymentMethod,
+                  stripePaymentIntentId: piId || existingPayment.stripePaymentIntentId,
+                  stripeChargeId: chargeId || existingPayment.stripeChargeId,
+                  externalReference: JSON.stringify({
+                    type: paymentMethodInfo.type,
+                    brand: paymentMethodInfo.brand,
+                    last4: paymentMethodInfo.last4,
+                    bankName: paymentMethodInfo.bankName,
+                    isAch: paymentMethodInfo.isAch,
+                  }),
+                },
+              });
+            }
+          }
+
+          // Transfer funds to practice's Prefunding Stripe Account
+          try {
+            await transferPrefundingInvoiceToConnectedAccount({
+              prefundingInvoice: prefundingInv,
+              sourceTransactionId: chargeId,
+            });
+          } catch (tErr) {
+            console.error(
+              `Failed to transfer prefunding invoice ${prefundingInv.id} to connected account on invoice.paid:`,
+              tErr
+            );
+          }
+
+          // Generate & Send Prefunding Payment Receipt Email
+          try {
+            const fullPrefundingInv = await prisma.prefundingInvoice.findUnique({
+              where: { id: prefundingInv.id },
+              include: {
+                practice: {
+                  include: {
+                    persons: { include: { person: true } },
+                  },
+                },
+                lineItems: { orderBy: { sequence: "asc" } },
+              },
+            });
+
+            if (fullPrefundingInv) {
+              const recipientEmails: string[] = [];
+              if (fullPrefundingInv.practice.prefundingInvoiceRecipientId) {
+                const recPerson = await prisma.person.findUnique({
+                  where: { id: fullPrefundingInv.practice.prefundingInvoiceRecipientId },
+                  select: { email: true, firstName: true, lastName: true },
+                });
+                if (recPerson?.email && recPerson.email.includes("@")) {
+                  recipientEmails.push(recPerson.email.trim());
+                }
+              }
+
+              if (recipientEmails.length === 0) {
+                const pEmail = await getPrimaryPracticeEmail(fullPrefundingInv.practice as any);
+                if (pEmail) recipientEmails.push(pEmail);
+              }
+
+              const uniqueReceiptEmails = [...new Set(recipientEmails)];
+
+              if (uniqueReceiptEmails.length > 0) {
+                const firstPerson = fullPrefundingInv.practice?.persons?.[0]?.person;
+                const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : undefined;
+                const recipientEmail = firstPerson?.email || undefined;
+                const invNum = fullPrefundingInv.invoiceNumber || `INV-${fullPrefundingInv.id.slice(0, 8)}`;
+                const receiptNum = `RCP-${invNum}`;
+
+                const receiptPdfBuffer = await generatePrefundingInvoicePdfBuffer({
+                  invoiceNumber: invNum,
+                  invoiceDate: fullPrefundingInv.invoiceDate,
+                  dueDate: fullPrefundingInv.dueDate,
+                  cycle: fullPrefundingInv.cycle,
+                  totalAmount: Number(fullPrefundingInv.totalAmount),
+                  subtotalAmount: fullPrefundingInv.subtotalAmount ? Number(fullPrefundingInv.subtotalAmount) : Number(fullPrefundingInv.totalAmount),
+                  processingFeeAmount: fullPrefundingInv.processingFeeAmount ? Number(fullPrefundingInv.processingFeeAmount) : 0,
+                  status: "PAID",
+                  paymentMethod: dbPaymentMethod,
+                  paidDate: new Date(),
+                  practice: fullPrefundingInv.practice as any,
+                  recipientName,
+                  recipientEmail,
+                  lineItems: (fullPrefundingInv.lineItems || []).map((item: any) => ({
+                    ...item,
+                    rate: item.rate !== null ? Number(item.rate) : null,
+                    amount: Number(item.amount),
+                    includeInGrandTotal: item.includeInGrandTotal !== false,
+                    sequence: item.sequence ?? 0,
+                  })),
+                });
+
+                // Store Payment Receipt PDF in Azure Blob Storage
+                try {
+                  const now = new Date();
+                  const year = String(now.getFullYear());
+                  const month = String(now.getMonth() + 1).padStart(2, "0");
+                  const day = String(now.getDate()).padStart(2, "0");
+                  const safeInvoice = (invNum || fullPrefundingInv.id).replace(/[^a-zA-Z0-9._-]/g, "_");
+                  const receiptFolder = `receipts/${year}/${month}/${day}/${safeInvoice}`;
+
+                  const receiptUpload = await uploadPrefundingInvoiceBufferToAzureBlob({
+                    folder: receiptFolder,
+                    fileName: `Receipt-${safeInvoice}.pdf`,
+                    buffer: receiptPdfBuffer,
+                    contentType: "application/pdf",
+                  });
+
+                  await prisma.prefundingInvoice.update({
+                    where: { id: fullPrefundingInv.id },
+                    data: { receiptPdfBlobUrl: receiptUpload.url } as any,
+                  });
+                  console.log(`[stripeWebhook] Stored Prefunding receipt PDF in Azure Blob: ${receiptUpload.url}`);
+                } catch (rBlobErr) {
+                  console.error("[stripeWebhook] Failed to upload receipt PDF to Azure blob:", rBlobErr);
+                }
+
+                const receiptContentHtml = `
+                  <p style="margin: 0 0 14px 0; font-size: 16px; line-height: 24px; color: #0f2d46; font-weight: 700;">
+                    Hello ${fullPrefundingInv.practice.name},
+                  </p>
+                  <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
+                    Thank you for your payment. This email confirms that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${fullPrefundingInv.cycle}</strong>) has been successfully paid and settled.
+                  </p>
+
+                  <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 18px 20px; margin: 20px 0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td>
+                          <span style="font-size: 11px; text-transform: uppercase; color: #166534; font-weight: 700; display: block; letter-spacing: 0.05em;">Amount Paid</span>
+                          <span style="font-size: 24px; font-weight: 900; color: #15803d; margin-top: 2px; display: block;">$${amountPaid.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </td>
+                        <td align="right" valign="middle">
+                          <span style="display: inline-block; background-color: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 6px 14px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                            ✓ PAID
+                          </span>
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 20px; font-size: 13px;">
+                    <tr>
+                      <td style="padding: 10px 16px; color: #64748b;">Receipt Number:</td>
+                      <td style="padding: 10px 16px; text-align: right; font-weight: 600; color: #0f172a;">${receiptNum}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px 16px; color: #64748b; border-top: 1px solid #edf2f7;">Payment Method:</td>
+                      <td style="padding: 10px 16px; text-align: right; font-weight: 600; color: #0f172a; border-top: 1px solid #edf2f7;">${dbPaymentMethod}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 10px 16px; color: #64748b; border-top: 1px solid #edf2f7;">Paid Date:</td>
+                      <td style="padding: 10px 16px; text-align: right; font-weight: 600; color: #0f172a; border-top: 1px solid #edf2f7;">${new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}</td>
+                    </tr>
+                  </table>
+
+                  <p style="margin: 0; font-size: 13px; line-height: 20px; color: #64748b;">
+                    📎 <strong>Receipt Attached:</strong> Your official payment receipt PDF (<strong>${receiptNum}.pdf</strong>) is attached to this email for your financial and tax records.
+                  </p>
+                `;
+
+                const receiptEmailBody = wrapPrefundingEmailLayout({
+                  title: "Payment Receipt Confirmation",
+                  subtitle: "Tristate MSO Prefunding Department",
+                  preheader: `Payment receipt for Prefunding Invoice #${invNum}. Amount paid: $${amountPaid.toFixed(2)}.`,
+                  contentHtml: receiptContentHtml,
+                  invoiceNumber: invNum,
+                });
+
+                const receiptFileName = `Receipt-${invNum}.pdf`;
+
+                for (const toEmail of uniqueReceiptEmails) {
+                  try {
+                    await sendOutlookEmail(toEmail, `Payment Received - Receipt #${receiptNum}`, receiptEmailBody, {
+                      attachments: [
+                        {
+                          name: receiptFileName,
+                          contentType: "application/pdf",
+                          contentBytes: receiptPdfBuffer.toString("base64"),
+                        },
+                      ],
+                    });
+                    console.log(`[stripeWebhook] Successfully sent Prefunding receipt email to ${toEmail}`);
+                  } catch (eErr) {
+                    console.error(`[stripeWebhook] Failed to send Prefunding receipt email to ${toEmail}:`, eErr);
+                  }
+                }
+              }
+            }
+          } catch (rErr) {
+            console.error(`Failed to generate or send receipt email for prefunding invoice ${prefundingInv.id}:`, rErr);
+          }
+
+          return;
+        }
+
+        return;
+      }
 
       await logStripeWebhookEvent(event, invoice.id);
 
@@ -1317,7 +1840,8 @@ async function processStripeWebhookEvent(event: any) {
         if (practice) {
           if (practice.persons) {
             for (const pp of practice.persons) {
-              if (pp.person?.email && pp.person.email.includes("@")) {
+              const roles = (pp.person?.roles || []) as string[];
+              if (!roles.includes("EMPLOYEE") && pp.person?.email && pp.person.email.includes("@")) {
                 emails.push(pp.person.email.trim());
               }
             }

@@ -12,6 +12,7 @@ export async function processPendingTransfers() {
   try {
     const pendingTransfers = await prisma.invoiceConnectedAccountTransfer.findMany({
       where: {
+        invoiceId: { not: null },
         status: { in: ["PENDING", "FAILED"] },
       },
       include: { invoice: true }
@@ -26,7 +27,7 @@ export async function processPendingTransfers() {
     let totalReadyGrossAmount = 0;
 
     for (const transfer of pendingTransfers) {
-      const stripeInvoiceId = transfer.invoice.stripeInvoiceId;
+      const stripeInvoiceId = transfer.invoice?.stripeInvoiceId || (transfer as any).prefundingInvoice?.stripeInvoiceId;
       if (!stripeInvoiceId) {
         console.warn(`[stripe-transfers] Transfer ${transfer.id} has no stripeInvoiceId. Skipping.`);
         continue;

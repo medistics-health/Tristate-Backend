@@ -81,6 +81,16 @@ type PracticeBody = {
   processingFeeConfig?: unknown;
   groupNpis?: GroupNpiInput[];
   goLiveTarget?: string | null;
+  isPrefundingEnabled?: boolean;
+  prefundingCycle?: string | null;
+  prefundingStartDate?: string | null;
+  prefundingDueOn?: number | null;
+  prefundingReminderOn?: number | null;
+  prefundingStripeAccountId?: string | null;
+  prefundingInvoiceRecipientId?: string | null;
+  prefundingReminderRecipientId?: string | null;
+  prefundingState?: string | null;
+  prefundingRateIds?: string[];
   referredBy?: string | null;
   addressLine1?: string | null;
   addressLine2?: string | null;
@@ -119,7 +129,7 @@ const practiceProfileInclude = {
     include: { person: true },
     orderBy: { createdAt: "asc" as const },
   },
-};
+} as any;
 
 type SendOnboardingEmailBody = {
   practiceId: string;
@@ -627,6 +637,9 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
           taxId: true,
           groupNpis: true,
           agreements: true,
+          prefundingRates: {
+            include: { prefundingRate: true },
+          },
           persons: {
             include: {
               person: true,
@@ -692,6 +705,16 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       processingFeeConfig,
       groupNpis,
       goLiveTarget,
+      isPrefundingEnabled,
+      prefundingCycle,
+      prefundingStartDate,
+      prefundingDueOn,
+      prefundingReminderOn,
+      prefundingStripeAccountId,
+      prefundingInvoiceRecipientId,
+      prefundingReminderRecipientId,
+      prefundingState,
+      prefundingRateIds,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -729,6 +752,30 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
             ? parsedServiceLines.allowedServiceLines
             : undefined,
       });
+    }
+
+    if (isPrefundingEnabled) {
+      if (!prefundingCycle || !String(prefundingCycle).trim()) {
+        return res.status(400).json({ message: "Prefunding Cycle is required when Prefunding is enabled." });
+      }
+      if (!prefundingStartDate) {
+        return res.status(400).json({ message: "Prefunding Start Date is required when Prefunding is enabled." });
+      }
+      if (prefundingDueOn === undefined || prefundingDueOn === null || Number(prefundingDueOn) <= 0) {
+        return res.status(400).json({ message: "Due On (Days Before Start) is required and must be greater than 0." });
+      }
+      if (!prefundingState || !String(prefundingState).trim()) {
+        return res.status(400).json({ message: "State of Operation is required when Prefunding is enabled." });
+      }
+      if (prefundingReminderOn === undefined || prefundingReminderOn === null || Number(prefundingReminderOn) <= 0) {
+        return res.status(400).json({ message: "Reminder On (Days Before Due) is required and must be greater than 0." });
+      }
+      if (!prefundingStripeAccountId || !String(prefundingStripeAccountId).trim()) {
+        return res.status(400).json({ message: "Stripe Account is required when Prefunding is enabled." });
+      }
+      if (!prefundingInvoiceRecipientId || !String(prefundingInvoiceRecipientId).trim()) {
+        return res.status(400).json({ message: "Prefunding Invoice Recipient is required when Prefunding is enabled." });
+      }
     }
 
     if (
@@ -891,8 +938,29 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       ...(defaultCurrency !== undefined
         ? { defaultCurrency: defaultCurrency || null }
         : {}),
+      ...(isPrefundingEnabled !== undefined ? { isPrefundingEnabled } : {}),
+      ...(prefundingCycle !== undefined ? { prefundingCycle } : {}),
+      ...(prefundingStartDate !== undefined ? { prefundingStartDate: prefundingStartDate ? new Date(prefundingStartDate) : null } : {}),
+      ...(prefundingDueOn !== undefined ? { prefundingDueOn } : {}),
+      ...(prefundingReminderOn !== undefined ? { prefundingReminderOn } : {}),
+      ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
+      ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
+      ...(prefundingReminderRecipientId !== undefined ? { prefundingReminderRecipientId } : {}),
+      ...(prefundingState !== undefined ? { prefundingState } : {}),
+      ...(prefundingRateIds !== undefined ? { prefundingRates: { create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })) } } : {}),
     };
 
+    if (isPrefundingEnabled === false) {
+      practiceData.prefundingCycle = null;
+      practiceData.prefundingStartDate = null;
+      practiceData.prefundingDueOn = null;
+      practiceData.prefundingReminderOn = null;
+      practiceData.prefundingStripeAccountId = null;
+      practiceData.prefundingInvoiceRecipientId = null;
+      practiceData.prefundingReminderRecipientId = null;
+      practiceData.prefundingState = null;
+      practiceData.prefundingRates = undefined;
+    }
     const profile = profileScalarData(req.body as PracticeBody);
     if ("error" in profile) {
       return res.status(400).json({ message: profile.error });
@@ -990,6 +1058,9 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         taxId: true,
         billToTaxId: true,
         groupNpis: true,
+        prefundingRates: {
+          include: { prefundingRate: true },
+        },
         persons: {
           include: {
             person: true,
@@ -1033,7 +1104,7 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
       message: "Practice fetched successfully.",
       practice: {
         ...withGoLiveTarget(practiceData),
-        hubDocuments: serializeLinkedHubDocuments(hubDocumentLinks),
+        hubDocuments: serializeLinkedHubDocuments(hubDocumentLinks as any),
       },
       allGroupNpisByTaxId,
     });
@@ -1067,6 +1138,16 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       processingFeeConfig,
       groupNpis,
       goLiveTarget,
+      isPrefundingEnabled,
+      prefundingCycle,
+      prefundingStartDate,
+      prefundingDueOn,
+      prefundingReminderOn,
+      prefundingStripeAccountId,
+      prefundingInvoiceRecipientId,
+      prefundingReminderRecipientId,
+      prefundingState,
+      prefundingRateIds,
     } = req.body as PracticeBody;
 
     if (!req.user?.sub) {
@@ -1093,6 +1174,30 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
       });
+    }
+
+    if (isPrefundingEnabled) {
+      if (!prefundingCycle || !String(prefundingCycle).trim()) {
+        return res.status(400).json({ message: "Prefunding Cycle is required when Prefunding is enabled." });
+      }
+      if (!prefundingStartDate) {
+        return res.status(400).json({ message: "Prefunding Start Date is required when Prefunding is enabled." });
+      }
+      if (prefundingDueOn === undefined || prefundingDueOn === null || Number(prefundingDueOn) <= 0) {
+        return res.status(400).json({ message: "Due On (Days Before Start) is required and must be greater than 0." });
+      }
+      if (!prefundingState || !String(prefundingState).trim()) {
+        return res.status(400).json({ message: "State of Operation is required when Prefunding is enabled." });
+      }
+      if (prefundingReminderOn === undefined || prefundingReminderOn === null || Number(prefundingReminderOn) <= 0) {
+        return res.status(400).json({ message: "Reminder On (Days Before Due) is required and must be greater than 0." });
+      }
+      if (!prefundingStripeAccountId || !String(prefundingStripeAccountId).trim()) {
+        return res.status(400).json({ message: "Stripe Account is required when Prefunding is enabled." });
+      }
+      if (!prefundingInvoiceRecipientId || !String(prefundingInvoiceRecipientId).trim()) {
+        return res.status(400).json({ message: "Prefunding Invoice Recipient is required when Prefunding is enabled." });
+      }
     }
 
     if (
@@ -1261,6 +1366,27 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       ...(defaultCurrency !== undefined
         ? { defaultCurrency: defaultCurrency || null }
         : {}),
+      ...(isPrefundingEnabled !== undefined ? { isPrefundingEnabled } : {}),
+      ...(prefundingCycle !== undefined ? { prefundingCycle } : {}),
+      ...(prefundingStartDate !== undefined ? { prefundingStartDate: prefundingStartDate ? new Date(prefundingStartDate) : null } : {}),
+      ...(prefundingDueOn !== undefined ? { prefundingDueOn } : {}),
+      ...(prefundingReminderOn !== undefined ? { prefundingReminderOn } : {}),
+      ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
+      ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
+      ...(prefundingReminderRecipientId !== undefined ? { prefundingReminderRecipientId } : {}),
+      ...(prefundingState !== undefined ? { prefundingState } : {}),
+      ...(prefundingRateIds !== undefined
+        ? {
+            prefundingRates: {
+              deleteMany: {},
+              ...(Array.isArray(prefundingRateIds) && prefundingRateIds.length > 0
+                ? {
+                    create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })),
+                  }
+                : {}),
+            },
+          }
+        : {}),
       ...(billingPaymentMethod !== undefined
         ? {
             billingPaymentMethod:
@@ -1283,6 +1409,17 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         : {}),
     };
 
+    if (isPrefundingEnabled === false) {
+      updateData.prefundingCycle = null;
+      updateData.prefundingStartDate = null;
+      updateData.prefundingDueOn = null;
+      updateData.prefundingReminderOn = null;
+      updateData.prefundingStripeAccountId = null;
+      updateData.prefundingInvoiceRecipientId = null;
+      updateData.prefundingReminderRecipientId = null;
+      updateData.prefundingState = null;
+      updateData.prefundingRates = { deleteMany: {} };
+    }
     const profile = profileScalarData(req.body as PracticeBody);
     if ("error" in profile) {
       return res.status(400).json({ message: profile.error });
