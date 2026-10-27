@@ -889,10 +889,14 @@ export async function processAndEmailInvoice(invoiceId: string): Promise<void> {
     });
   }
 
-  // Fetch recipient emails
+  // Fetch recipient emails (exclude people with EMPLOYEE role)
   const emails =
     invoice.practice.persons
-      ?.map((cp) => cp.person?.email)
+      ?.filter((cp) => {
+        const roles = (cp.person?.roles || []) as string[];
+        return !roles.includes("EMPLOYEE");
+      })
+      .map((cp) => cp.person?.email)
       .filter(
         (email): email is string =>
           typeof email === "string" && email.includes("@"),

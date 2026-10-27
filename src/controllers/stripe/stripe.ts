@@ -1840,7 +1840,8 @@ async function processStripeWebhookEvent(event: any) {
         if (practice) {
           if (practice.persons) {
             for (const pp of practice.persons) {
-              if (pp.person?.email && pp.person.email.includes("@")) {
+              const roles = (pp.person?.roles || []) as string[];
+              if (!roles.includes("EMPLOYEE") && pp.person?.email && pp.person.email.includes("@")) {
                 emails.push(pp.person.email.trim());
               }
             }
