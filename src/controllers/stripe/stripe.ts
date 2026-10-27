@@ -1537,7 +1537,7 @@ async function processStripeWebhookEvent(event: any) {
                       <tr>
                         <td>
                           <span style="font-size: 11px; text-transform: uppercase; color: #166534; font-weight: 700; display: block; letter-spacing: 0.05em;">Amount Paid</span>
-                          <span style="font-size: 24px; font-weight: 900; color: #15803d; margin-top: 2px; display: block;">${amountPaid.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          <span style="font-size: 24px; font-weight: 900; color: #15803d; margin-top: 2px; display: block;">$${amountPaid.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                         </td>
                         <td align="right" valign="middle">
                           <span style="display: inline-block; background-color: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 6px 14px; border-radius: 9999px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
@@ -1571,7 +1571,7 @@ async function processStripeWebhookEvent(event: any) {
                 const receiptEmailBody = wrapPrefundingEmailLayout({
                   title: "Payment Receipt Confirmation",
                   subtitle: "Tristate MSO Prefunding Department",
-                  preheader: `Payment receipt for Prefunding Invoice #${invNum}. Amount paid: ${amountPaid.toFixed(2)}.`,
+                  preheader: `Payment receipt for Prefunding Invoice #${invNum}. Amount paid: $${amountPaid.toFixed(2)}.`,
                   contentHtml: receiptContentHtml,
                   invoiceNumber: invNum,
                 });
