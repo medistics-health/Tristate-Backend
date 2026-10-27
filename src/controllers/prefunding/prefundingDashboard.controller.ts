@@ -276,7 +276,12 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
       const subtotal = inv.subtotalAmount ? Number(inv.subtotalAmount) : amt;
       const companyFee = inv.companyFeeAmount ? Number(inv.companyFeeAmount) : 0;
       const net = inv.netAmount !== null && inv.netAmount !== undefined ? Number(inv.netAmount) : Math.max(0, subtotal - companyFee);
-      totalNetAmountSum += net;
+      
+      // Only add to Total Net Amount (Stripe transfer) when Transfer Status is Completed
+      const isTransferCompleted = inv.stripeTransfers && inv.stripeTransfers.length > 0 && inv.stripeTransfers.some((t: any) => t.status === "SENT");
+      if (isTransferCompleted) {
+        totalNetAmountSum += net;
+      }
 
       const normStatus = (inv.status || "").toLowerCase().trim();
       switch (normStatus) {
@@ -381,7 +386,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
           p.name,
           p.prefundingStartDate,
           p.prefundingCycle,
-          4
+          12 // Full 12-cycle horizon
         );
 
         for (const c of cycles) {
@@ -466,7 +471,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
           totalAmount: Number(st._sum.amount || 0),
         })),
       },
-      upcomingCycles: upcomingCyclesList.slice(0, 8),
+      upcomingCycles: upcomingCyclesList,
       reminders,
       recentInvoices,
       availablePractices: allEnabledPractices.map((p) => ({

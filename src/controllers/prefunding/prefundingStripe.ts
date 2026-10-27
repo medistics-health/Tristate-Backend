@@ -250,9 +250,31 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
   // 5. Generate A4 Prefunding Invoice PDF buffer
   let pdfBuffer: Buffer | null = null;
   try {
-    const firstPerson = inv.practice?.persons?.[0]?.person;
-    const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : undefined;
-    const recipientEmail = firstPerson?.email || inv.practice?.emails?.[0] || undefined;
+    let recipientName: string | undefined = undefined;
+    let recipientEmail: string | undefined = undefined;
+
+    if (inv.practice?.prefundingInvoiceRecipientId) {
+      const designated = await prisma.person.findUnique({
+        where: { id: inv.practice.prefundingInvoiceRecipientId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      if (designated) {
+        recipientName = `${designated.firstName || ""} ${designated.lastName || ""}`.trim() || undefined;
+        recipientEmail = designated.email || undefined;
+      }
+    }
+
+    if (!recipientEmail) {
+      const firstPerson = inv.practice?.persons?.[0]?.person;
+      if (firstPerson) {
+        recipientName = recipientName || `${firstPerson.firstName || ""} ${firstPerson.lastName || ""}`.trim() || undefined;
+        recipientEmail = firstPerson.email || undefined;
+      }
+    }
+
+    if (!recipientEmail && inv.practice?.emails?.length) {
+      recipientEmail = inv.practice.emails[0];
+    }
 
     pdfBuffer = await generatePrefundingInvoicePdfBuffer({
       invoiceNumber,
@@ -304,7 +326,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     }
   }
 
-  // 6. Gather Recipients & Send Email
+  // 6. Gather Recipients & Send Email - ONLY send to designated prefundingInvoiceRecipientId
   const recipientEmails: string[] = [];
 
   // Check designated prefundingInvoiceRecipientId on practice first
@@ -318,16 +340,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     }
   }
 
-  // Practice associated persons
-  if (inv.practice.persons) {
-    for (const pp of inv.practice.persons) {
-      if (pp.person?.email && pp.person.email.includes("@")) {
-        recipientEmails.push(pp.person.email.trim());
-      }
-    }
-  }
-
-  // Primary practice fallback email
+  // Fallback to primary email only if designated recipient email is absent
   if (recipientEmails.length === 0) {
     const primaryEmail = await getPrimaryPracticeEmail(inv.practice);
     if (primaryEmail) {
@@ -594,7 +607,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
           <tr>
             <td colspan="2" style="padding: 10px 18px 14px 18px; vertical-align: top; border-top: 1px solid #edf2f7;">
               <span style="display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; font-family: 'Google Sans', sans-serif;">
-                Recipient (Primary Contact)
+                Recipient
               </span>
               <div style="margin-top: 3px;">
                 <span style="font-size: 14px; font-weight: 600; color: #1e293b; font-family: 'Google Sans', sans-serif;">

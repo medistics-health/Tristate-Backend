@@ -13,6 +13,8 @@ export type AuthTokenPayload = {
   userName: string;
   email: string;
   role: string;
+  hasPrefundingAccess?: boolean;
+  prefundingPermissions?: string[];
   iat?: number;
   exp?: number;
 };

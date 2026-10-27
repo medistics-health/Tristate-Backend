@@ -1,10 +1,11 @@
+import cron from 'node-cron';
 import { InvoiceStatus } from "../../generated/prisma/client";
 import { prisma } from "../lib/prisma";
 import { sendOutlookEmail } from "../utils/outlook";
 import { getPrimaryPracticeEmail } from "../utils/practiceEmail";
 import { wrapPrefundingEmailLayout } from "../utils/prefundingEmailLayout";
 
-const DEFAULT_INTERVAL_MINUTES = 60;
+const DEFAULT_INTERVAL_MINUTES = 10;
 
 export async function processInvoiceReminders() {
   const formatUTCDate = (d: Date | string) => {
@@ -190,7 +191,7 @@ export async function processInvoiceReminders() {
       // Section 17: Practice configuration prefundingReminderOn (days before Due Date)
       const practiceReminderDays = pInv.practice.prefundingReminderOn ?? 2;
 
-      // Gather recipient emails
+      // Gather recipient emails - ONLY send invoice reminders to prefundingInvoiceRecipientId
       const pEmails: string[] = [];
       if (pInv.practice.prefundingInvoiceRecipientId) {
         const designated = await prisma.person.findUnique({
@@ -199,14 +200,6 @@ export async function processInvoiceReminders() {
         });
         if (designated?.email && designated.email.includes("@")) {
           pEmails.push(designated.email.trim());
-        }
-      }
-
-      if (pInv.practice.persons) {
-        for (const pp of pInv.practice.persons) {
-          if (pp.person?.email && pp.person.email.includes("@")) {
-            pEmails.push(pp.person.email.trim());
-          }
         }
       }
 
@@ -329,21 +322,181 @@ export async function processInvoiceReminders() {
   }
 }
 
-export function startInvoiceReminderJob() {
+
+// Prefunding Cycle Schedule Reminders (Due On / Reminder On) sent to prefundingReminderRecipientId
+export async function processPrefundingCycleReminders() {
+  try {
+    const formatUTCDate = (d: Date | string) => {
+      const date = new Date(d);
+      return `${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}/${date.getUTCFullYear()}`;
+    };
+
+    const practices = await prisma.practice.findMany({
+      where: {
+        isPrefundingEnabled: true,
+        prefundingReminderRecipientId: { not: null },
+      },
+      include: {
+        prefundingRates: {
+          include: { prefundingRate: true },
+        },
+      },
+    });
+
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    for (const practice of practices) {
+      if (!practice.prefundingStartDate || !practice.prefundingCycle || !practice.prefundingReminderRecipientId) {
+        continue;
+      }
+
+      const reminderPerson = await prisma.person.findUnique({
+        where: { id: practice.prefundingReminderRecipientId },
+        select: { email: true, firstName: true, lastName: true },
+      });
+
+      if (!reminderPerson?.email || !reminderPerson.email.includes('@')) {
+        continue;
+      }
+
+      const dueOnDays = practice.prefundingDueOn ?? 5;
+      const reminderOnDays = practice.prefundingReminderOn ?? 6;
+
+      // Calculate next upcoming cycle start based on prefundingStartDate and prefundingCycle
+      const startDate = new Date(practice.prefundingStartDate);
+      let cycleStart = new Date(startDate);
+
+      const addCycle = (date: Date, cycle: string) => {
+        const next = new Date(date);
+        switch (cycle.toUpperCase()) {
+          case 'WEEKLY':
+            next.setUTCDate(next.getUTCDate() + 7);
+            break;
+          case 'BI-WEEKLY':
+          case 'BIWEEKLY':
+            next.setUTCDate(next.getUTCDate() + 14);
+            break;
+          case 'MONTHLY':
+            next.setUTCMonth(next.getUTCMonth() + 1);
+            break;
+          case 'QUARTERLY':
+            next.setUTCMonth(next.getUTCMonth() + 3);
+            break;
+          case 'SEMI-ANNUALLY':
+          case 'SEMIANNUALLY':
+            next.setUTCMonth(next.getUTCMonth() + 6);
+            break;
+          case 'YEARLY':
+          case 'ANNUALLY':
+            next.setUTCFullYear(next.getUTCFullYear() + 1);
+            break;
+          default:
+            next.setUTCMonth(next.getUTCMonth() + 1);
+        }
+        return next;
+      };
+
+      while (cycleStart < now) {
+        cycleStart = addCycle(cycleStart, practice.prefundingCycle);
+      }
+
+      // Cycle Due Date = cycleStart minus dueOnDays
+      const cycleDueDate = new Date(cycleStart);
+      cycleDueDate.setUTCDate(cycleDueDate.getUTCDate() - dueOnDays);
+
+      // Cycle Reminder Date = cycleDueDate minus reminderOnDays
+      const cycleReminderDate = new Date(cycleDueDate);
+      cycleReminderDate.setUTCDate(cycleReminderDate.getUTCDate() - reminderOnDays);
+
+      const reminderDateStr = cycleReminderDate.toISOString().slice(0, 10);
+      const dueDateStr = cycleDueDate.toISOString().slice(0, 10);
+
+      const cycleKey = `${practice.prefundingCycle}_${dueDateStr}`;
+      const shouldSendDue = todayStr === dueDateStr && practice.lastPrefundingDueSentCycleKey !== cycleKey;
+      const shouldSendReminder = !shouldSendDue && todayStr === reminderDateStr && practice.lastPrefundingReminderSentCycleKey !== cycleKey;
+
+      if (shouldSendDue || shouldSendReminder) {
+        const isDueDay = shouldSendDue;
+        const subject = isDueDay
+          ? `Prefunding Cycle Payment Due Today: ${practice.name} (${practice.prefundingCycle})`
+          : `Prefunding Upcoming Cycle Reminder: ${practice.name} (${practice.prefundingCycle})`;
+
+        const recipientName = `${reminderPerson.firstName || ''} ${reminderPerson.lastName || ''}`.trim() || 'Valued Partner';
+
+        const contentHtml = `
+          <p style="margin: 0 0 14px 0; font-size: 16px; line-height: 24px; color: #0f2d46; font-weight: 700;">
+            Hello ${recipientName},
+          </p>
+          <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
+            This is a prefunding cycle notification for <strong>${practice.name}</strong>.
+          </p>
+          <div style="background-color: #f8fbfe; border: 1px solid #dbe8f3; border-radius: 12px; padding: 18px 22px; margin: 20px 0;">
+            <h4 style="margin: 0 0 12px 0; color: #0f4c81; font-size: 15px;">Cycle Details</h4>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #334155;">
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600;">Cycle Frequency:</td>
+                <td style="padding: 6px 0; text-align: right;">${practice.prefundingCycle}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600;">Next Cycle Period Starts:</td>
+                <td style="padding: 6px 0; text-align: right; color: #0f4c81; font-weight: 700;">${formatUTCDate(cycleStart)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600;">Prefunding Due Date:</td>
+                <td style="padding: 6px 0; text-align: right; color: #dc2626; font-weight: 700;">${formatUTCDate(cycleDueDate)} (${dueOnDays} days before start)</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600;">Reminder Window:</td>
+                <td style="padding: 6px 0; text-align: right;">${reminderOnDays} days before due</td>
+              </tr>
+            </table>
+          </div>
+          <p style="margin: 20px 0 0 0; font-size: 13px; line-height: 20px; color: #64748b;">
+            Please make sure prefunding allocations are calculated and confirmed prior to the cycle start date. If you have questions, contact us at <a href="mailto:info@tristatemso.com" style="color: #0f4c81; font-weight: 600;">info@tristatemso.com</a>.
+          </p>
+        `;
+
+        const body = wrapPrefundingEmailLayout({
+          title: isDueDay ? 'Prefunding Cycle Due Today' : 'Upcoming Prefunding Cycle Reminder',
+          subtitle: `Cycle: ${practice.prefundingCycle}`,
+          preheader: `Upcoming prefunding cycle schedule for ${practice.name}.`,
+          contentHtml,
+        });
+
+        try {
+          await sendOutlookEmail(reminderPerson.email.trim(), subject, body);
+          console.log(`[invoice-reminder] Sent prefunding cycle reminder to ${reminderPerson.email.trim()} for practice ${practice.name}`);
+
+          // Mark as sent in DB immediately so it is sent ONLY ONCE and never repeated
+          if (isDueDay) {
+            await prisma.practice.update({
+              where: { id: practice.id },
+              data: { lastPrefundingDueSentCycleKey: cycleKey },
+            });
+          } else {
+            await prisma.practice.update({
+              where: { id: practice.id },
+              data: { lastPrefundingReminderSentCycleKey: cycleKey },
+            });
+          }
+        } catch (mailErr) {
+          console.error(`[invoice-reminder] Failed to send cycle reminder email to ${reminderPerson.email}:`, mailErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[invoice-reminder] Error in processPrefundingCycleReminders:', err);
+  }
+}
+
+export function startInvoiceReminderJob(
+  cronExpression: string = "*/10 * * * *", // Runs every 10 minutes (cron)
+) {
   if (process.env.ENABLE_INVOICE_REMINDER_JOB === "false") {
     console.log("[invoice-reminder] Job disabled by environment.");
     return;
   }
-
-  const configuredInterval = Number(
-    process.env.INVOICE_REMINDER_CHECK_INTERVAL_MINUTES ||
-      DEFAULT_INTERVAL_MINUTES,
-  );
-  const intervalMinutes =
-    Number.isFinite(configuredInterval) && configuredInterval > 0
-      ? configuredInterval
-      : DEFAULT_INTERVAL_MINUTES;
-  const intervalMs = intervalMinutes * 60 * 1000;
 
   let isRunning = false;
 
@@ -356,6 +509,7 @@ export function startInvoiceReminderJob() {
 
     try {
       await processInvoiceReminders();
+      await processPrefundingCycleReminders();
     } catch (error) {
       console.error("[invoice-reminder] Failed to process invoice reminders:", error);
     } finally {
@@ -363,16 +517,15 @@ export function startInvoiceReminderJob() {
     }
   };
 
-  // Run immediately on start
+  // Run once immediately on server start
   void run();
 
-  const timer = setInterval(() => {
+  // Schedule every 10 minutes using standard cron expression: */10 * * * *
+  cron.schedule(cronExpression, async () => {
     void run();
-  }, intervalMs);
-
-  timer.unref?.();
+  });
 
   console.log(
-    `[invoice-reminder] Job started. Checking every ${intervalMinutes} minute(s).`,
+    `[invoice-reminder] Job scheduled with cron expression: "${cronExpression}"`
   );
 }

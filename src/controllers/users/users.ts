@@ -48,6 +48,8 @@ export async function listUsers(req: AuthenticatedRequest, res: Response) {
           lastName: true,
           email: true,
           role: true,
+          hasPrefundingAccess: true,
+          prefundingPermissions: true,
           twoFactorEnabled: true,
           createdAt: true,
         },
@@ -77,11 +79,13 @@ export async function listUsers(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+const ALL_PREFUNDING_PERMISSIONS = ["VIEW", "CREATE", "EDIT", "CALCULATE", "APPROVE", "POST", "DELETE"];
+
 export async function updateUser(req: AuthenticatedRequest, res: Response) {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     if (!id) return res.status(400).json({ message: "User id is required." });
-    const { firstName, lastName, email, role, reset2FA } = req.body;
+    const { firstName, lastName, email, role, reset2FA, hasPrefundingAccess, prefundingPermissions } = req.body;
 
     const updateData: any = {
       firstName,
@@ -89,6 +93,18 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
       email,
       role,
     };
+
+    if (role === "ADMIN") {
+      updateData.hasPrefundingAccess = true;
+      updateData.prefundingPermissions = ALL_PREFUNDING_PERMISSIONS;
+    } else {
+      if (typeof hasPrefundingAccess === "boolean") {
+        updateData.hasPrefundingAccess = hasPrefundingAccess;
+      }
+      if (Array.isArray(prefundingPermissions)) {
+        updateData.prefundingPermissions = prefundingPermissions;
+      }
+    }
 
     if (reset2FA === true) {
       updateData.twoFactorEnabled = false;
@@ -108,6 +124,8 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
         lastName: user.lastName,
         email: user.email,
         role: user.role,
+        hasPrefundingAccess: user.hasPrefundingAccess,
+        prefundingPermissions: user.prefundingPermissions,
         twoFactorEnabled: user.twoFactorEnabled,
       },
     });
@@ -121,7 +139,7 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
 
 export async function createUser(req: AuthenticatedRequest, res: Response) {
   try {
-    const { userName, firstName, lastName, email, password, role } = req.body;
+    const { userName, firstName, lastName, email, password, role, hasPrefundingAccess, prefundingPermissions } = req.body;
 
     const existing = await prisma.user.findFirst({
       where: { OR: [{ userName }, { email }] },
@@ -133,6 +151,11 @@ export async function createUser(req: AuthenticatedRequest, res: Response) {
 
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
+    const effectivePrefundingAccess = role === "ADMIN" ? true : (hasPrefundingAccess === true);
+    const effectivePrefundingPermissions = role === "ADMIN"
+      ? ALL_PREFUNDING_PERMISSIONS
+      : (Array.isArray(prefundingPermissions) ? prefundingPermissions : []);
+
     const user = await prisma.user.create({
       data: {
         userName,
@@ -141,12 +164,21 @@ export async function createUser(req: AuthenticatedRequest, res: Response) {
         email,
         password: hashedPassword,
         role,
+        hasPrefundingAccess: effectivePrefundingAccess,
+        prefundingPermissions: effectivePrefundingPermissions,
       },
     });
 
     return res.status(201).json({
       message: "User created successfully.",
-      user: { id: user.id, userName: user.userName, email: user.email },
+      user: {
+        id: user.id,
+        userName: user.userName,
+        email: user.email,
+        role: user.role,
+        hasPrefundingAccess: user.hasPrefundingAccess,
+        prefundingPermissions: user.prefundingPermissions,
+      },
     });
   } catch (error) {
     return res.status(500).json({

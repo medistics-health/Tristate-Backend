@@ -337,6 +337,7 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
               city: true,
               state: true,
               zipCode: true,
+              prefundingInvoiceRecipientId: true,
               persons: {
                 include: {
                   person: true,
@@ -361,14 +362,37 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
       })
     ]);
 
+    // Pre-fetch designated invoice recipients in bulk for accurate display
+    const designatedRecipientIds = [
+      ...new Set(
+        invoices
+          .map((inv: any) => inv.practice?.prefundingInvoiceRecipientId)
+          .filter(Boolean)
+      ),
+    ] as string[];
+    const designatedPersons = designatedRecipientIds.length > 0
+      ? await prisma.person.findMany({
+          where: { id: { in: designatedRecipientIds } },
+          select: { id: true, firstName: true, lastName: true, email: true },
+        })
+      : [];
+    const designatedPersonMap = new Map(
+      designatedPersons.map((p) => [p.id, p])
+    );
+
     const formattedInvoices = invoices.map((inv: any) => {
       const year = new Date(inv.createdAt).getFullYear();
       const code = inv.id.replace(/-/g, "").slice(0, 5).toUpperCase();
       const invoiceNumber = inv.invoiceNumber || `INV-${year}-${code}`;
 
+      const designatedP = inv.practice?.prefundingInvoiceRecipientId
+        ? designatedPersonMap.get(inv.practice.prefundingInvoiceRecipientId)
+        : null;
       const firstPerson = inv.practice?.persons?.[0]?.person;
-      const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : "";
-      const recipientEmail = firstPerson?.email || inv.practice?.emails?.[0] || "";
+      const recipientName = designatedP
+        ? `${designatedP.firstName || ""} ${designatedP.lastName || ""}`.trim()
+        : (firstPerson ? `${firstPerson.firstName || ""} ${firstPerson.lastName || ""}`.trim() : "");
+      const recipientEmail = designatedP?.email || firstPerson?.email || inv.practice?.emails?.[0] || "";
       const recipient = recipientName
         ? (recipientEmail ? `${recipientName} (${recipientEmail})` : recipientName)
         : (recipientEmail || "N/A");
@@ -506,9 +530,18 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
     const code = inv.id.replace(/-/g, "").slice(0, 5).toUpperCase();
     const invoiceNumber = inv.invoiceNumber || `INV-${year}-${code}`;
 
+    let designatedP: any = null;
+    if (inv.practice?.prefundingInvoiceRecipientId) {
+      designatedP = await prisma.person.findUnique({
+        where: { id: inv.practice.prefundingInvoiceRecipientId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+    }
     const firstPerson = inv.practice?.persons?.[0]?.person;
-    const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : "";
-    const recipientEmail = firstPerson?.email || inv.practice?.emails?.[0] || "";
+    const recipientName = designatedP
+      ? `${designatedP.firstName || ""} ${designatedP.lastName || ""}`.trim()
+      : (firstPerson ? `${firstPerson.firstName || ""} ${firstPerson.lastName || ""}`.trim() : "");
+    const recipientEmail = designatedP?.email || firstPerson?.email || inv.practice?.emails?.[0] || "";
     const recipient = recipientName
       ? (recipientEmail ? `${recipientName} (${recipientEmail})` : recipientName)
       : (recipientEmail || "N/A");
@@ -615,9 +648,18 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
     // and accurate line-item totals) without serving a stale static blob.
     // If you need the raw stored Azure blob URL, it is available via the invoicePdfBlobUrl / receiptPdfBlobUrl fields.
 
+    let designatedP: any = null;
+    if (inv.practice?.prefundingInvoiceRecipientId) {
+      designatedP = await prisma.person.findUnique({
+        where: { id: inv.practice.prefundingInvoiceRecipientId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+    }
     const firstPerson = inv.practice?.persons?.[0]?.person;
-    const recipientName = firstPerson ? `${firstPerson.firstName} ${firstPerson.lastName}`.trim() : undefined;
-    const recipientEmail = firstPerson?.email || inv.practice?.emails?.[0] || undefined;
+    const recipientName = designatedP
+      ? `${designatedP.firstName || ""} ${designatedP.lastName || ""}`.trim() || undefined
+      : (firstPerson ? `${firstPerson.firstName || ""} ${firstPerson.lastName || ""}`.trim() : undefined);
+    const recipientEmail = designatedP?.email || firstPerson?.email || inv.practice?.emails?.[0] || undefined;
 
     const year = new Date(inv.createdAt).getFullYear();
     const code = inv.id.replace(/-/g, "").slice(0, 5).toUpperCase();

@@ -17,7 +17,8 @@ model User {
   role                UserRoles
   twoFactorEnabled    Boolean   @default(false) @map("two_factor_enabled")
   twoFactorSecret     String?   @map("two_factor_secret")
-  hasPrefundingAccess Boolean   @default(false) @map("has_prefunding_access")
+  hasPrefundingAccess   Boolean   @default(false) @map("has_prefunding_access")
+  prefundingPermissions String[]  @default([]) @map("prefunding_permissions")
 
   createdAt                     DateTime                     @default(now()) @map("created_at")
   updatedAt                     DateTime                     @default(now()) @updatedAt @map("updated_at")
@@ -148,6 +149,9 @@ model Practice {
   prefundingReminderOn         Int?                     @map("prefunding_reminder_on")
   prefundingStripeAccountId    String?                  @map("prefunding_stripe_account_id")
   prefundingInvoiceRecipientId String?                  @map("prefunding_invoice_recipient_id") @db.Uuid
+  prefundingReminderRecipientId String?                 @map("prefunding_reminder_recipient_id") @db.Uuid
+  lastPrefundingReminderSentCycleKey String?            @map("last_prefunding_reminder_sent_cycle_key")
+  lastPrefundingDueSentCycleKey      String?            @map("last_prefunding_due_sent_cycle_key")
   prefundingState              String?                  @map("prefunding_state")
   prefundingRates              PrefundingPracticeRate[]
   prefundingInvoices           PrefundingInvoice[]

@@ -74,15 +74,14 @@ export async function validatePracticeForPrefunding(
     errors.push("Prefunding Start Date must be configured in Practice Settings.");
   }
 
-  // 4. At least one applicable Prefunding Rate should be selected where required
+  // 4. Prefunding Rates (Optional)
   const ratesCount = practice.prefundingRates?.length || 0;
   if (ratesCount === 0) {
-    // Check if there are any rates assigned directly or globally to this practice
     const assignedRatesCount = await prisma.prefundingPracticeRate.count({
       where: { practiceId },
     });
     if (assignedRatesCount === 0) {
-      errors.push("At least one applicable Prefunding Rate must be selected / assigned to the practice.");
+      warnings.push("No specific Prefunding Rates are assigned to this practice; base wage rates will apply.");
     }
   }
 
@@ -122,13 +121,26 @@ export async function validatePracticeForPrefunding(
     errors.push("State of Operation must be configured in Practice Settings.");
   }
 
-  // 7. Due On and Reminder On must contain valid values (numbers > 0)
-  if (practice.prefundingDueOn === null || practice.prefundingDueOn === undefined || Number(practice.prefundingDueOn) <= 0) {
+  // 7. Due On and Reminder On must contain valid values (numbers > 0) and Reminder On > Due On
+  const dueOnNum = Number(practice.prefundingDueOn);
+  const reminderOnNum = Number(practice.prefundingReminderOn);
+
+  if (practice.prefundingDueOn === null || practice.prefundingDueOn === undefined || isNaN(dueOnNum) || dueOnNum <= 0) {
     errors.push("Due On must contain a valid positive number (days before cycle start).");
   }
 
-  if (practice.prefundingReminderOn === null || practice.prefundingReminderOn === undefined || Number(practice.prefundingReminderOn) <= 0) {
+  if (practice.prefundingReminderOn === null || practice.prefundingReminderOn === undefined || isNaN(reminderOnNum) || reminderOnNum <= 0) {
     errors.push("Reminder On must contain a valid positive number (days before due date).");
+  }
+
+  if (
+    practice.prefundingDueOn !== null &&
+    practice.prefundingDueOn !== undefined &&
+    practice.prefundingReminderOn !== null &&
+    practice.prefundingReminderOn !== undefined &&
+    reminderOnNum <= dueOnNum
+  ) {
+    errors.push(`Reminder On (Days Before Due) must be greater than Due On (${dueOnNum} days) — at least ${dueOnNum + 1} days.`);
   }
 
   // 8. A valid Prefunding Stripe Account must be selected before invoice creation/posting where Stripe payment processing is applicable

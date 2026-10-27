@@ -88,6 +88,7 @@ type PracticeBody = {
   prefundingReminderOn?: number | null;
   prefundingStripeAccountId?: string | null;
   prefundingInvoiceRecipientId?: string | null;
+  prefundingReminderRecipientId?: string | null;
   prefundingState?: string | null;
   prefundingRateIds?: string[];
   referredBy?: string | null;
@@ -706,6 +707,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       prefundingReminderOn,
       prefundingStripeAccountId,
       prefundingInvoiceRecipientId,
+      prefundingReminderRecipientId,
       prefundingState,
       prefundingRateIds,
     } = req.body as PracticeBody;
@@ -768,9 +770,6 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       }
       if (!prefundingInvoiceRecipientId || !String(prefundingInvoiceRecipientId).trim()) {
         return res.status(400).json({ message: "Prefunding Invoice Recipient is required when Prefunding is enabled." });
-      }
-      if (!Array.isArray(prefundingRateIds) || prefundingRateIds.length === 0) {
-        return res.status(400).json({ message: "At least one Applicable Prefunding Rate must be assigned when Prefunding is enabled." });
       }
     }
 
@@ -941,6 +940,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       ...(prefundingReminderOn !== undefined ? { prefundingReminderOn } : {}),
       ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
       ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
+      ...(prefundingReminderRecipientId !== undefined ? { prefundingReminderRecipientId } : {}),
       ...(prefundingState !== undefined ? { prefundingState } : {}),
       ...(prefundingRateIds !== undefined ? { prefundingRates: { create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })) } } : {}),
     };
@@ -952,6 +952,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       practiceData.prefundingReminderOn = null;
       practiceData.prefundingStripeAccountId = null;
       practiceData.prefundingInvoiceRecipientId = null;
+      practiceData.prefundingReminderRecipientId = null;
       practiceData.prefundingState = null;
       practiceData.prefundingRates = undefined;
     }
@@ -1139,6 +1140,7 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       prefundingReminderOn,
       prefundingStripeAccountId,
       prefundingInvoiceRecipientId,
+      prefundingReminderRecipientId,
       prefundingState,
       prefundingRateIds,
     } = req.body as PracticeBody;
@@ -1190,9 +1192,6 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       }
       if (!prefundingInvoiceRecipientId || !String(prefundingInvoiceRecipientId).trim()) {
         return res.status(400).json({ message: "Prefunding Invoice Recipient is required when Prefunding is enabled." });
-      }
-      if (!Array.isArray(prefundingRateIds) || prefundingRateIds.length === 0) {
-        return res.status(400).json({ message: "At least one Applicable Prefunding Rate must be assigned when Prefunding is enabled." });
       }
     }
 
@@ -1369,12 +1368,17 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       ...(prefundingReminderOn !== undefined ? { prefundingReminderOn } : {}),
       ...(prefundingStripeAccountId !== undefined ? { prefundingStripeAccountId } : {}),
       ...(prefundingInvoiceRecipientId !== undefined ? { prefundingInvoiceRecipientId } : {}),
+      ...(prefundingReminderRecipientId !== undefined ? { prefundingReminderRecipientId } : {}),
       ...(prefundingState !== undefined ? { prefundingState } : {}),
-      ...(Array.isArray(prefundingRateIds) && prefundingRateIds.length > 0
+      ...(prefundingRateIds !== undefined
         ? {
             prefundingRates: {
               deleteMany: {},
-              create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })),
+              ...(Array.isArray(prefundingRateIds) && prefundingRateIds.length > 0
+                ? {
+                    create: prefundingRateIds.map((id: string) => ({ prefundingRateId: id })),
+                  }
+                : {}),
             },
           }
         : {}),
@@ -1407,6 +1411,7 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       updateData.prefundingReminderOn = null;
       updateData.prefundingStripeAccountId = null;
       updateData.prefundingInvoiceRecipientId = null;
+      updateData.prefundingReminderRecipientId = null;
       updateData.prefundingState = null;
       updateData.prefundingRates = { deleteMany: {} };
     }

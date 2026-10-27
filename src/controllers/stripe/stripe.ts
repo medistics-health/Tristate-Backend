@@ -1462,14 +1462,6 @@ async function processStripeWebhookEvent(event: any) {
                 }
               }
 
-              if (recipientEmails.length === 0 && fullPrefundingInv.practice.persons) {
-                for (const pp of fullPrefundingInv.practice.persons) {
-                  if (pp.person?.email && pp.person.email.includes("@")) {
-                    recipientEmails.push(pp.person.email.trim());
-                  }
-                }
-              }
-
               if (recipientEmails.length === 0) {
                 const pEmail = await getPrimaryPracticeEmail(fullPrefundingInv.practice as any);
                 if (pEmail) recipientEmails.push(pEmail);
