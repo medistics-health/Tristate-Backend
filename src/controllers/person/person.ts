@@ -250,6 +250,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       influence,
       email,
       phone,
+      status,
     } = req.body as PersonBody;
 
     if (!req.user?.sub) {
@@ -325,6 +326,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       influence,
       email,
       phone,
+      ...(status && isPersonStatus(status) ? { status: status as PersonStatus } : {}),
       jobCategory,
       workLocation,
       state,
