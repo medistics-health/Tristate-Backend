@@ -29,9 +29,11 @@ import {
   writeActivity,
 } from "../../services/forms/shared";
 import { applyMerge, deliverFormEmail, formLink } from "../../services/forms/mailer";
+import { sendOutlookEmail } from "../../utils/outlook";
+import { sendPendingInvites } from "../../services/forms/dispatchInvites";
 import { decryptToken } from "../../services/forms/sanitize";
 import { contentFromForm, createFormFromContent, ensureSystemTemplates, type TemplateContent } from "../../services/forms/templates";
-import { FormEmailKind, FormRecipientStatus } from "../../../generated/prisma/client";
+import { FormDeliveryStatus, FormEmailKind, FormRecipientStatus } from "../../../generated/prisma/client";
 import { validateLogicRules } from "../../services/forms/logic";
 import QRCode from "qrcode";
 import { Prisma } from "../../../generated/prisma/client";
@@ -343,6 +345,106 @@ export async function duplicateForm(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+export async function sendFormNow(req: AuthenticatedRequest, res: Response) {
+  try {
+    const form = await mutableForm(req);
+    if (form.status === FormStatus.ARCHIVED) throw httpError(409, "Archived forms cannot be sent.");
+    const resolved = await resolveRecipients({
+      practiceIds: req.body?.practiceIds,
+      includePracticePersons: false,
+      personIds: req.body?.personIds,
+      emails: parseEmailList(req.body?.emails),
+    });
+    if (!resolved.recipients.length) {
+      throw httpError(400, resolved.excluded[0]?.reason || "None of the selected practices or people have an email.");
+    }
+    if (!form.inviteBody?.includes("{{form_link}}") || (form.sendAt && form.sendAt.getTime() < Date.now())) {
+      await prisma.form.update({
+        where: { id: form.id },
+        data: {
+          ...(!form.inviteBody?.includes("{{form_link}}") ? { inviteBody: DEFAULT_INVITE_BODY } : {}),
+          ...(form.sendAt && form.sendAt.getTime() < Date.now() ? { sendAt: null } : {}),
+        },
+      });
+    }
+    if (form.status === FormStatus.DRAFT || form.status === FormStatus.CLOSED) {
+      const fresh = await loadForm(form.id);
+      if (!fresh) throw httpError(404, "Form not found.");
+      const errors = publishErrors(fresh, resolved.recipients.length);
+      if (errors.length) throw httpError(400, errors[0].message, { errors });
+      await prisma.form.update({
+        where: { id: form.id },
+        data: {
+          status: FormStatus.PUBLISHED,
+          publishedSnapshot: buildSnapshot(fresh) as unknown as Prisma.InputJsonValue,
+          sendAt: null,
+          lockVersion: { increment: 1 },
+        },
+      });
+    }
+    let sent = 0;
+    const errors: string[] = [];
+    for (const recipient of resolved.recipients) {
+      try {
+        const token = createToken();
+        const link = formLink(token);
+        const existing = await prisma.formRecipient.findUnique({
+          where: { formId_emailNormalized: { formId: form.id, emailNormalized: recipient.emailNormalized } },
+        });
+        const saved = existing
+          ? await prisma.formRecipient.update({
+              where: { id: existing.id },
+              data: {
+                ...recipient,
+                tokenHash: hashToken(token),
+                tokenEncrypted: encryptToken(token),
+                status: FormRecipientStatus.PENDING,
+                removedAt: null,
+                lastError: null,
+              },
+            })
+          : await prisma.formRecipient.create({
+              data: {
+                ...recipient,
+                formId: form.id,
+                tokenHash: hashToken(token),
+                tokenEncrypted: encryptToken(token),
+                wave: 1,
+                status: FormRecipientStatus.PENDING,
+              },
+            });
+        const subject = `Complete ${form.title}`;
+        const html = `
+          <p>Hi ${recipient.displayName || "there"},</p>
+          <p>Please complete <strong>${form.title}</strong> by clicking the link below:</p>
+          <p><a href="${link}">Open the form</a></p>
+          <p>If the link doesn't work, copy and paste this URL into your browser:</p>
+          <p>${link}</p>
+        `;
+        await sendOutlookEmail(recipient.email, subject, html);
+        sent += 1;
+        await prisma.formRecipient.update({
+          where: { id: saved.id },
+          data: {
+            status: FormRecipientStatus.NOT_OPENED,
+            deliveryStatus: FormDeliveryStatus.SENT,
+            sentAt: new Date(),
+            lastError: null,
+          },
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to send the form email.";
+        errors.push(`${recipient.email}: ${message}`);
+      }
+    }
+    if (!sent) throw httpError(502, errors[0] || "Unable to send the form email.");
+    return res.json({ message: "Form sent.", sent, failed: errors.length, errors });
+  } catch (error) {
+    const body = sendError(error, "Unable to send this form.");
+    return res.status(body.status).json(body.body);
+  }
+}
+
 export async function publishForm(req: AuthenticatedRequest, res: Response) {
   try {
     const form = await mutableForm(req);
@@ -364,16 +466,17 @@ export async function publishForm(req: AuthenticatedRequest, res: Response) {
       },
     });
     await writeActivity({ userId: userId(req), action: "PUBLISH", entityType: "form", entityId: form.id, formId: form.id, ip: req.ip });
+    const delivery = await sendPendingInvites(form.id, 500, true);
     if (form.owner?.email) {
       await deliverFormEmail({
         to: form.owner.email,
         subject: `Form published: ${form.title}`,
-        html: `<p>${form.title} is published${form.sendAt ? ` and scheduled for ${form.sendAt.toISOString()}` : " and invitations will be sent now"}.</p>`,
+        html: `<p>${form.title} is published${form.sendAt && form.sendAt > new Date() ? ` and scheduled for ${form.sendAt.toISOString()}` : delivery.sent ? ` and ${delivery.sent} invitation${delivery.sent === 1 ? "" : "s"} were sent` : ""}.</p>`,
         formId: form.id,
         kind: FormEmailKind.CREATOR_NOTICE,
       }).catch(() => undefined);
     }
-    return res.json({ message: "Form published.", formId: updated.id, status: updated.status });
+    return res.json({ message: "Form published.", formId: updated.id, status: updated.status, ...delivery });
   } catch (error) {
     const body = sendError(error, "Unable to publish form.");
     return res.status(body.status).json(body.body);
@@ -923,13 +1026,25 @@ export async function addRecipients(req: AuthenticatedRequest, res: Response) {
       practiceEmails: req.body?.practiceEmails,
       emails: parseEmailList(req.body?.emails),
     });
+    if (!resolved.recipients.length) {
+      const reason = resolved.excluded[0]?.reason || "None of the selected practices or people have an email that can be used.";
+      throw httpError(400, reason, { excluded: resolved.excluded });
+    }
     const wave = (await prisma.formRecipient.aggregate({ where: { formId: form.id }, _max: { wave: true } }))._max.wave || 0;
     let added = 0;
     for (const recipient of resolved.recipients) {
       const existing = await prisma.formRecipient.findUnique({
         where: { formId_emailNormalized: { formId: form.id, emailNormalized: recipient.emailNormalized } },
       });
-      if (existing) continue;
+      if (existing) {
+        if (existing.status !== FormRecipientStatus.NOT_OPENED && existing.status !== FormRecipientStatus.IN_PROGRESS && existing.status !== FormRecipientStatus.COMPLETED) {
+          await prisma.formRecipient.update({
+            where: { id: existing.id },
+            data: { status: FormRecipientStatus.PENDING, removedAt: null, nextAttemptAt: null, lastError: null },
+          });
+        }
+        continue;
+      }
       const token = createToken();
       await prisma.formRecipient.create({
         data: {
@@ -938,15 +1053,14 @@ export async function addRecipients(req: AuthenticatedRequest, res: Response) {
           tokenHash: hashToken(token),
           tokenEncrypted: encryptToken(token),
           wave: wave + 1,
-          status: form.status === FormStatus.PUBLISHED && (!form.sendAt || form.sendAt <= new Date())
-            ? FormRecipientStatus.PENDING
-            : FormRecipientStatus.PENDING,
+          status: FormRecipientStatus.PENDING,
         },
       });
       added += 1;
     }
     await writeActivity({ userId: userId(req), action: "ADD_RECIPIENTS", entityType: "form", entityId: form.id, formId: form.id, summary: { added }, ip: req.ip });
-    return res.json({ message: "Recipients saved.", added, duplicatesRemoved: resolved.duplicatesRemoved, excluded: resolved.excluded });
+    const delivery = form.status === FormStatus.PUBLISHED ? await sendPendingInvites(form.id, 500, true) : { sent: 0, failed: 0, errors: [] as string[] };
+    return res.json({ message: "Recipients saved.", added, duplicatesRemoved: resolved.duplicatesRemoved, excluded: resolved.excluded, ...delivery });
   } catch (error) {
     const body = sendError(error, "Unable to add recipients.");
     return res.status(body.status).json(body.body);

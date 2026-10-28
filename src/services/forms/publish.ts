@@ -66,7 +66,7 @@ export function publishErrors(form: LoadedForm, recipientCount: number) {
   if (form.sendAt && form.sendAt.getTime() < Date.now() - 60_000) {
     errors.push({ message: "Send time cannot be in the past. Use send now instead." });
   }
-  if (!form.inviteBody.includes("{{form_link}}")) {
+  if (!form.inviteBody?.includes("{{form_link}}")) {
     errors.push({ message: "The invitation must include {{form_link}}.", target: "inviteBody" });
   }
   return errors;

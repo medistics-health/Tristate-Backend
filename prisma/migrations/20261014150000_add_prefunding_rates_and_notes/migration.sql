@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS "prefunding_invoice_line_items" (
 );
 
 -- 5. Add notes columns and alter rate precision if tables already existed
+ALTER TABLE "prefunding_invoices" ADD COLUMN IF NOT EXISTS "created_by_user_id" UUID;
 ALTER TABLE "prefunding_rates" ADD COLUMN IF NOT EXISTS "notes" TEXT;
 ALTER TABLE "prefunding_rates" ALTER COLUMN "rate" TYPE DECIMAL(12, 6);
 ALTER TABLE "prefunding_invoice_line_items" ADD COLUMN IF NOT EXISTS "notes" TEXT;

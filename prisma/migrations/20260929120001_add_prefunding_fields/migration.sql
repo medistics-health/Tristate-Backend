@@ -1,4 +1,4 @@
-﻿-- AlterTable
+-- AlterTable
 ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "is_prefunding_enabled" BOOLEAN DEFAULT false;
 ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_cycle" TEXT;
 ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_start_date" TIMESTAMP(3);

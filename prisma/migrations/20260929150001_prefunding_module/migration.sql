@@ -1,25 +1,32 @@
--- AlterTable
-ALTER TABLE "practices" 
-ADD COLUMN "is_prefunding_enabled" BOOLEAN NOT NULL DEFAULT false,
-ADD COLUMN "prefunding_cycle" TEXT,
-ADD COLUMN "prefunding_start_date" TIMESTAMP(3),
-ADD COLUMN "prefunding_due_on" INTEGER,
-ADD COLUMN "prefunding_reminder_on" INTEGER,
-ADD COLUMN "prefunding_stripe_account_id" TEXT,
-ADD COLUMN "prefunding_invoice_recipient_id" UUID,
-ADD COLUMN "prefunding_state" TEXT;
+-- Practice prefunding columns may already exist from 20260929120001_add_prefunding_fields.
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "is_prefunding_enabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_cycle" TEXT;
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_start_date" TIMESTAMP(3);
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_due_on" INTEGER;
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_reminder_on" INTEGER;
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_stripe_account_id" TEXT;
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_invoice_recipient_id" UUID;
+ALTER TABLE "practices" ADD COLUMN IF NOT EXISTS "prefunding_state" TEXT;
 
--- AlterTable
-ALTER TABLE "contacts"
-ADD COLUMN "job_category" TEXT,
-ADD COLUMN "pay_type" TEXT,
-ADD COLUMN "pay_rate" DECIMAL(12,2),
-ADD COLUMN "budgeted_hours" DECIMAL(10,2),
-ADD COLUMN "buffer_percentage" DECIMAL(5,2);
+UPDATE "practices" SET "is_prefunding_enabled" = false WHERE "is_prefunding_enabled" IS NULL;
+ALTER TABLE "practices" ALTER COLUMN "is_prefunding_enabled" SET DEFAULT false;
+ALTER TABLE "practices" ALTER COLUMN "is_prefunding_enabled" SET NOT NULL;
+ALTER TABLE "practices"
+  ALTER COLUMN "prefunding_invoice_recipient_id" TYPE UUID
+  USING NULLIF(TRIM("prefunding_invoice_recipient_id"::text), '')::uuid;
 
--- AlterTable
-ALTER TABLE "User"
-ADD COLUMN "has_prefunding_access" BOOLEAN NOT NULL DEFAULT false;
+-- Contact pay columns may already exist from 20260929120000_add_employee_roles.
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "job_category" TEXT;
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "pay_type" TEXT;
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "pay_rate" DECIMAL(12,2);
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "budgeted_hours" DECIMAL(10,2);
+ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "buffer_percentage" DECIMAL(5,2);
+
+ALTER TABLE "contacts" ALTER COLUMN "pay_rate" TYPE DECIMAL(12,2) USING "pay_rate"::DECIMAL(12,2);
+ALTER TABLE "contacts" ALTER COLUMN "budgeted_hours" TYPE DECIMAL(10,2) USING "budgeted_hours"::DECIMAL(10,2);
+ALTER TABLE "contacts" ALTER COLUMN "buffer_percentage" TYPE DECIMAL(5,2) USING "buffer_percentage"::DECIMAL(5,2);
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "has_prefunding_access" BOOLEAN NOT NULL DEFAULT false;
 
 -- CreateTable
 CREATE TABLE "prefunding_rates" (

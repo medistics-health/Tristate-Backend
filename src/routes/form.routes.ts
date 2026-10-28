@@ -43,6 +43,7 @@ import {
   restoreForm,
   saveAsTemplate,
   saveDistribution,
+  sendFormNow,
   saveLogic,
   testEmail,
   updateForm,
@@ -90,6 +91,7 @@ formRouter.put("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), updateForm);
 formRouter.delete("/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), deleteForm);
 formRouter.post("/:id/duplicate", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), duplicateForm);
 formRouter.post("/:id/publish", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), publishForm);
+formRouter.post("/:id/send", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), sendFormNow);
 formRouter.post("/:id/close", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), closeForm);
 formRouter.post("/:id/reopen", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), reopenForm);
 formRouter.post("/:id/archive", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), archiveForm);

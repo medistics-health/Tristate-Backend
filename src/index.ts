@@ -4,7 +4,6 @@ import { startCredentialingTriggerJob } from "./jobs/credentialingTrigger.job";
 import { startInvoiceReminderJob } from "./jobs/invoiceReminder.job";
 import { startPricingTermExpiryJob } from "./services/pricingTermStatus.service";
 import { startStripeTransfersJob } from "./jobs/stripeTransfers.job";
-import { startFormSchedulerJob } from "./jobs/formScheduler.job";
 import { startPrefundingTransfersJob } from "./jobs/prefundingTransfers.job";
 
 const PORT = 5000;
@@ -16,6 +15,5 @@ app.listen(PORT, () => {
   startInvoiceReminderJob();
   startPricingTermExpiryJob();
   startStripeTransfersJob("0 * * * *");
-  startFormSchedulerJob();
   startPrefundingTransfersJob("*/10 * * * *");
 });

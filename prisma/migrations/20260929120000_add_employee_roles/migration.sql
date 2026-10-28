@@ -1,4 +1,4 @@
-﻿-- AlterEnum
+-- AlterEnum
 ALTER TYPE "PersonRole" ADD VALUE IF NOT EXISTS 'EMPLOYEE';
 ALTER TYPE "PersonRole" ADD VALUE IF NOT EXISTS 'MANAGER';
 -- AlterTable

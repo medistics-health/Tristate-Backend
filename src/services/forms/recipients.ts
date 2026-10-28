@@ -30,6 +30,7 @@ export async function resolveRecipients(input: ResolveInput) {
       where: { id: { in: practiceIds } },
       include: {
         persons: { include: { person: true } },
+        company: true,
       },
     });
     for (const practice of practices) {
@@ -37,19 +38,26 @@ export async function resolveRecipients(input: ResolveInput) {
         excluded.push({ name: practice.name, reason: "Practice is closed." });
         continue;
       }
-      const primary = (practice.emails || []).find((email) => isEmail(email));
-      if (!primary) {
+      const addresses = [...new Set(
+        [...(practice.emails || []), practice.company?.email || ""]
+          .map((email) => email.trim())
+          .filter((email) => isEmail(email))
+          .map((email) => email.toLowerCase()),
+      )];
+      if (!addresses.length) {
         excluded.push({ name: practice.name, reason: "Practice has no email." });
       } else {
-        rows.push({
-          sourceType: FormRecipientSource.PRACTICE,
-          practiceId: practice.id,
-          personId: null,
-          email: primary.trim(),
-          emailNormalized: normalizeEmail(primary),
-          displayName: practice.name,
-          practiceName: practice.name,
-        });
+        for (const email of addresses) {
+          rows.push({
+            sourceType: FormRecipientSource.PRACTICE,
+            practiceId: practice.id,
+            personId: null,
+            email,
+            emailNormalized: normalizeEmail(email),
+            displayName: practice.name,
+            practiceName: practice.name,
+          });
+        }
       }
       if (input.includePracticePersons) {
         for (const link of practice.persons) {
