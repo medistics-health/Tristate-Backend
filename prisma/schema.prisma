@@ -2767,14 +2767,15 @@ enum HubDocumentActivityAction {
 }
 
 model PrefundingRate {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  basis        String
-  pricingModel String   @map("pricing_model")
-  rate         Decimal  @db.Decimal(12, 6)
-  notes        String?  @map("notes")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid()) @db.Uuid
+  name                String
+  basis               String
+  pricingModel        String   @map("pricing_model")
+  rate                Decimal  @db.Decimal(12, 6)
+  notes               String?  @map("notes")
+  includeInGrandTotal Boolean  @default(true) @map("include_in_grand_total")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   practiceRates PrefundingPracticeRate[]
 

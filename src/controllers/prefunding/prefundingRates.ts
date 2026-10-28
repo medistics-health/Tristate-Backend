@@ -82,7 +82,7 @@ export async function getPrefundingRates(req: AuthenticatedRequest, res: Respons
 
 export async function createPrefundingRate(req: AuthenticatedRequest, res: Response) {
   try {
-    const { name, basis, pricingModel, rate, practiceIds, notes } = req.body;
+    const { name, basis, pricingModel, rate, practiceIds, notes, includeInGrandTotal } = req.body;
 
     if (!name || !basis || !pricingModel || rate === undefined) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -101,6 +101,7 @@ export async function createPrefundingRate(req: AuthenticatedRequest, res: Respo
         pricingModel,
         rate,
         notes: notes !== undefined ? (notes ? String(notes).trim() : null) : null,
+        includeInGrandTotal: includeInGrandTotal !== undefined ? Boolean(includeInGrandTotal) : true,
         practiceRates: practiceIds && practiceIds.length > 0 ? {
           create: practiceIds.map((id: string) => ({ practiceId: id }))
         } : undefined
@@ -119,7 +120,7 @@ export async function createPrefundingRate(req: AuthenticatedRequest, res: Respo
 export async function updatePrefundingRate(req: AuthenticatedRequest, res: Response) {
   try {
     const id = req.params.id as string;
-    const { name, basis, pricingModel, rate, practiceIds, notes } = req.body;
+    const { name, basis, pricingModel, rate, practiceIds, notes, includeInGrandTotal } = req.body;
 
     if (pricingModel && !SUPPORTED_PRICING_MODELS.includes(pricingModel)) {
       return res.status(400).json({ message: `Invalid pricing model. Supported models are: ${SUPPORTED_PRICING_MODELS.join(", ")}` });
@@ -138,6 +139,7 @@ export async function updatePrefundingRate(req: AuthenticatedRequest, res: Respo
         pricingModel,
         rate,
         ...(notes !== undefined && { notes: notes ? String(notes).trim() : null }),
+        ...(includeInGrandTotal !== undefined && { includeInGrandTotal: Boolean(includeInGrandTotal) }),
         // If practiceIds is provided, we sync them
         ...(practiceIds !== undefined && {
           practiceRates: {
