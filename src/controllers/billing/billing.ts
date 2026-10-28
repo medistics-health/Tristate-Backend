@@ -803,6 +803,7 @@ export async function recordManualPaymentHandler(
     const result = await recordManualPayment(req.body as RecordPaymentBody);
 
     for (const allocation of result.allocations || []) {
+      if (!allocation.invoiceId) continue;
       const invoice = await prisma.invoice.findUnique({
         where: { id: allocation.invoiceId },
       });

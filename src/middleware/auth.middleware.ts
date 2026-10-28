@@ -123,4 +123,37 @@ export function requireRoles(allowedRoles: UserRoles[]) {
   };
 }
 
+export function requirePrefundingPermission(action?: "VIEW" | "CREATE" | "EDIT" | "CALCULATE" | "APPROVE" | "POST" | "DELETE") {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const role = typeof req.user?.role === "string" ? req.user.role.trim().toUpperCase() : "";
+
+    // Admin has full access to everything
+    if (role === UserRoles.ADMIN) {
+      return next();
+    }
+
+    // Check if user has overall prefunding access
+    if (!req.user?.hasPrefundingAccess) {
+      return res.status(403).json({
+        message: "Forbidden. You do not have access to the Prefunding Module.",
+      });
+    }
+
+    // If an action is specified, check the user's granular action permissions
+    if (action) {
+      const permissions = Array.isArray(req.user?.prefundingPermissions)
+        ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+        : [];
+
+      if (!permissions.includes(action.toUpperCase())) {
+        return res.status(403).json({
+          message: `Forbidden. You do not have '${action}' permission in the Prefunding Module.`,
+        });
+      }
+    }
+
+    return next();
+  };
+}
+
 export type { AuthenticatedRequest };

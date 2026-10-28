@@ -39,7 +39,7 @@ export const hubDocumentInclude = {
   personLinks: {
     include: {
       person: {
-        select: { id: true, firstName: true, lastName: true, email: true, role: true },
+        select: { id: true, firstName: true, lastName: true, email: true, roles: true },
       },
     },
   },
