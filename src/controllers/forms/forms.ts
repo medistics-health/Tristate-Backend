@@ -10,6 +10,7 @@ import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { prisma } from "../../lib/prisma";
 import { canManageAnyTemplate, canPermanentlyDelete, canReadAllForms, canReassignOwner, isAdmin } from "../../services/forms/access";
 import { dashboard, loadSubmitted, questionSummary, trends } from "../../services/forms/analytics";
+import { displayValue } from "../../services/forms/answers";
 import { questionsFromSnapshot, responseRows } from "../../services/forms/exportFiles";
 import { structuralLockMessage, publishErrors } from "../../services/forms/publish";
 import { parseEmailList, resolveRecipients } from "../../services/forms/recipients";
@@ -1414,14 +1415,25 @@ export async function getResponse(req: AuthenticatedRequest, res: Response) {
         submittedAt: response.submittedAt,
         versionNo: response.formVersionNo,
         respondent: anonymous ? null : response.recipient?.displayName || null,
+        email: anonymous ? null : response.recipient?.email || null,
         practice: anonymous && !form.recordPracticeWhenAnonymous ? null : response.recipient?.practiceName || null,
         answers: questions.map((question) => {
           const answer = response.answers.find((item) => item.questionId === question.id);
+          const display = answer
+            ? displayValue(question, {
+                valueText: answer.valueText,
+                valueNumber: answer.valueNumber == null ? null : Number(answer.valueNumber),
+                valueDate: answer.valueDate,
+                valueJson: answer.valueJson,
+                fileRefs: answer.fileRefs,
+              })
+            : "";
           return {
             questionId: question.id,
             key: question.key,
             label: question.label,
             type: question.type,
+            display: display || null,
             value: answer || null,
           };
         }),
