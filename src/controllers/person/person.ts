@@ -494,6 +494,12 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    if (roles !== undefined && (!Array.isArray(roles) || roles.length === 0)) {
+      return res.status(400).json({
+        message: "At least one role is required.",
+      });
+    }
+
     if (roles) {
       const invalidRoles = roles.filter((role) => !isPersonRole(role));
       if (invalidRoles.length > 0) {
