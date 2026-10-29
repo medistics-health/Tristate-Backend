@@ -250,6 +250,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       influence,
       email,
       phone,
+      status,
     } = req.body as PersonBody;
 
     if (!req.user?.sub) {
@@ -325,6 +326,7 @@ export async function createPerson(req: AuthenticatedRequest, res: Response) {
       influence,
       email,
       phone,
+      ...(status && isPersonStatus(status) ? { status: status as PersonStatus } : {}),
       jobCategory,
       workLocation,
       state,
@@ -489,6 +491,12 @@ export async function updatePerson(req: AuthenticatedRequest, res: Response) {
     if (!id) {
       return res.status(400).json({
         message: "Person id is required.",
+      });
+    }
+
+    if (roles !== undefined && (!Array.isArray(roles) || roles.length === 0)) {
+      return res.status(400).json({
+        message: "At least one role is required.",
       });
     }
 
