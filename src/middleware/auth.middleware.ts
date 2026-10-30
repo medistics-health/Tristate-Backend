@@ -1,3 +1,4 @@
+import { prisma } from "../lib/prisma";
 import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import { UserRoles } from "../../generated/prisma/client";
@@ -17,7 +18,7 @@ function getJwtSecret() {
   return jwtSecret;
 }
 
-export function verifyAuthToken(
+export async function verifyAuthToken(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction,
@@ -32,6 +33,31 @@ export function verifyAuthToken(
     }
 
     const decoded = jwt.verify(token, getJwtSecret()) as AuthTokenPayload;
+
+    // Fetch the freshest user settings from the database so updated permissions apply immediately
+    if (decoded?.sub) {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: decoded.sub },
+        select: {
+          id: true,
+          userName: true,
+          email: true,
+          role: true,
+          hasPrefundingAccess: true,
+          prefundingPermissions: true,
+        },
+      });
+
+      if (dbUser) {
+        req.user = {
+          ...decoded,
+          role: dbUser.role,
+          hasPrefundingAccess: !!dbUser.hasPrefundingAccess,
+          prefundingPermissions: dbUser.prefundingPermissions || [],
+        };
+        return next();
+      }
+    }
 
     req.user = decoded;
 
@@ -125,13 +151,6 @@ export function requireRoles(allowedRoles: UserRoles[]) {
 
 export function requirePrefundingPermission(action?: "VIEW" | "CREATE" | "EDIT" | "CALCULATE" | "APPROVE" | "POST" | "DELETE") {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    const role = typeof req.user?.role === "string" ? req.user.role.trim().toUpperCase() : "";
-
-    // Admin has full access to everything
-    if (role === UserRoles.ADMIN) {
-      return next();
-    }
-
     // Check if user has overall prefunding access
     if (!req.user?.hasPrefundingAccess) {
       return res.status(403).json({

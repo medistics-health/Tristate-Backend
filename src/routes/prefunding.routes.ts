@@ -12,6 +12,7 @@ import {
   getPrefundingInvoices,
   getPrefundingInvoiceById,
   getPrefundingInvoicePdf,
+  previewPrefundingInvoicePdf,
   updatePrefundingInvoiceStatus,
   resendPrefundingInvoice,
   deletePrefundingInvoice,
@@ -25,8 +26,6 @@ prefundingRouter.use(verifyAuthToken);
 
 // Middleware for prefunding invoice status update (APPROVE vs POST permission check)
 const requireStatusChangePermission = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const role = typeof req.user?.role === "string" ? req.user.role.trim().toUpperCase() : "";
-  if (role === "ADMIN") return next();
 
   const { status } = req.body || {};
   const statusUpper = String(status || "").toUpperCase();
@@ -35,6 +34,17 @@ const requireStatusChangePermission = (req: AuthenticatedRequest, res: Response,
     return requirePrefundingPermission("APPROVE")(req, res, next);
   } else if (statusUpper === "POSTED") {
     return requirePrefundingPermission("POST")(req, res, next);
+  } else if (statusUpper === "PENDING APPROVAL") {
+    // Allow users with either EDIT or CALCULATE permission to submit for approval
+    const perms = Array.isArray(req.user?.prefundingPermissions)
+      ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+      : [];
+    if (perms.includes("EDIT") || perms.includes("CALCULATE")) {
+      return next();
+    }
+    return res.status(403).json({
+      message: "Forbidden. You do not have 'EDIT' or 'CALCULATE' permission to submit for approval.",
+    });
   }
 
   return requirePrefundingPermission("EDIT")(req, res, next);
@@ -56,7 +66,22 @@ prefundingRouter.delete("/rates/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), 
 prefundingRouter.get("/invoices", requirePrefundingPermission("VIEW"), getPrefundingInvoices);
 prefundingRouter.get("/invoices/:id", requirePrefundingPermission("VIEW"), getPrefundingInvoiceById);
 prefundingRouter.get("/invoices/:id/pdf", requirePrefundingPermission("VIEW"), getPrefundingInvoicePdf);
-prefundingRouter.post("/invoices", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requirePrefundingPermission("CREATE"), createPrefundingInvoice);
+prefundingRouter.post('/invoices/preview-pdf', requirePrefundingPermission('VIEW'), previewPrefundingInvoicePdf);
+// Allow users with either CREATE or CALCULATE permission to generate prefunding invoices
+const requireInvoiceCreatePermission = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+
+  const perms = Array.isArray(req.user?.prefundingPermissions)
+    ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+    : [];
+  if (perms.includes("CREATE") || perms.includes("CALCULATE")) {
+    return next();
+  }
+  return res.status(403).json({
+    message: "Forbidden. You do not have 'CREATE' or 'CALCULATE' permission to generate invoices.",
+  });
+};
+
+prefundingRouter.post("/invoices", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requireInvoiceCreatePermission, createPrefundingInvoice);
 prefundingRouter.put("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requirePrefundingPermission("EDIT"), updatePrefundingInvoice);
 prefundingRouter.put("/invoices/:id/status", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requireStatusChangePermission, updatePrefundingInvoiceStatus);
 prefundingRouter.post("/invoices/:id/resend", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requirePrefundingPermission("POST"), resendPrefundingInvoice);

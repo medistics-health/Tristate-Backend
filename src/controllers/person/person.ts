@@ -98,24 +98,54 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     const orderDir =
       (sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
+    const hasPrefundingAccess = !!req.user.hasPrefundingAccess;
+    const prefundingPerms = Array.isArray(req.user.prefundingPermissions)
+      ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+      : [];
+    const canViewPrefunding = hasPrefundingAccess && prefundingPerms.includes("VIEW");
+
     const where: any = {};
+    const andConditions: any[] = [];
+
+    // If user does not have Prefunding VIEW permission, do not return persons whose ONLY role is EMPLOYEE
+    if (!canViewPrefunding) {
+      andConditions.push({
+        OR: [
+          { roles: { equals: null } },
+          { roles: { isEmpty: true } },
+          {
+            roles: {
+              hasSome: Object.values(PersonRole).filter((r) => r !== PersonRole.EMPLOYEE),
+            },
+          },
+        ],
+      });
+    }
 
     if (search) {
-      where.AND = [
-        {
-          OR: [
-            { firstName: { contains: search as string, mode: "insensitive" } },
-            { lastName: { contains: search as string, mode: "insensitive" } },
-            { email: { contains: search as string, mode: "insensitive" } },
-            { individualNpi: { contains: search as string, mode: "insensitive" } },
-            { caqhId: { contains: search as string, mode: "insensitive" } },
-          ],
-        },
-      ];
+      andConditions.push({
+        OR: [
+          { firstName: { contains: search as string, mode: "insensitive" } },
+          { lastName: { contains: search as string, mode: "insensitive" } },
+          { email: { contains: search as string, mode: "insensitive" } },
+          { individualNpi: { contains: search as string, mode: "insensitive" } },
+          { caqhId: { contains: search as string, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     if (role) {
-      where.roles = { has: role as PersonRole };
+      const roleStr = String(role).toUpperCase();
+      if (roleStr === "EMPLOYEE" && !canViewPrefunding) {
+        // User cannot view EMPLOYEE role, so return empty result set
+        where.id = "00000000-0000-0000-0000-000000000000";
+      } else {
+        where.roles = { has: role as PersonRole };
+      }
     }
 
     if (influence) {
@@ -444,6 +474,19 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
     });
 
     if (!person) {
+      return res.status(404).json({
+        message: "Person not found.",
+      });
+    }
+
+    const hasPrefundingAccess = !!req.user.hasPrefundingAccess;
+    const prefundingPerms = Array.isArray(req.user.prefundingPermissions)
+      ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+      : [];
+    const canViewPrefunding = hasPrefundingAccess && prefundingPerms.includes("VIEW");
+
+    // If the person is solely an EMPLOYEE and the user cannot view prefunding, treat as not found
+    if (!canViewPrefunding && Array.isArray(person.roles) && person.roles.length === 1 && person.roles[0] === PersonRole.EMPLOYEE) {
       return res.status(404).json({
         message: "Person not found.",
       });

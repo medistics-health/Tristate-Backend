@@ -710,6 +710,81 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
   }
 }
 
+export async function previewPrefundingInvoicePdf(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { practiceId, cycle, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
+
+    if (!practiceId) {
+      return res.status(400).json({ message: "Practice ID is required" });
+    }
+
+    const practice: any = await prisma.practice.findUnique({
+      where: { id: practiceId },
+      include: {
+        persons: {
+          include: { person: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!practice) {
+      return res.status(404).json({ message: "Practice not found" });
+    }
+
+    let designatedP: any = null;
+    if (practice.prefundingInvoiceRecipientId) {
+      designatedP = await prisma.person.findUnique({
+        where: { id: practice.prefundingInvoiceRecipientId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+    }
+    const firstPerson = practice.persons?.[0]?.person;
+    const recipientName = designatedP
+      ? `${designatedP.firstName || ""} ${designatedP.lastName || ""}`.trim() || undefined
+      : (firstPerson ? `${firstPerson.firstName || ""} ${firstPerson.lastName || ""}`.trim() : undefined);
+    const recipientEmail = designatedP?.email || firstPerson?.email || practice.emails?.[0] || undefined;
+
+    const year = invoiceDate ? new Date(invoiceDate).getFullYear() : new Date().getFullYear();
+    const invoiceNumber = `DRAFT-${year}-PREVIEW`;
+
+    const rawPaymentMethod = (practice.billingPaymentMethod || "ACH").toUpperCase();
+    const isCc = rawPaymentMethod === "CREDIT_CARD";
+    const subtotalAmount = Number(totalAmount || 0);
+
+    const pdfBuffer = await generatePrefundingInvoicePdfBuffer({
+      invoiceNumber,
+      invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
+      dueDate: dueDate ? new Date(dueDate) : new Date(),
+      cycle: cycle || "Semi-Monthly",
+      subtotalAmount,
+      processingFeeAmount: 0,
+      totalAmount: subtotalAmount,
+      paymentMethod: isCc ? "Credit Card" : "ACH Transfer",
+      status: "DRAFT",
+      practice,
+      recipientName,
+      recipientEmail,
+      lineItems: Array.isArray(lineItems)
+        ? lineItems.map((item: any, idx: number) => ({
+            ...item,
+            rate: item.rate !== null && item.rate !== undefined ? Number(item.rate) : null,
+            amount: Number(item.amount || 0),
+            includeInGrandTotal: item.includeInGrandTotal !== false,
+            sequence: item.sequence ?? idx,
+          }))
+        : [],
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="preview-invoice-${invoiceNumber}.pdf"`);
+    return res.status(200).send(pdfBuffer);
+  } catch (error: any) {
+    console.error("PDF preview error:", error);
+    return res.status(500).json({ message: "Failed to generate preview PDF", error: error.message });
+  }
+}
+
 export async function updatePrefundingInvoiceStatus(req: AuthenticatedRequest, res: Response) {
   try {
     const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
