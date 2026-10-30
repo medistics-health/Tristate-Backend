@@ -160,7 +160,7 @@ export async function createFormFromContent(params: {
       },
     });
 
-    const sections = content.sections?.length ? content.sections : [{ title: "Section 1", questions: [] }];
+    const sections = (content.sections || []).filter((section) => (section.questions || []).length > 0);
     const questionIdByKey = new Map<string, string>();
     for (const [sectionIndex, section] of sections.entries()) {
       const createdSection = await tx.formSection.create({
@@ -297,6 +297,7 @@ export function contentFromForm(form: {
     sections: form.sections
       .slice()
       .sort((a, b) => a.orderIndex - b.orderIndex)
+      .filter((section) => form.questions.some((question) => question.sectionId === section.id))
       .map((section) => ({
         title: section.title,
         description: section.description || undefined,

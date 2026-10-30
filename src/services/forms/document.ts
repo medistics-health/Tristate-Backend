@@ -207,7 +207,7 @@ export async function readDocument(formId: string) {
     timezone: form.timezone,
     publicLinkEnabled: form.publicLinkEnabled,
     publicToken: form.publicLinkTokenEncrypted ? decryptToken(form.publicLinkTokenEncrypted) : "",
-    sections: form.sections.map((section) => ({
+    sections: form.sections.filter((section) => form.questions.some((question) => question.sectionId === section.id)).map((section) => ({
       id: section.id,
       title: section.title,
       description: section.description || "",
@@ -302,7 +302,7 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
     throw httpError(409, "Closed and archived forms cannot be edited.");
   }
   const hasResponses = (await responseCount(formId)) > 0;
-  const sections = body.sections || [];
+  const sections = (body.sections || []).filter((section) => (section.questions || []).length > 0);
   if (hasResponses && structureChanged(form, sections)) {
     throw httpError(409, "This form already has responses, so its structure is locked.", structuralLockMessage());
   }
@@ -372,6 +372,7 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
       await patchWording(tx, form, sections);
       await appendOptionalQuestions(tx, form, sections);
     }
+    await deleteEmptySections(tx, formId);
   });
 
   return readDocument(formId);
@@ -399,7 +400,7 @@ async function replaceStructure(tx: Prisma.TransactionClient, formId: string, se
   const keepSections = new Set<string>();
   const keepQuestions = new Set<string>();
   for (const [sectionIndex, section] of sections.entries()) {
-    if (!isUuid(section.id)) continue;
+    if (!isUuid(section.id) || !(section.questions || []).length) continue;
     keepSections.add(section.id);
     await tx.formSection.upsert({
       where: { id: section.id },
@@ -459,11 +460,17 @@ async function replaceStructure(tx: Prisma.TransactionClient, formId: string, se
     }
   }
   await tx.formQuestion.updateMany({
-    where: { formId, id: { notIn: [...keepQuestions] } },
+    where: {
+      formId,
+      ...(keepQuestions.size ? { id: { notIn: [...keepQuestions] } } : {}),
+    },
     data: { deletedAt: new Date() },
   });
   await tx.formSection.updateMany({
-    where: { formId, id: { notIn: [...keepSections] } },
+    where: {
+      formId,
+      ...(keepSections.size ? { id: { notIn: [...keepSections] } } : {}),
+    },
     data: { deletedAt: new Date() },
   });
 
@@ -473,6 +480,18 @@ async function replaceStructure(tx: Prisma.TransactionClient, formId: string, se
       await writeRule(tx, formId, "question", question.id, question.logic);
     }
   }
+}
+
+async function deleteEmptySections(tx: Prisma.TransactionClient, formId: string) {
+  const empty = await tx.formSection.findMany({
+    where: { formId, deletedAt: null, questions: { none: { deletedAt: null } } },
+    select: { id: true },
+  });
+  if (!empty.length) return;
+  await tx.formSection.updateMany({
+    where: { id: { in: empty.map((section) => section.id) } },
+    data: { deletedAt: new Date() },
+  });
 }
 
 async function patchWording(tx: Prisma.TransactionClient, form: LoadedForm, sections: UiSection[]) {

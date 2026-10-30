@@ -40,7 +40,7 @@ export function buildSnapshot(form: LoadedForm) {
     allowMultipleResponses: form.allowMultipleResponses,
     allowEditUntilClose: form.allowEditUntilClose,
     closeAt: form.closeAt,
-    sections: form.sections.map((section) => ({
+    sections: form.sections.filter((section) => form.questions.some((question) => question.sectionId === section.id)).map((section) => ({
       id: section.id,
       title: section.title,
       description: sanitizeRichText(section.description),
@@ -75,8 +75,9 @@ export function buildSnapshot(form: LoadedForm) {
 export type FormSnapshot = ReturnType<typeof buildSnapshot>;
 
 export function snapshotOf(form: LoadedForm): FormSnapshot {
-  if (form.publishedSnapshot && typeof form.publishedSnapshot === "object") {
-    return form.publishedSnapshot as FormSnapshot;
-  }
-  return buildSnapshot(form);
+  const snapshot = form.publishedSnapshot && typeof form.publishedSnapshot === "object"
+    ? form.publishedSnapshot as FormSnapshot
+    : buildSnapshot(form);
+  const used = new Set((snapshot.questions || []).map((question) => question.sectionId));
+  return { ...snapshot, sections: (snapshot.sections || []).filter((section) => used.has(section.id)) };
 }
