@@ -164,9 +164,15 @@ export function normalizeStored(question: QuestionShape, raw: unknown): StoredAn
       return { valueDate: date, valueText: date.toISOString() };
     }
     case "IMAGE_UPLOAD": {
-      const files = Array.isArray(raw) ? raw : (raw as { files?: unknown[] })?.files;
-      if (!Array.isArray(files)) {
-        return { error: `${question.label} needs a file list.` };
+      const files = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === "object" && Array.isArray((raw as { files?: unknown[] }).files)
+          ? (raw as { files: unknown[] }).files
+          : typeof raw === "string" && raw.trim()
+            ? [{ name: raw.trim() }]
+            : null;
+      if (!files) {
+        return { error: `${question.label} needs an image.` };
       }
       return { fileRefs: files, valueJson: { files } };
     }
