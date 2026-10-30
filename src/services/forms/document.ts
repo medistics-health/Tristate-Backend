@@ -8,7 +8,7 @@ import {
 import { prisma } from "../../lib/prisma";
 import { displayValue, type QuestionShape, type StoredAnswer } from "./answers";
 import { decryptToken, slugKey } from "./sanitize";
-import { httpError, loadForm, responseCount, type LoadedForm } from "./shared";
+import { assertUniqueFormTitle, httpError, loadForm, responseCount, type LoadedForm } from "./shared";
 import { structuralLockMessage } from "./publish";
 
 const TYPE_TO_UI: Record<string, string> = {
@@ -302,6 +302,10 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
     throw httpError(409, "Closed and archived forms cannot be edited.");
   }
   const hasResponses = (await responseCount(formId)) > 0;
+  if (body.title !== undefined) {
+    const title = String(body.title).trim().slice(0, 200);
+    if (title.toLowerCase() !== form.title.trim().toLowerCase()) await assertUniqueFormTitle(title, [formId]);
+  }
   const sections = (body.sections || []).filter((section) => (section.questions || []).length > 0);
   if (hasResponses && structureChanged(form, sections)) {
     throw httpError(409, "This form already has responses, so its structure is locked.", structuralLockMessage());
