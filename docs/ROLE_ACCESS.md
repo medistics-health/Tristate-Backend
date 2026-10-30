@@ -80,6 +80,15 @@ Source of truth in code:
 ### `DOCUMENT_HUB_HARD_DELETE` -> `ADMIN`
 - Applied to `DELETE /api/v1/documents/:id/hard`
 
+### `BUSINESS_WRITE` on forms -> `ADMIN`, `SALES`, `ACCOUNTMANAGER`, `OPERATIONS`
+- No new roles were added. Form writes use the existing business-write roles.
+- `ADMIN` can manage every form, permanently delete an archived form, restore archives, reassign ownership, and edit or hide any template.
+- `SALES`, `ACCOUNTMANAGER` and `OPERATIONS` can build, distribute, remind, export and see results only for forms they own. Another user's form returns not found.
+- `FINANCE` and `VIEWER` keep their existing read access: they can open form, analytics, response and template GET routes. They cannot create, edit, publish, distribute, export or delete.
+- `VIEWER` remains read-only on every method that is not GET.
+- Assigned internal respondents of any existing role can read `GET /api/v1/forms/my-forms` for forms sent to their own email.
+- Public respondent links under `/api/v1/f/:token` do not use a CRM role.
+
 ## Effective access by role
 
 ### `ADMIN`
@@ -128,6 +137,11 @@ Examples of public routes:
 - Document Hub public share (rate-limited):
   - `GET /api/v1/public/share/:token`
   - `GET /api/v1/public/share/:token/download`
+- Form respondent links (rate-limited, no login):
+  - `GET /api/v1/f/:token`
+  - `PUT /api/v1/f/:token/progress`
+  - `POST /api/v1/f/:token/submit`
+  - `POST /api/v1/f/:token/upload`
 
 ## Maintenance rule (must follow)
 

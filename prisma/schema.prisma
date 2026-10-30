@@ -8,47 +8,50 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @default(uuid()) @db.Uuid
-  userName            String    @unique
-  firstName           String
-  lastName            String
-  email               String    @unique
-  password            String
-  role                UserRoles
-  twoFactorEnabled    Boolean   @default(false) @map("two_factor_enabled")
-  twoFactorSecret     String?   @map("two_factor_secret")
-  hasPrefundingAccess   Boolean   @default(false) @map("has_prefunding_access")
-  prefundingPermissions String[]  @default([]) @map("prefunding_permissions")
-
-  createdAt                     DateTime                     @default(now()) @map("created_at")
-  updatedAt                     DateTime                     @default(now()) @updatedAt @map("updated_at")
-  approvalDecisions             ApprovalDecision[]           @relation("ApprovalDecisionByUser")
-  approvedBillingRuns           BillingRun[]                 @relation("BillingRunApprovedBy")
-  createdBillingRuns            BillingRun[]                 @relation("BillingRunCreatedBy")
-  createdInvoices               Invoice[]                    @relation("InvoiceCreatedByUser")
-  credentialingAssigned         CredentialingRequest[]       @relation("CredentialingAssignedToUser")
-  credentialingCreated          CredentialingRequest[]       @relation("CredentialingCreatedByUser")
-  credentialingUpdated          CredentialingRequest[]       @relation("CredentialingUpdatedByUser")
-  credentialingActivity         CredentialingActivityLog[]   @relation("CredentialingActivityByUser")
-  credentialingFollowUps        CredentialingFollowUpLog[]   @relation("CredentialingFollowUpByUser")
-  credentialingDocuments        CredentialingDocument[]      @relation("CredentialingDocumentByUser")
-  resolvedExceptions            ExceptionEvent[]             @relation("ExceptionResolvedByUser")
-  quickbooksConnections         QuickBooksConnection[]       @relation("QuickBooksConnectedByUser")
-  onboardingWorkstreamsOwned    OnboardingWorkstream[]       @relation("OnboardingWorkstreamOwner")
-  onboardingTasksOwned          OnboardingTask[]             @relation("OnboardingTaskOwner")
-  onboardingTemplateTasksOwned  OnboardingTaskTemplateItem[] @relation("OnboardingTemplateDefaultOwner")
-  onboardingRisksOwned          OnboardingRisk[]             @relation("OnboardingRiskOwner")
-  onboardingActionsResponsible  OnboardingActionItem[]       @relation("OnboardingActionResponsible")
-  onboardingActionsLogged       OnboardingActionItem[]       @relation("OnboardingActionLoggedBy")
-  onboardingActivities          OnboardingTaskActivity[]
-  hubDocumentsUploaded          HubDocument[]                @relation("HubDocumentUploadedBy")
-  hubDocumentPublicLinks        HubDocumentPublicLink[]      @relation("HubDocumentPublicLinkCreatedBy")
-  hubDocumentPublicLinksRevoked HubDocumentPublicLink[]      @relation("HubDocumentPublicLinkRevokedBy")
-  hubDocumentActivityLogs       HubDocumentActivityLog[]     @relation("HubDocumentActivityByUser")
-  hubDocumentCategoriesCreated  HubDocumentCategory[]        @relation("HubDocumentCategoryCreatedBy")
-  agreementsCreated             Agreement[]                  @relation("AgreementCreatedByUser")
-  prefundingInvoicesCreated     PrefundingInvoice[]          @relation("PrefundingInvoiceCreatedByUser")
-  prefundingInvoicesApproved    PrefundingInvoice[]          @relation("PrefundingInvoiceApprovedByUser")
+  id                    String                 @id @default(uuid()) @db.Uuid
+  userName              String                 @unique
+  firstName             String
+  lastName              String
+  email                 String                 @unique
+  password              String
+  role                  UserRoles
+  twoFactorEnabled      Boolean                @default(false) @map("two_factor_enabled")
+  twoFactorSecret       String?                @map("two_factor_secret")
+  hasPrefundingAccess   Boolean                @default(false) @map("has_prefunding_access")
+  prefundingPermissions String[]               @default([]) @map("prefunding_permissions")
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @default(now()) @updatedAt @map("updated_at")
+  approvalDecisions     ApprovalDecision[]     @relation("ApprovalDecisionByUser")
+  approvedBillingRuns   BillingRun[]           @relation("BillingRunApprovedBy")
+  createdBillingRuns    BillingRun[]           @relation("BillingRunCreatedBy")
+  createdInvoices       Invoice[]              @relation("InvoiceCreatedByUser")
+  createdAgreements     Agreement[]            @relation("AgreementCreatedByUser")
+  credentialingAssigned CredentialingRequest[] @relation("CredentialingAssignedToUser")
+  credentialingCreated  CredentialingRequest[] @relation("CredentialingCreatedByUser")
+  credentialingUpdated  CredentialingRequest[] @relation("CredentialingUpdatedByUser")
+  credentialingActivity  CredentialingActivityLog[] @relation("CredentialingActivityByUser")
+  credentialingFollowUps CredentialingFollowUpLog[] @relation("CredentialingFollowUpByUser")
+  credentialingDocuments CredentialingDocument[] @relation("CredentialingDocumentByUser")
+  resolvedExceptions    ExceptionEvent[]       @relation("ExceptionResolvedByUser")
+  quickbooksConnections QuickBooksConnection[] @relation("QuickBooksConnectedByUser")
+  onboardingWorkstreamsOwned   OnboardingWorkstream[]       @relation("OnboardingWorkstreamOwner")
+  onboardingTasksOwned         OnboardingTask[]             @relation("OnboardingTaskOwner")
+  onboardingTemplateTasksOwned OnboardingTaskTemplateItem[] @relation("OnboardingTemplateDefaultOwner")
+  onboardingRisksOwned         OnboardingRisk[]             @relation("OnboardingRiskOwner")
+  onboardingActionsResponsible OnboardingActionItem[]       @relation("OnboardingActionResponsible")
+  onboardingActionsLogged      OnboardingActionItem[]       @relation("OnboardingActionLoggedBy")
+  onboardingActivities         OnboardingTaskActivity[]
+  hubDocumentsUploaded         HubDocument[]            @relation("HubDocumentUploadedBy")
+  hubDocumentPublicLinks       HubDocumentPublicLink[]  @relation("HubDocumentPublicLinkCreatedBy")
+  hubDocumentPublicLinksRevoked HubDocumentPublicLink[] @relation("HubDocumentPublicLinkRevokedBy")
+  hubDocumentActivityLogs      HubDocumentActivityLog[] @relation("HubDocumentActivityByUser")
+  hubDocumentCategoriesCreated HubDocumentCategory[]    @relation("HubDocumentCategoryCreatedBy")
+  formsOwned                   Form[]                   @relation("FormOwner")
+  formTemplatesOwned           FormTemplate[]           @relation("FormTemplateOwner")
+  formActivityLogs             FormActivityLog[]        @relation("FormActivityByUser")
+  formExportsRequested         FormExport[]             @relation("FormExportRequestedBy")
+  prefundingInvoicesCreated    PrefundingInvoice[]      @relation("PrefundingInvoiceCreatedByUser")
+  prefundingInvoicesApproved   PrefundingInvoice[]      @relation("PrefundingInvoiceApprovedByUser")
 
   @@map("User")
 }
@@ -199,6 +202,7 @@ model Practice {
   vendorPayables        VendorPayable[]
   groupNpis             GroupNpi[]             @relation("PracticeGroupNpis")
   hubDocumentLinks      HubDocumentPractice[]
+  formRecipients        FormRecipient[]
 
   @@index([companyId])
   @@index([practiceGroupId])
@@ -366,6 +370,7 @@ model Person {
   credentialingRequests     CredentialingRequest[]
   managedOnboardingProjects OnboardingProject[]
   hubDocumentLinks          HubDocumentPerson[]
+  formRecipients            FormRecipient[]
 
   @@map("contacts")
 }
@@ -2764,6 +2769,451 @@ enum HubDocumentActivityAction {
   PUBLIC_LINK_CREATED
   PUBLIC_LINK_REVOKED
   PUBLIC_VIEW
+}
+
+enum FormStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+  ARCHIVED
+}
+
+enum FormResponseMode {
+  IDENTIFIED
+  ANONYMOUS
+}
+
+enum FormDisplayMode {
+  SINGLE_PAGE
+  MULTI_PAGE
+}
+
+enum FormQuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  DROPDOWN
+  SHORT_TEXT
+  LONG_TEXT
+  RATING
+  DATE
+  NUMBER
+  PRICE
+  FEES
+  YES_NO
+  IMAGE_UPLOAD
+  IMAGE_CHOICE
+  EMAIL
+  PHONE
+  CONTENT
+}
+
+enum FormRecipientSource {
+  PRACTICE
+  PERSON
+  PRACTICE_EMAIL
+  NEW_EMAIL
+}
+
+enum FormRecipientStatus {
+  PENDING
+  NOT_OPENED
+  IN_PROGRESS
+  COMPLETED
+  BOUNCED
+  FAILED
+  EXPIRED
+  REMOVED
+}
+
+enum FormDeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  BOUNCED
+  FAILED
+}
+
+enum FormResponseStatus {
+  IN_PROGRESS
+  SUBMITTED
+}
+
+enum FormTemplateVisibility {
+  PRIVATE
+  SHARED
+}
+
+enum FormEmailKind {
+  INVITE
+  REMINDER
+  TEST
+  CREATOR_NOTICE
+}
+
+enum FormExportStatus {
+  PENDING
+  READY
+  FAILED
+  EXPIRED
+}
+
+enum FormExportFormat {
+  CSV
+  XLSX
+  PDF
+}
+
+model Form {
+  id                            String           @id @default(uuid()) @db.Uuid
+  refCode                       String           @unique @map("ref_code")
+  title                         String
+  description                   String?          @db.Text
+  instructions                  String?          @db.Text
+  status                        FormStatus       @default(DRAFT)
+  ownerId                       String           @map("owner_id") @db.Uuid
+  versionNo                     Int              @default(1) @map("version_no")
+  parentFormId                  String?          @map("parent_form_id") @db.Uuid
+  templateId                    String?          @map("template_id") @db.Uuid
+  templateVersionNo             Int?             @map("template_version_no")
+  responseMode                  FormResponseMode @default(IDENTIFIED) @map("response_mode")
+  recordPracticeWhenAnonymous   Boolean          @default(true) @map("record_practice_when_anonymous")
+  minGroupSize                  Int              @default(3) @map("min_group_size")
+  allowMultipleResponses        Boolean          @default(false) @map("allow_multiple_responses")
+  allowEditUntilClose           Boolean          @default(false) @map("allow_edit_until_close")
+  displayMode                   FormDisplayMode  @default(SINGLE_PAGE) @map("display_mode")
+  showProgressBar               Boolean          @default(true) @map("show_progress_bar")
+  showQuestionNumbers           Boolean          @default(true) @map("show_question_numbers")
+  allowSaveResume               Boolean          @default(true) @map("allow_save_resume")
+  confirmationMessage           String?          @map("confirmation_message") @db.Text
+  redirectUrl                   String?          @map("redirect_url")
+  privacyNotice                 String?          @map("privacy_notice") @db.Text
+  sendReceipt                   Boolean          @default(false) @map("send_receipt")
+  sendAt                        DateTime?        @map("send_at")
+  closeAt                       DateTime?        @map("close_at")
+  timezone                      String           @default("UTC")
+  invitesDispatchedAt           DateTime?        @map("invites_dispatched_at")
+  closedAt                      DateTime?        @map("closed_at")
+  publicLinkEnabled             Boolean          @default(false) @map("public_link_enabled")
+  publicLinkTokenHash           String?          @unique @map("public_link_token_hash")
+  publicLinkTokenEncrypted      String?          @map("public_link_token_encrypted")
+  inviteSubject                 String           @default("Please complete {{form_title}}") @map("invite_subject")
+  inviteBody                    String           @default("") @map("invite_body") @db.Text
+  senderName                    String?          @map("sender_name")
+  replyTo                       String?          @map("reply_to")
+  emailBatchSize                Int              @default(100) @map("email_batch_size")
+  publishedSnapshot             Json?            @map("published_snapshot")
+  lockVersion                   Int              @default(1) @map("lock_version")
+  deletedAt                     DateTime?        @map("deleted_at")
+  createdAt                     DateTime         @default(now()) @map("created_at")
+  updatedAt                     DateTime         @updatedAt @map("updated_at")
+  owner                         User             @relation("FormOwner", fields: [ownerId], references: [id])
+  parentForm                    Form?            @relation("FormVersions", fields: [parentFormId], references: [id], onDelete: SetNull)
+  versions                      Form[]           @relation("FormVersions")
+  template                      FormTemplate?    @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  sections                      FormSection[]
+  questions                     FormQuestion[]
+  logicRules                    FormLogicRule[]
+  recipients                    FormRecipient[]
+  responses                     FormResponse[]
+  reminderSetting               FormReminderSetting?
+  emailLogs                     FormEmailLog[]
+  exports                       FormExport[]
+  activityLogs                  FormActivityLog[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([parentFormId])
+  @@index([templateId])
+  @@index([sendAt])
+  @@index([closeAt])
+  @@index([deletedAt])
+  @@map("forms")
+}
+
+model FormSection {
+  id          String         @id @default(uuid()) @db.Uuid
+  formId      String         @map("form_id") @db.Uuid
+  title       String
+  description String?        @db.Text
+  orderIndex  Int            @map("order_index")
+  deletedAt   DateTime?      @map("deleted_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  form        Form           @relation(fields: [formId], references: [id], onDelete: Cascade)
+  questions   FormQuestion[]
+
+  @@index([formId])
+  @@map("form_sections")
+}
+
+model FormQuestion {
+  id           String           @id @default(uuid()) @db.Uuid
+  formId       String           @map("form_id") @db.Uuid
+  sectionId    String           @map("section_id") @db.Uuid
+  key          String
+  type         FormQuestionType
+  label        String           @db.Text
+  helpText     String?          @map("help_text") @db.Text
+  isRequired   Boolean          @default(false) @map("is_required")
+  orderIndex   Int              @map("order_index")
+  configJson   Json             @default("{}") @map("config_json")
+  deletedAt    DateTime?        @map("deleted_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+  form         Form             @relation(fields: [formId], references: [id], onDelete: Cascade)
+  section      FormSection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  options      FormQuestionOption[]
+  logicSources FormLogicCondition[] @relation("LogicSourceQuestion")
+  answers      FormResponseAnswer[]
+
+  @@unique([formId, key])
+  @@index([formId])
+  @@index([sectionId])
+  @@map("form_questions")
+}
+
+model FormQuestionOption {
+  id         String       @id @default(uuid()) @db.Uuid
+  questionId String       @map("question_id") @db.Uuid
+  label      String
+  value      String
+  imageRef   String?      @map("image_ref")
+  isOther    Boolean      @default(false) @map("is_other")
+  orderIndex Int          @map("order_index")
+  deletedAt  DateTime?    @map("deleted_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  question   FormQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("form_question_options")
+}
+
+model FormLogicRule {
+  id         String              @id @default(uuid()) @db.Uuid
+  formId     String              @map("form_id") @db.Uuid
+  targetType String              @map("target_type")
+  targetId   String              @map("target_id") @db.Uuid
+  action     String
+  matchType  String              @default("all") @map("match_type")
+  skipToSectionId String?        @map("skip_to_section_id") @db.Uuid
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+  form       Form                @relation(fields: [formId], references: [id], onDelete: Cascade)
+  conditions FormLogicCondition[]
+
+  @@unique([formId, targetType, targetId])
+  @@index([formId])
+  @@map("form_logic_rules")
+}
+
+model FormLogicCondition {
+  id               String        @id @default(uuid()) @db.Uuid
+  ruleId           String        @map("rule_id") @db.Uuid
+  sourceQuestionId String        @map("source_question_id") @db.Uuid
+  operator         String
+  valueJson        Json          @default("null") @map("value_json")
+  orderIndex       Int           @map("order_index")
+  rule             FormLogicRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  sourceQuestion   FormQuestion  @relation("LogicSourceQuestion", fields: [sourceQuestionId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([sourceQuestionId])
+  @@map("form_logic_conditions")
+}
+
+model FormRecipient {
+  id               String               @id @default(uuid()) @db.Uuid
+  formId           String               @map("form_id") @db.Uuid
+  sourceType       FormRecipientSource  @map("source_type")
+  practiceId       String?              @map("practice_id") @db.Uuid
+  personId         String?              @map("person_id") @db.Uuid
+  email            String
+  emailNormalized  String               @map("email_normalized")
+  displayName      String?              @map("display_name")
+  practiceName     String?              @map("practice_name")
+  tokenHash        String               @unique @map("token_hash")
+  tokenEncrypted   String               @map("token_encrypted")
+  status           FormRecipientStatus  @default(PENDING)
+  deliveryStatus   FormDeliveryStatus   @default(QUEUED) @map("delivery_status")
+  sentAt           DateTime?            @map("sent_at")
+  openedAt         DateTime?            @map("opened_at")
+  completedAt      DateTime?            @map("completed_at")
+  reminderCount    Int                  @default(0) @map("reminder_count")
+  lastReminderAt   DateTime?            @map("last_reminder_at")
+  removedAt        DateTime?            @map("removed_at")
+  attemptCount     Int                  @default(0) @map("attempt_count")
+  nextAttemptAt    DateTime?            @map("next_attempt_at")
+  lastError        String?              @map("last_error")
+  wave             Int                  @default(1)
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  form             Form                 @relation(fields: [formId], references: [id], onDelete: Cascade)
+  practice         Practice?            @relation(fields: [practiceId], references: [id], onDelete: SetNull)
+  person           Person?              @relation(fields: [personId], references: [id], onDelete: SetNull)
+  responses        FormResponse[]
+  emailLogs        FormEmailLog[]
+
+  @@unique([formId, emailNormalized])
+  @@index([formId])
+  @@index([practiceId])
+  @@index([personId])
+  @@index([status])
+  @@index([tokenHash])
+  @@map("form_recipients")
+}
+
+model FormResponse {
+  id              String             @id @default(uuid()) @db.Uuid
+  formId          String             @map("form_id") @db.Uuid
+  formVersionNo   Int                @map("form_version_no")
+  recipientId     String?            @map("recipient_id") @db.Uuid
+  practiceId      String?            @map("practice_id") @db.Uuid
+  status          FormResponseStatus @default(IN_PROGRESS)
+  submissionSlot  String             @default("single") @map("submission_slot")
+  startedAt       DateTime           @default(now()) @map("started_at")
+  submittedAt     DateTime?          @map("submitted_at")
+  idempotencyKey  String             @unique @map("idempotency_key")
+  ipHash          String?            @map("ip_hash")
+  userAgent       String?            @map("user_agent")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  form            Form               @relation(fields: [formId], references: [id], onDelete: Cascade)
+  recipient       FormRecipient?     @relation(fields: [recipientId], references: [id])
+  answers         FormResponseAnswer[]
+
+  @@unique([formId, recipientId, submissionSlot])
+  @@index([formId])
+  @@index([recipientId])
+  @@index([practiceId])
+  @@index([submittedAt])
+  @@index([status])
+  @@map("form_responses")
+}
+
+model FormResponseAnswer {
+  id         String       @id @default(uuid()) @db.Uuid
+  responseId String       @map("response_id") @db.Uuid
+  questionId String       @map("question_id") @db.Uuid
+  valueText  String?      @map("value_text") @db.Text
+  valueNumber Decimal?    @map("value_number") @db.Decimal(18, 4)
+  valueDate  DateTime?    @map("value_date")
+  valueJson  Json?        @map("value_json")
+  fileRefs   Json?        @map("file_refs")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  response   FormResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  question   FormQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([responseId, questionId])
+  @@index([responseId])
+  @@index([questionId])
+  @@map("form_response_answers")
+}
+
+model FormReminderSetting {
+  id                   String   @id @default(uuid()) @db.Uuid
+  formId               String   @unique @map("form_id") @db.Uuid
+  enabled              Boolean  @default(false)
+  firstAfterDays       Int      @default(3) @map("first_after_days")
+  repeatEveryDays      Int      @default(3) @map("repeat_every_days")
+  maxCount             Int      @default(2) @map("max_count")
+  finalBeforeCloseDays Int?     @map("final_before_close_days")
+  subject              String   @default("Reminder: {{form_title}}")
+  body                 String   @default("") @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  form                 Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@map("form_reminder_settings")
+}
+
+model FormEmailLog {
+  id                String         @id @default(uuid()) @db.Uuid
+  formId            String         @map("form_id") @db.Uuid
+  recipientId       String?        @map("recipient_id") @db.Uuid
+  kind              FormEmailKind
+  subject           String
+  status            String
+  providerMessageId String?        @map("provider_message_id")
+  error             String?        @db.Text
+  sentAt            DateTime?      @map("sent_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  form              Form           @relation(fields: [formId], references: [id], onDelete: Cascade)
+  recipient         FormRecipient? @relation(fields: [recipientId], references: [id])
+
+  @@index([formId])
+  @@index([recipientId])
+  @@index([kind])
+  @@map("form_email_logs")
+}
+
+model FormTemplate {
+  id           String                 @id @default(uuid()) @db.Uuid
+  name         String
+  description  String?                @db.Text
+  category     String                 @default("General")
+  visibility   FormTemplateVisibility @default(PRIVATE)
+  isSystem     Boolean                @default(false) @map("is_system")
+  ownerId      String?                @map("owner_id") @db.Uuid
+  versionNo    Int                    @default(1) @map("version_no")
+  contentJson  Json                   @map("content_json")
+  usageCount   Int                    @default(0) @map("usage_count")
+  lastUsedAt   DateTime?              @map("last_used_at")
+  hidden       Boolean                @default(false)
+  deletedAt    DateTime?              @map("deleted_at")
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+  owner        User?                  @relation("FormTemplateOwner", fields: [ownerId], references: [id])
+  forms        Form[]
+
+  @@index([ownerId])
+  @@index([visibility])
+  @@index([category])
+  @@map("form_templates")
+}
+
+model FormActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  formId     String?  @map("form_id") @db.Uuid
+  summary    Json?
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation("FormActivityByUser", fields: [userId], references: [id])
+  form       Form?    @relation(fields: [formId], references: [id])
+
+  @@index([formId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("form_activity_logs")
+}
+
+model FormExport {
+  id            String           @id @default(uuid()) @db.Uuid
+  formId        String           @map("form_id") @db.Uuid
+  requestedById String           @map("requested_by_id") @db.Uuid
+  format        FormExportFormat
+  status        FormExportStatus @default(PENDING)
+  filters       Json?
+  fileName      String?          @map("file_name")
+  blobUrl       String?          @map("blob_url")
+  localPath     String?          @map("local_path")
+  error         String?          @db.Text
+  expiresAt     DateTime         @map("expires_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  form          Form             @relation(fields: [formId], references: [id], onDelete: Cascade)
+  requestedBy   User             @relation("FormExportRequestedBy", fields: [requestedById], references: [id])
+
+  @@index([formId])
+  @@index([requestedById])
+  @@index([status])
+  @@map("form_exports")
 }
 
 model PrefundingRate {
