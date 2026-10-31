@@ -13,6 +13,7 @@ type WorkstreamBody = {
   practiceId?: string;
   onboardingProjectId?: string;
   serviceLine?: string;
+  templateBlueprintId?: string | null;
   status?: string;
   ownerUserId?: string | null;
   targetDate?: string | null;
@@ -230,6 +231,7 @@ export async function createWorkstream(
       practiceId,
       onboardingProjectId,
       serviceLine,
+      templateBlueprintId,
       status,
       ownerUserId,
       targetDate,
@@ -291,25 +293,17 @@ export async function createWorkstream(
       }
     }
 
-    const existing = await prisma.onboardingWorkstream.findFirst({
-      where: {
-        onboardingProjectId: projectId!,
-        serviceLine,
-      },
-    });
-    if (existing) {
-      return res.status(409).json({
-        message:
-          "A workstream already exists for this practice and service line.",
+    // Multiple workstreams per service line are now supported (one per blueprint)
+
+    let template: any = null;
+    if (templateBlueprintId) {
+      template = await prisma.onboardingTaskTemplate.findFirst({
+        where: { id: templateBlueprintId, isActive: true },
+        include: {
+          tasks: { orderBy: { taskNumber: "asc" } },
+        },
       });
     }
-
-    const template = await prisma.onboardingTaskTemplate.findFirst({
-      where: { serviceLine, isActive: true },
-      include: {
-        tasks: { orderBy: { taskNumber: "asc" } },
-      },
-    });
 
     const SERVICE_LINE_PHASE_NAMES: Record<string, Record<string, string>> = {
       RCM: {
@@ -384,10 +378,8 @@ export async function createWorkstream(
       { phase: "PROVIDER_ACTIVATION", code: "M7", week: "Week 9-10" },
     ];
 
-    const activePhases = new Set(template?.tasks.map((t) => t.phase) || []);
-    const milestonesToCreate = activePhases.size > 0
-      ? ALL_MILESTONES.filter((m) => activePhases.has(m.phase as any))
-      : ALL_MILESTONES.slice(0, 5);
+    const activePhases = new Set((template?.tasks || []).map((t: any) => t.phase).filter(Boolean));
+    const milestonesToCreate = ALL_MILESTONES.filter((m) => activePhases.has(m.phase as any));
 
     const workstream = await prisma.onboardingWorkstream.create({
       data: {
@@ -396,12 +388,12 @@ export async function createWorkstream(
         status: nextStatus,
         ownerUserId: ownerUserId || null,
         targetDate: parsedTargetDate?.value ?? null,
-        notes: notes?.trim() || null,
+        notes: notes?.trim() || (template?.name ? `Blueprint: ${template.name}` : null),
         milestones: {
           create: milestonesToCreate.map((m, idx) => {
             const now = new Date();
-            const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
-            const timeStamp = String(now.getTime()).slice(-4); // last 4 digits of timestamp
+            const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, "");
+            const timeStamp = String(now.getTime()).slice(-4);
             const codeSuffix = `${dateStamp}-${timeStamp}${idx + 1}`;
             const phaseTitle = getPhaseName(m.phase);
             return {
@@ -413,15 +405,14 @@ export async function createWorkstream(
             };
           }),
         },
-        ...(template?.tasks.length
+        ...(template?.tasks?.length
           ? {
               tasks: {
-                create: template.tasks.map((item) => {
+                create: template.tasks.map((item: any, idx: number) => {
                   const now = new Date();
                   const startOffset = item.startOffsetDays ?? 0;
                   const dueOffset = item.dueOffsetDays ?? 7;
 
-                  // 1. Calculate Start Date
                   let startDate: Date | null = null;
                   if (item.startMode === "FIXED_DATE" || item.fixedStartDate) {
                     if (item.fixedStartDate) {
@@ -433,7 +424,6 @@ export async function createWorkstream(
                     startDate = new Date(now.getTime() + startOffset * 86400000);
                   }
 
-                  // 2. Calculate Due Date
                   let dueDate: Date | null = null;
                   if (item.dueMode === "FIXED_DATE" || item.fixedDueDate) {
                     if (item.fixedDueDate) {
@@ -446,7 +436,7 @@ export async function createWorkstream(
                   }
 
                   return {
-                    taskNumber: item.taskNumber,
+                    taskNumber: item.taskNumber ?? idx + 1,
                     name: item.taskName,
                     phase: item.phase,
                     ownerUserId: item.defaultOwnerId || ownerUserId || null,

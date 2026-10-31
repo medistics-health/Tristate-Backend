@@ -107,21 +107,6 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     const where: any = {};
     const andConditions: any[] = [];
 
-    // If user does not have Prefunding VIEW permission, do not return persons whose ONLY role is EMPLOYEE
-    if (!canViewPrefunding) {
-      andConditions.push({
-        OR: [
-          { roles: { equals: null } },
-          { roles: { isEmpty: true } },
-          {
-            roles: {
-              hasSome: Object.values(PersonRole).filter((r) => r !== PersonRole.EMPLOYEE),
-            },
-          },
-        ],
-      });
-    }
-
     if (search) {
       andConditions.push({
         OR: [
@@ -216,9 +201,24 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
 
     const totalPages = Math.ceil(totalRecords / limit);
 
+    const formattedPersons = canViewPrefunding
+      ? persons
+      : persons.map((p) => ({
+          ...p,
+          roles: Array.isArray(p.roles) ? p.roles.filter((r) => r !== PersonRole.EMPLOYEE) : p.roles,
+          jobCategory: null,
+          workLocation: null,
+          state: null,
+          dateOfJoining: null,
+          payType: null,
+          payRate: null,
+          budgetedHours: null,
+          bufferPercentage: null,
+        }));
+
     return res.status(200).json({
       message: "Persons fetched successfully.",
-      persons,
+      persons: formattedPersons,
       pagination: {
         totalRecords,
         totalPages,
@@ -485,19 +485,29 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
       : [];
     const canViewPrefunding = hasPrefundingAccess && prefundingPerms.includes("VIEW");
 
-    // If the person is solely an EMPLOYEE and the user cannot view prefunding, treat as not found
-    if (!canViewPrefunding && Array.isArray(person.roles) && person.roles.length === 1 && person.roles[0] === PersonRole.EMPLOYEE) {
-      return res.status(404).json({
-        message: "Person not found.",
-      });
-    }
-
     const { hubDocumentLinks, ...personData } = person;
+
+    const formattedPerson = canViewPrefunding
+      ? personData
+      : {
+          ...personData,
+          roles: Array.isArray(personData.roles)
+            ? personData.roles.filter((r) => r !== PersonRole.EMPLOYEE)
+            : personData.roles,
+          jobCategory: null,
+          workLocation: null,
+          state: null,
+          dateOfJoining: null,
+          payType: null,
+          payRate: null,
+          budgetedHours: null,
+          bufferPercentage: null,
+        };
 
     return res.status(200).json({
       message: "Person fetched successfully.",
       person: {
-        ...personData,
+        ...formattedPerson,
         hubDocuments: serializeLinkedHubDocuments(hubDocumentLinks),
       },
     });

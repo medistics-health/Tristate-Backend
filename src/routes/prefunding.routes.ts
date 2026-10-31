@@ -82,7 +82,20 @@ const requireInvoiceCreatePermission = (req: AuthenticatedRequest, res: Response
 };
 
 prefundingRouter.post("/invoices", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requireInvoiceCreatePermission, createPrefundingInvoice);
-prefundingRouter.put("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requirePrefundingPermission("EDIT"), updatePrefundingInvoice);
+// Allow users with either EDIT or CALCULATE permission to update prefunding invoices
+const requireInvoiceEditPermission = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const perms = Array.isArray(req.user?.prefundingPermissions)
+    ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+    : [];
+  if (perms.includes("EDIT") || perms.includes("CALCULATE")) {
+    return next();
+  }
+  return res.status(403).json({
+    message: "Forbidden. You do not have 'EDIT' or 'CALCULATE' permission to update invoices.",
+  });
+};
+
+prefundingRouter.put("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requireInvoiceEditPermission, updatePrefundingInvoice);
 prefundingRouter.put("/invoices/:id/status", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requireStatusChangePermission, updatePrefundingInvoiceStatus);
 prefundingRouter.post("/invoices/:id/resend", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requirePrefundingPermission("POST"), resendPrefundingInvoice);
 prefundingRouter.delete("/invoices/:id", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requirePrefundingPermission("DELETE"), deletePrefundingInvoice);

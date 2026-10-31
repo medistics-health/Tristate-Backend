@@ -110,12 +110,48 @@ export async function createTemplate(req: AuthenticatedRequest, res: Response): 
       return;
     }
 
+    const trimmedName = String(name).trim();
+
+    // Prevent duplicate Service Line + Blueprint Name combination
+    try {
+      const existingDbTemplate = await prisma.onboardingTaskTemplate.findFirst({
+        where: {
+          serviceLine: serviceLine as OnboardingServiceLine,
+          name: {
+            equals: trimmedName,
+            mode: "insensitive",
+          },
+        },
+      });
+
+      if (existingDbTemplate) {
+        res.status(409).json({
+          success: false,
+          message: `A template blueprint with the name "${trimmedName}" already exists for service line ${serviceLine}.`,
+        });
+        return;
+      }
+    } catch (checkErr) {
+      const existingMem = memoryTemplates.find(
+        (t) =>
+          t.serviceLine === serviceLine &&
+          t.name?.trim().toLowerCase() === trimmedName.toLowerCase()
+      );
+      if (existingMem) {
+        res.status(409).json({
+          success: false,
+          message: `A template blueprint with the name "${trimmedName}" already exists for service line ${serviceLine}.`,
+        });
+        return;
+      }
+    }
+
     let template: any = null;
     try {
       template = await prisma.onboardingTaskTemplate.create({
         data: {
           serviceLine: serviceLine as OnboardingServiceLine,
-          name,
+          name: trimmedName,
           description,
           isActive: true,
           ...(Array.isArray(tasks) && tasks.length > 0
@@ -226,6 +262,51 @@ export async function updateTemplate(req: AuthenticatedRequest, res: Response): 
   try {
     const templateId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const { name, description, serviceLine, isActive, tasks } = req.body;
+
+    const trimmedName = name ? String(name).trim() : undefined;
+
+    // If name or serviceLine is updated, verify no other template has the same combination
+    if (trimmedName || serviceLine) {
+      try {
+        const current = await prisma.onboardingTaskTemplate.findUnique({ where: { id: templateId } });
+        const targetServiceLine = (serviceLine || current?.serviceLine) as OnboardingServiceLine;
+        const targetName = trimmedName || current?.name;
+
+        if (targetServiceLine && targetName) {
+          const duplicate = await prisma.onboardingTaskTemplate.findFirst({
+            where: {
+              id: { not: templateId },
+              serviceLine: targetServiceLine,
+              name: {
+                equals: targetName,
+                mode: "insensitive",
+              },
+            },
+          });
+          if (duplicate) {
+            res.status(409).json({
+              success: false,
+              message: `A template blueprint with the name "${targetName}" already exists for service line ${targetServiceLine}.`,
+            });
+            return;
+          }
+        }
+      } catch (checkErr) {
+        const existingMem = memoryTemplates.find(
+          (t) =>
+            t.id !== templateId &&
+            t.serviceLine === (serviceLine || t.serviceLine) &&
+            t.name?.trim().toLowerCase() === (trimmedName || t.name || "").trim().toLowerCase()
+        );
+        if (existingMem) {
+          res.status(409).json({
+            success: false,
+            message: `A template blueprint with the name "${trimmedName}" already exists for service line ${serviceLine}.`,
+          });
+          return;
+        }
+      }
+    }
 
     try {
       if (Array.isArray(tasks)) {
