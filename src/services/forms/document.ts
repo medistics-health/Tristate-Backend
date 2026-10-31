@@ -307,6 +307,19 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
     if (title.toLowerCase() !== form.title.trim().toLowerCase()) await assertUniqueFormTitle(title, [formId]);
   }
   const sections = (body.sections || []).filter((section) => (section.questions || []).length > 0);
+  for (const section of sections) {
+    for (const question of section.questions || []) {
+      if (!["number", "price", "fees"].includes(question.type)) continue;
+      const min = question.config?.min;
+      const max = question.config?.max;
+      if (min === undefined || min === "" || max === undefined || max === "") continue;
+      const low = Number(min);
+      const high = Number(max);
+      if (Number.isFinite(low) && Number.isFinite(high) && high < low) {
+        throw httpError(400, `${question.label || "This question"} cannot have a maximum less than its minimum.`);
+      }
+    }
+  }
   if (hasResponses && structureChanged(form, sections)) {
     throw httpError(409, "This form already has responses, so its structure is locked.", structuralLockMessage());
   }
