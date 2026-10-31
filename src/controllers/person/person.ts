@@ -124,13 +124,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     }
 
     if (role) {
-      const roleStr = String(role).toUpperCase();
-      if (roleStr === "EMPLOYEE" && !canViewPrefunding) {
-        // User cannot view EMPLOYEE role, so return empty result set
-        where.id = "00000000-0000-0000-0000-000000000000";
-      } else {
-        where.roles = { has: role as PersonRole };
-      }
+      where.roles = { has: role as PersonRole };
     }
 
     if (influence) {
@@ -205,7 +199,7 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
       ? persons
       : persons.map((p) => ({
           ...p,
-          roles: Array.isArray(p.roles) ? p.roles.filter((r) => r !== PersonRole.EMPLOYEE) : p.roles,
+          roles: p.roles,
           jobCategory: null,
           workLocation: null,
           state: null,
@@ -491,9 +485,7 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
       ? personData
       : {
           ...personData,
-          roles: Array.isArray(personData.roles)
-            ? personData.roles.filter((r) => r !== PersonRole.EMPLOYEE)
-            : personData.roles,
+          roles: personData.roles,
           jobCategory: null,
           workLocation: null,
           state: null,
