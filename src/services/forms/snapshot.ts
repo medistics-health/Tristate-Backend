@@ -25,6 +25,7 @@ export function buildSnapshot(form: LoadedForm) {
     refCode: form.refCode,
     versionNo: form.versionNo,
     title: form.title,
+    displayTitle: form.displayTitle?.trim() || "",
     description: sanitizeRichText(form.description),
     instructions: sanitizeRichText(form.instructions),
     privacyNotice: sanitizeRichText(form.privacyNotice),

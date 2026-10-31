@@ -97,6 +97,7 @@ type UiSection = {
 
 export type UiDocument = {
   title?: string;
+  displayTitle?: string;
   description?: string;
   instructions?: string;
   confirmationMessage?: string;
@@ -184,6 +185,7 @@ export async function readDocument(formId: string) {
     id: form.id,
     refCode: form.refCode,
     title: form.title,
+    displayTitle: form.displayTitle || "",
     description: form.description || "",
     instructions: form.instructions || "",
     status: form.status,
@@ -336,6 +338,7 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
       where: { id: formId },
       data: {
         title: body.title !== undefined ? String(body.title).slice(0, 200) : undefined,
+        displayTitle: body.displayTitle !== undefined ? String(body.displayTitle).trim().slice(0, 200) || null : undefined,
         description: body.description !== undefined ? String(body.description).slice(0, 2000) : undefined,
         instructions: body.instructions !== undefined ? String(body.instructions) : undefined,
         confirmationMessage: body.confirmationMessage !== undefined ? String(body.confirmationMessage) : undefined,

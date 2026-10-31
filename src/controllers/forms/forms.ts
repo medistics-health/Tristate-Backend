@@ -24,6 +24,7 @@ import {
   DEFAULT_INVITE_BODY,
   assertUniqueFormTitle,
   assertUniqueTemplateName,
+  clientFormTitle,
   httpError,
   loadForm,
   ownerWhere,
@@ -420,10 +421,11 @@ export async function sendFormNow(req: AuthenticatedRequest, res: Response) {
                 status: FormRecipientStatus.PENDING,
               },
             });
-        const subject = `Complete ${form.title}`;
+        const shownTitle = clientFormTitle(form);
+        const subject = `Complete ${shownTitle}`;
         const html = `
           <p>Hi ${recipient.displayName || "there"},</p>
-          <p>Please complete <strong>${form.title}</strong> by clicking the link below:</p>
+          <p>Please complete <strong>${shownTitle}</strong> by clicking the link below:</p>
           <p><a href="${link}">Open the form</a></p>
           <p>If the link doesn't work, copy and paste this URL into your browser:</p>
           <p>${link}</p>
@@ -1211,7 +1213,7 @@ export async function testEmail(req: AuthenticatedRequest, res: Response) {
     const fields = {
       recipient_name: form.owner.firstName,
       practice_name: "Sample practice",
-      form_title: form.title,
+      form_title: clientFormTitle(form),
       form_link: formLink(token),
       closing_date: form.closeAt ? form.closeAt.toISOString() : "not set",
       sender_name: form.senderName || `${form.owner.firstName} ${form.owner.lastName}`,
@@ -1254,7 +1256,7 @@ export async function remindNow(req: AuthenticatedRequest, res: Response) {
       const fields = {
         recipient_name: recipient.displayName || recipient.email,
         practice_name: recipient.practiceName || "",
-        form_title: form.title,
+        form_title: clientFormTitle(form),
         form_link: formLink(token),
         closing_date: form.closeAt ? form.closeAt.toISOString() : "",
         sender_name: form.senderName || form.owner.firstName,

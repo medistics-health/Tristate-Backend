@@ -26,6 +26,7 @@ type TemplateSection = {
 };
 
 export type TemplateContent = {
+  displayTitle?: string;
   description?: string;
   instructions?: string;
   confirmationMessage?: string;
@@ -136,6 +137,7 @@ export async function createFormFromContent(params: {
       data: {
         refCode,
         title: params.title.slice(0, 200),
+        displayTitle: content.displayTitle?.trim().slice(0, 200) || null,
         description: content.description || null,
         instructions: content.instructions || null,
         confirmationMessage: content.confirmationMessage || "Thank you. Your response has been recorded.",
@@ -247,6 +249,7 @@ export async function createFormFromContent(params: {
 }
 
 export function contentFromForm(form: {
+  displayTitle?: string | null;
   description: string | null;
   instructions: string | null;
   confirmationMessage: string | null;
@@ -286,6 +289,7 @@ export function contentFromForm(form: {
 }): TemplateContent {
   const keyById = new Map(form.questions.map((question) => [question.id, question.key]));
   return {
+    displayTitle: form.displayTitle?.trim() || undefined,
     description: form.description || undefined,
     instructions: form.instructions || undefined,
     confirmationMessage: form.confirmationMessage || undefined,

@@ -103,6 +103,10 @@ export async function bumpLock(formId: string) {
   });
 }
 
+export function clientFormTitle(form: { title: string; displayTitle?: string | null }) {
+  return form.displayTitle?.trim() || form.title;
+}
+
 export async function assertUniqueFormTitle(title: string, exceptIds: string[] = []) {
   const name = title.trim();
   if (!name) return;

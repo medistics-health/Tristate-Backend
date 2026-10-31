@@ -8,7 +8,7 @@ import { prisma } from "../../lib/prisma";
 import { sendOutlookEmail } from "../../utils/outlook";
 import { applyMerge, formLink } from "./mailer";
 import { decryptToken } from "./sanitize";
-import { DEFAULT_INVITE_BODY, httpError } from "./shared";
+import { DEFAULT_INVITE_BODY, clientFormTitle, httpError } from "./shared";
 
 function mergeFields(params: {
   name: string | null;
@@ -60,19 +60,19 @@ export async function sendPendingInvites(formId: string, limit = 500, immediate 
         name: recipient.displayName,
         email: recipient.email,
         practiceName: recipient.practiceName,
-        title: form.title,
+        title: clientFormTitle(form),
         link: formLink(decryptToken(recipient.tokenEncrypted)),
         closeAt: form.closeAt,
         senderName,
       });
-      const subject = applyMerge(form.inviteSubject || `Complete ${form.title}`, fields);
+      const subject = applyMerge(form.inviteSubject || `Complete ${clientFormTitle(form)}`, fields);
       const link = fields.form_link;
       const merged = applyMerge(inviteBody, fields);
       const html = merged.includes(link)
         ? merged
         : `
         <p>Hi ${fields.recipient_name},</p>
-        <p>Please complete <strong>${form.title}</strong> by clicking the link below:</p>
+        <p>Please complete <strong>${clientFormTitle(form)}</strong> by clicking the link below:</p>
         <p><a href="${link}">Open the form</a></p>
         <p>If the link doesn't work, copy and paste this URL into your browser:</p>
         <p>${link}</p>
@@ -108,7 +108,7 @@ export async function sendPendingInvites(formId: string, limit = 500, immediate 
           formId: form.id,
           recipientId: recipient.id,
           kind: FormEmailKind.INVITE,
-          subject: form.inviteSubject || form.title,
+          subject: form.inviteSubject || clientFormTitle(form),
           status: "FAILED",
           error: message.slice(0, 2000),
         },

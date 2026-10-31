@@ -2867,6 +2867,7 @@ model Form {
   id                            String           @id @default(uuid()) @db.Uuid
   refCode                       String           @unique @map("ref_code")
   title                         String
+  displayTitle                  String?          @map("display_title") @db.Text
   description                   String?          @db.Text
   instructions                  String?          @db.Text
   status                        FormStatus       @default(DRAFT)
