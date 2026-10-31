@@ -309,10 +309,16 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
   const sections = (body.sections || []).filter((section) => (section.questions || []).length > 0);
   for (const section of sections) {
     for (const question of section.questions || []) {
-      if (!["number", "price", "fees"].includes(question.type)) continue;
       const min = question.config?.min;
       const max = question.config?.max;
       if (min === undefined || min === "" || max === undefined || max === "") continue;
+      if (question.type === "date") {
+        if (String(min) > String(max)) {
+          throw httpError(400, `${question.label || "This question"} cannot have a minimum later than its maximum.`);
+        }
+        continue;
+      }
+      if (!["number", "price", "fees"].includes(question.type)) continue;
       const low = Number(min);
       const high = Number(max);
       if (Number.isFinite(low) && Number.isFinite(high) && high < low) {
