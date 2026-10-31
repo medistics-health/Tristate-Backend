@@ -147,7 +147,7 @@ function logicOf(
 
 function answerText(question: QuestionShape, stored: StoredAnswer) {
   const shown = displayValue(question, stored);
-  if (question.type === "MULTIPLE_CHOICE" || (question.type === "IMAGE_CHOICE" && question.config.selectMode === "multi")) {
+  if (question.type === "MULTIPLE_CHOICE" || (question.type === "DROPDOWN" && question.config.multi) || (question.type === "IMAGE_CHOICE" && question.config.selectMode === "multi")) {
     return shown ? shown.split("; ").filter(Boolean) : [];
   }
   return shown;

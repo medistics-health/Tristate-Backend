@@ -65,8 +65,30 @@ export function normalizeStored(question: QuestionShape, raw: unknown): StoredAn
   }
 
   switch (question.type) {
+    case "DROPDOWN": {
+      if (question.config?.multi) {
+        const record = (raw && typeof raw === "object" ? raw : {}) as { optionIds?: unknown };
+        const ids = Array.isArray(raw)
+          ? raw.map(String)
+          : Array.isArray(record.optionIds)
+            ? record.optionIds.map(String)
+            : typeof raw === "string" && raw
+              ? [raw]
+              : [];
+        if (ids.some((id) => !optionIds(question).has(id))) {
+          return { error: `${question.label} has an invalid option.` };
+        }
+        return { valueJson: { optionIds: ids } };
+      }
+      const selected = typeof raw === "object" && raw && "optionId" in raw
+        ? String((raw as { optionId: unknown }).optionId)
+        : String(raw);
+      if (!optionIds(question).has(selected)) {
+        return { error: `${question.label} has an invalid option.` };
+      }
+      return { valueJson: { optionId: selected } };
+    }
     case "SINGLE_CHOICE":
-    case "DROPDOWN":
     case "IMAGE_CHOICE": {
       const selected = typeof raw === "object" && raw && "optionId" in raw
         ? String((raw as { optionId: unknown }).optionId)
