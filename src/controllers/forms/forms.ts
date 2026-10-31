@@ -1579,6 +1579,10 @@ export async function saveAsTemplate(req: AuthenticatedRequest, res: Response) {
     const name = String(req.body?.name || "").trim();
     if (!name) throw httpError(400, "Template name is required.");
     await assertUniqueTemplateName(name);
+    const content = contentFromForm(form);
+    if (!content.sections.some((section) => section.questions.length > 0)) {
+      throw httpError(400, "Add at least one question before saving this template.");
+    }
     const template = await prisma.formTemplate.create({
       data: {
         name,
@@ -1586,7 +1590,7 @@ export async function saveAsTemplate(req: AuthenticatedRequest, res: Response) {
         category: String(req.body?.category || "General"),
         visibility: req.body?.visibility === "SHARED" ? FormTemplateVisibility.SHARED : FormTemplateVisibility.PRIVATE,
         ownerId: userId(req),
-        contentJson: contentFromForm(form) as unknown as Prisma.InputJsonValue,
+        contentJson: content as unknown as Prisma.InputJsonValue,
       },
     });
     await writeActivity({ userId: userId(req), action: "SAVE_TEMPLATE", entityType: "template", entityId: template.id, formId: form.id, ip: req.ip });

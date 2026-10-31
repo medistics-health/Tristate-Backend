@@ -307,6 +307,7 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
     if (title.toLowerCase() !== form.title.trim().toLowerCase()) await assertUniqueFormTitle(title, [formId]);
   }
   const sections = (body.sections || []).filter((section) => (section.questions || []).length > 0);
+  if (sections.length === 0) throw httpError(400, "Add at least one question before saving this form.");
   for (const section of sections) {
     for (const question of section.questions || []) {
       const min = question.config?.min;
