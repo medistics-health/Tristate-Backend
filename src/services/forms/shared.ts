@@ -103,6 +103,38 @@ export async function bumpLock(formId: string) {
   });
 }
 
+export function clientFormTitle(form: { title: string; displayTitle?: string | null }) {
+  return form.displayTitle?.trim() || form.title;
+}
+
+export async function assertUniqueFormTitle(title: string, exceptIds: string[] = []) {
+  const name = title.trim();
+  if (!name) return;
+  const existing = await prisma.form.findFirst({
+    where: {
+      deletedAt: null,
+      title: { equals: name, mode: "insensitive" },
+      ...(exceptIds.length ? { id: { notIn: exceptIds } } : {}),
+    },
+    select: { id: true },
+  });
+  if (existing) throw httpError(409, "A form with this name already exists.");
+}
+
+export async function assertUniqueTemplateName(name: string, exceptIds: string[] = []) {
+  const title = name.trim();
+  if (!title) return;
+  const existing = await prisma.formTemplate.findFirst({
+    where: {
+      deletedAt: null,
+      name: { equals: title, mode: "insensitive" },
+      ...(exceptIds.length ? { id: { notIn: exceptIds } } : {}),
+    },
+    select: { id: true },
+  });
+  if (existing) throw httpError(409, "A template with this name already exists.");
+}
+
 export function httpError(status: number, message: string, extra?: Record<string, unknown>) {
   const error = new Error(message) as Error & { status: number; extra?: Record<string, unknown> };
   error.status = status;

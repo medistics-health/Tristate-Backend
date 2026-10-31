@@ -176,7 +176,7 @@ export function questionSummary(question: QuestionShape, responses: Awaited<Retu
         }));
     return {
       ...base,
-      chart: question.type === "MULTIPLE_CHOICE" ? "bar" : "pie",
+      chart: question.type === "MULTIPLE_CHOICE" || (question.type === "DROPDOWN" && question.config?.multi) ? "bar" : "pie",
       options,
     };
   }

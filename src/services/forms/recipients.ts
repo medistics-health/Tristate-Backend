@@ -34,8 +34,8 @@ export async function resolveRecipients(input: ResolveInput) {
       },
     });
     for (const practice of practices) {
-      if (practice.status === PracticeStatus.CLOSED) {
-        excluded.push({ name: practice.name, reason: "Practice is closed." });
+      if (practice.status !== PracticeStatus.ACTIVE && practice.status !== PracticeStatus.LEAD) {
+        excluded.push({ name: practice.name, reason: "Only active or lead practices can receive a form." });
         continue;
       }
       const addresses = [...new Set(
@@ -69,11 +69,11 @@ export async function resolveRecipients(input: ResolveInput) {
             });
             continue;
           }
-          if (person.status === PersonStatus.INACTIVE) {
+          if (person.status !== PersonStatus.ACTIVE) {
             excluded.push({
               email: person.email,
               name: `${person.firstName} ${person.lastName}`,
-              reason: "Do-not-contact (inactive person).",
+              reason: "Only active people can receive a form.",
             });
             continue;
           }
@@ -103,8 +103,8 @@ export async function resolveRecipients(input: ResolveInput) {
         excluded.push({ name, reason: "Person has no email." });
         continue;
       }
-      if (person.status === PersonStatus.INACTIVE) {
-        excluded.push({ email: person.email, name, reason: "Do-not-contact (inactive person)." });
+      if (person.status !== PersonStatus.ACTIVE) {
+        excluded.push({ email: person.email, name, reason: "Only active people can receive a form." });
         continue;
       }
       const practice = person.practices[0]?.practice;

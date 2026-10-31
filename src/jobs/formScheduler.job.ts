@@ -6,6 +6,7 @@ import {
 import { prisma } from "../lib/prisma";
 import { applyMerge, deliverFormEmail, formLink, notifyCreator } from "../services/forms/mailer";
 import { decryptToken } from "../services/forms/sanitize";
+import { clientFormTitle } from "../services/forms/shared";
 import { sendPendingInvites } from "../services/forms/dispatchInvites";
 import { processPendingExports } from "../services/forms/exportJob";
 
@@ -93,7 +94,7 @@ async function dispatchReminders() {
         name: recipient.displayName,
         email: recipient.email,
         practiceName: recipient.practiceName,
-        title: form.title,
+        title: clientFormTitle(form),
         link: formLink(decryptToken(recipient.tokenEncrypted)),
         closeAt: form.closeAt,
         senderName: form.senderName || form.owner.firstName,

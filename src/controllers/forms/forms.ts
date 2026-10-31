@@ -22,6 +22,9 @@ import {
   canAccessForm,
   canMutateForm,
   DEFAULT_INVITE_BODY,
+  assertUniqueFormTitle,
+  assertUniqueTemplateName,
+  clientFormTitle,
   httpError,
   loadForm,
   ownerWhere,
@@ -201,6 +204,7 @@ export async function createForm(req: AuthenticatedRequest, res: Response) {
   try {
     const title = String(req.body?.title || "").trim();
     if (!title || title.length > 200) throw httpError(400, "Title is required and must be 200 characters or fewer.");
+    await assertUniqueFormTitle(title);
     const description = req.body?.description ? sanitizeRichText(String(req.body.description)).slice(0, 2000) : undefined;
     const instructions = req.body?.instructions ? sanitizeRichText(String(req.body.instructions)).slice(0, 4000) : undefined;
     const created = await createFormFromContent({
@@ -248,6 +252,7 @@ export async function updateForm(req: AuthenticatedRequest, res: Response) {
     if (req.body.title !== undefined) {
       const title = String(req.body.title).trim();
       if (!title || title.length > 200) throw httpError(400, "Title is required and must be 200 characters or fewer.");
+      await assertUniqueFormTitle(title, [form.id]);
       data.title = title;
     }
     if (req.body.description !== undefined) data.description = sanitizeRichText(String(req.body.description || "")).slice(0, 2000);
@@ -332,9 +337,11 @@ export async function duplicateForm(req: AuthenticatedRequest, res: Response) {
     if (!canMutateForm(form, req.user?.role, userId(req)) && !isAdmin(req.user?.role)) {
       throw httpError(403, "You do not have permission for this action.");
     }
+    const title = `Copy of ${form.title}`.slice(0, 200);
+    await assertUniqueFormTitle(title);
     const created = await createFormFromContent({
       ownerId: userId(req),
-      title: `Copy of ${form.title}`.slice(0, 200),
+      title,
       content: contentFromForm(form),
     });
     await writeActivity({ userId: userId(req), action: "DUPLICATE", entityType: "form", entityId: created.id, formId: created.id, summary: { sourceId: form.id }, ip: req.ip });
@@ -414,10 +421,11 @@ export async function sendFormNow(req: AuthenticatedRequest, res: Response) {
                 status: FormRecipientStatus.PENDING,
               },
             });
-        const subject = `Complete ${form.title}`;
+        const shownTitle = clientFormTitle(form);
+        const subject = `Complete ${shownTitle}`;
         const html = `
           <p>Hi ${recipient.displayName || "there"},</p>
-          <p>Please complete <strong>${form.title}</strong> by clicking the link below:</p>
+          <p>Please complete <strong>${shownTitle}</strong> by clicking the link below:</p>
           <p><a href="${link}">Open the form</a></p>
           <p>If the link doesn't work, copy and paste this URL into your browser:</p>
           <p>${link}</p>
@@ -1205,7 +1213,7 @@ export async function testEmail(req: AuthenticatedRequest, res: Response) {
     const fields = {
       recipient_name: form.owner.firstName,
       practice_name: "Sample practice",
-      form_title: form.title,
+      form_title: clientFormTitle(form),
       form_link: formLink(token),
       closing_date: form.closeAt ? form.closeAt.toISOString() : "not set",
       sender_name: form.senderName || `${form.owner.firstName} ${form.owner.lastName}`,
@@ -1248,7 +1256,7 @@ export async function remindNow(req: AuthenticatedRequest, res: Response) {
       const fields = {
         recipient_name: recipient.displayName || recipient.email,
         practice_name: recipient.practiceName || "",
-        form_title: form.title,
+        form_title: clientFormTitle(form),
         form_link: formLink(token),
         closing_date: form.closeAt ? form.closeAt.toISOString() : "",
         sender_name: form.senderName || form.owner.firstName,
@@ -1572,6 +1580,11 @@ export async function saveAsTemplate(req: AuthenticatedRequest, res: Response) {
     if (!canMutateForm(form, req.user?.role, userId(req))) throw httpError(403, "You do not have permission for this action.");
     const name = String(req.body?.name || "").trim();
     if (!name) throw httpError(400, "Template name is required.");
+    await assertUniqueTemplateName(name);
+    const content = contentFromForm(form);
+    if (!content.sections.some((section) => section.questions.length > 0)) {
+      throw httpError(400, "Add at least one question before saving this template.");
+    }
     const template = await prisma.formTemplate.create({
       data: {
         name,
@@ -1579,7 +1592,7 @@ export async function saveAsTemplate(req: AuthenticatedRequest, res: Response) {
         category: String(req.body?.category || "General"),
         visibility: req.body?.visibility === "SHARED" ? FormTemplateVisibility.SHARED : FormTemplateVisibility.PRIVATE,
         ownerId: userId(req),
-        contentJson: contentFromForm(form) as unknown as Prisma.InputJsonValue,
+        contentJson: content as unknown as Prisma.InputJsonValue,
       },
     });
     await writeActivity({ userId: userId(req), action: "SAVE_TEMPLATE", entityType: "template", entityId: template.id, formId: form.id, ip: req.ip });
@@ -1615,9 +1628,11 @@ export async function getTemplate(req: AuthenticatedRequest, res: Response) {
 export async function useTemplate(req: AuthenticatedRequest, res: Response) {
   try {
     const template = await readableTemplate(req);
+    const title = String(req.body?.title || template.name).trim().slice(0, 200);
+    await assertUniqueFormTitle(title);
     const created = await createFormFromContent({
       ownerId: userId(req),
-      title: String(req.body?.title || template.name).slice(0, 200),
+      title,
       content: template.contentJson as TemplateContent,
       templateId: template.id,
       templateVersionNo: template.versionNo,
@@ -1643,6 +1658,7 @@ export async function updateTemplate(req: AuthenticatedRequest, res: Response) {
     if (req.body?.mode === "new") {
       const name = String(req.body?.name || "").trim();
       if (!name) throw httpError(400, "A new template name is required.");
+      await assertUniqueTemplateName(name);
       const created = await prisma.formTemplate.create({
         data: {
           name,
@@ -1655,10 +1671,12 @@ export async function updateTemplate(req: AuthenticatedRequest, res: Response) {
       });
       return res.status(201).json({ message: "New template saved.", templateId: created.id });
     }
+    const nextName = req.body?.name ? String(req.body.name).trim() : "";
+    if (nextName) await assertUniqueTemplateName(nextName, [template.id]);
     const updated = await prisma.formTemplate.update({
       where: { id: template.id },
       data: {
-        name: req.body?.name ? String(req.body.name) : undefined,
+        name: nextName || undefined,
         description: req.body?.description !== undefined ? String(req.body.description || "") : undefined,
         category: req.body?.category ? String(req.body.category) : undefined,
         visibility: req.body?.visibility === "SHARED" ? FormTemplateVisibility.SHARED : req.body?.visibility === "PRIVATE" ? FormTemplateVisibility.PRIVATE : undefined,

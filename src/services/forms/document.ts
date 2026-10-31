@@ -8,7 +8,7 @@ import {
 import { prisma } from "../../lib/prisma";
 import { displayValue, type QuestionShape, type StoredAnswer } from "./answers";
 import { decryptToken, slugKey } from "./sanitize";
-import { httpError, loadForm, responseCount, type LoadedForm } from "./shared";
+import { assertUniqueFormTitle, httpError, loadForm, responseCount, type LoadedForm } from "./shared";
 import { structuralLockMessage } from "./publish";
 
 const TYPE_TO_UI: Record<string, string> = {
@@ -97,6 +97,7 @@ type UiSection = {
 
 export type UiDocument = {
   title?: string;
+  displayTitle?: string;
   description?: string;
   instructions?: string;
   confirmationMessage?: string;
@@ -147,7 +148,7 @@ function logicOf(
 
 function answerText(question: QuestionShape, stored: StoredAnswer) {
   const shown = displayValue(question, stored);
-  if (question.type === "MULTIPLE_CHOICE" || (question.type === "IMAGE_CHOICE" && question.config.selectMode === "multi")) {
+  if (question.type === "MULTIPLE_CHOICE" || (question.type === "DROPDOWN" && question.config.multi) || (question.type === "IMAGE_CHOICE" && question.config.selectMode === "multi")) {
     return shown ? shown.split("; ").filter(Boolean) : [];
   }
   return shown;
@@ -184,6 +185,7 @@ export async function readDocument(formId: string) {
     id: form.id,
     refCode: form.refCode,
     title: form.title,
+    displayTitle: form.displayTitle || "",
     description: form.description || "",
     instructions: form.instructions || "",
     status: form.status,
@@ -207,7 +209,7 @@ export async function readDocument(formId: string) {
     timezone: form.timezone,
     publicLinkEnabled: form.publicLinkEnabled,
     publicToken: form.publicLinkTokenEncrypted ? decryptToken(form.publicLinkTokenEncrypted) : "",
-    sections: form.sections.map((section) => ({
+    sections: form.sections.filter((section) => form.questions.some((question) => question.sectionId === section.id)).map((section) => ({
       id: section.id,
       title: section.title,
       description: section.description || "",
@@ -302,7 +304,31 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
     throw httpError(409, "Closed and archived forms cannot be edited.");
   }
   const hasResponses = (await responseCount(formId)) > 0;
-  const sections = body.sections || [];
+  if (body.title !== undefined) {
+    const title = String(body.title).trim().slice(0, 200);
+    if (title.toLowerCase() !== form.title.trim().toLowerCase()) await assertUniqueFormTitle(title, [formId]);
+  }
+  const sections = (body.sections || []).filter((section) => (section.questions || []).length > 0);
+  if (sections.length === 0) throw httpError(400, "Add at least one question before saving this form.");
+  for (const section of sections) {
+    for (const question of section.questions || []) {
+      const min = question.config?.min;
+      const max = question.config?.max;
+      if (min === undefined || min === "" || max === undefined || max === "") continue;
+      if (question.type === "date") {
+        if (String(min) > String(max)) {
+          throw httpError(400, `${question.label || "This question"} cannot have a minimum later than its maximum.`);
+        }
+        continue;
+      }
+      if (!["number", "price", "fees"].includes(question.type)) continue;
+      const low = Number(min);
+      const high = Number(max);
+      if (Number.isFinite(low) && Number.isFinite(high) && high < low) {
+        throw httpError(400, `${question.label || "This question"} cannot have a maximum less than its minimum.`);
+      }
+    }
+  }
   if (hasResponses && structureChanged(form, sections)) {
     throw httpError(409, "This form already has responses, so its structure is locked.", structuralLockMessage());
   }
@@ -312,6 +338,7 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
       where: { id: formId },
       data: {
         title: body.title !== undefined ? String(body.title).slice(0, 200) : undefined,
+        displayTitle: body.displayTitle !== undefined ? String(body.displayTitle).trim().slice(0, 200) || null : undefined,
         description: body.description !== undefined ? String(body.description).slice(0, 2000) : undefined,
         instructions: body.instructions !== undefined ? String(body.instructions) : undefined,
         confirmationMessage: body.confirmationMessage !== undefined ? String(body.confirmationMessage) : undefined,
@@ -372,6 +399,7 @@ export async function writeDocument(formId: string, body: UiDocument, lockVersio
       await patchWording(tx, form, sections);
       await appendOptionalQuestions(tx, form, sections);
     }
+    await deleteEmptySections(tx, formId);
   });
 
   return readDocument(formId);
@@ -399,7 +427,7 @@ async function replaceStructure(tx: Prisma.TransactionClient, formId: string, se
   const keepSections = new Set<string>();
   const keepQuestions = new Set<string>();
   for (const [sectionIndex, section] of sections.entries()) {
-    if (!isUuid(section.id)) continue;
+    if (!isUuid(section.id) || !(section.questions || []).length) continue;
     keepSections.add(section.id);
     await tx.formSection.upsert({
       where: { id: section.id },
@@ -459,11 +487,17 @@ async function replaceStructure(tx: Prisma.TransactionClient, formId: string, se
     }
   }
   await tx.formQuestion.updateMany({
-    where: { formId, id: { notIn: [...keepQuestions] } },
+    where: {
+      formId,
+      ...(keepQuestions.size ? { id: { notIn: [...keepQuestions] } } : {}),
+    },
     data: { deletedAt: new Date() },
   });
   await tx.formSection.updateMany({
-    where: { formId, id: { notIn: [...keepSections] } },
+    where: {
+      formId,
+      ...(keepSections.size ? { id: { notIn: [...keepSections] } } : {}),
+    },
     data: { deletedAt: new Date() },
   });
 
@@ -473,6 +507,18 @@ async function replaceStructure(tx: Prisma.TransactionClient, formId: string, se
       await writeRule(tx, formId, "question", question.id, question.logic);
     }
   }
+}
+
+async function deleteEmptySections(tx: Prisma.TransactionClient, formId: string) {
+  const empty = await tx.formSection.findMany({
+    where: { formId, deletedAt: null, questions: { none: { deletedAt: null } } },
+    select: { id: true },
+  });
+  if (!empty.length) return;
+  await tx.formSection.updateMany({
+    where: { id: { in: empty.map((section) => section.id) } },
+    data: { deletedAt: new Date() },
+  });
 }
 
 async function patchWording(tx: Prisma.TransactionClient, form: LoadedForm, sections: UiSection[]) {

@@ -117,7 +117,7 @@ export async function uploadPublicImage(req: Request, res: Response) {
     const buffer = type === "image/jpeg" ? stripJpegExif(file.buffer) : file.buffer;
     try {
       const uploaded = await uploadBufferToAzureBlob({
-        folder: "form-responses",
+        folder: `forms/${found.form.id}`,
         fileName: file.originalname || "image",
         buffer,
         contentType: type,
