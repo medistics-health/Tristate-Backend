@@ -38,19 +38,15 @@ function sanitizeUser(user: {
     lastName: user.lastName,
     email: user.email,
     role: user.role,
-    hasPrefundingAccess: user.role === "ADMIN" ? true : (user.hasPrefundingAccess ?? false),
-    prefundingPermissions: user.role === "ADMIN"
-      ? ["VIEW", "CREATE", "EDIT", "CALCULATE", "APPROVE", "POST", "DELETE"]
-      : (user.prefundingPermissions ?? []),
+    hasPrefundingAccess: user.hasPrefundingAccess ?? false,
+    prefundingPermissions: user.prefundingPermissions ?? [],
     twoFactorEnabled: user.twoFactorEnabled ?? false,
   };
 }
 
 function issueAuthCookieAndResponse(res: Response, user: any) {
-  const effectivePrefundingAccess = user.role === "ADMIN" ? true : !!user.hasPrefundingAccess;
-  const effectivePermissions = user.role === "ADMIN"
-    ? ["VIEW", "CREATE", "EDIT", "CALCULATE", "APPROVE", "POST", "DELETE"]
-    : (user.prefundingPermissions || []);
+  const effectivePrefundingAccess = !!user.hasPrefundingAccess;
+  const effectivePermissions = user.prefundingPermissions || [];
 
   const token = jwt.sign(
     {
@@ -414,10 +410,8 @@ export async function authenticateMe(req: any, res: Response) {
       lastName: user.lastName,
       email: user.email,
       role: user.role,
-      hasPrefundingAccess: user.role === "ADMIN" ? true : (user.hasPrefundingAccess ?? false),
-      prefundingPermissions: user.role === "ADMIN"
-        ? ["VIEW", "CREATE", "EDIT", "CALCULATE", "APPROVE", "POST", "DELETE"]
-        : (user.prefundingPermissions ?? []),
+      hasPrefundingAccess: user.hasPrefundingAccess ?? false,
+      prefundingPermissions: user.prefundingPermissions ?? [],
       twoFactorEnabled: user.twoFactorEnabled,
     });
   } catch (error) {

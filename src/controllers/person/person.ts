@@ -98,24 +98,39 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
     const orderDir =
       (sortOrder as string)?.toLowerCase() === "asc" ? "asc" : "desc";
 
+    const hasPrefundingAccess = !!req.user.hasPrefundingAccess;
+    const prefundingPerms = Array.isArray(req.user.prefundingPermissions)
+      ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+      : [];
+    const canViewPrefunding = hasPrefundingAccess && prefundingPerms.includes("VIEW");
+
     const where: any = {};
+    const andConditions: any[] = [];
 
     if (search) {
-      where.AND = [
-        {
-          OR: [
-            { firstName: { contains: search as string, mode: "insensitive" } },
-            { lastName: { contains: search as string, mode: "insensitive" } },
-            { email: { contains: search as string, mode: "insensitive" } },
-            { individualNpi: { contains: search as string, mode: "insensitive" } },
-            { caqhId: { contains: search as string, mode: "insensitive" } },
-          ],
-        },
-      ];
+      andConditions.push({
+        OR: [
+          { firstName: { contains: search as string, mode: "insensitive" } },
+          { lastName: { contains: search as string, mode: "insensitive" } },
+          { email: { contains: search as string, mode: "insensitive" } },
+          { individualNpi: { contains: search as string, mode: "insensitive" } },
+          { caqhId: { contains: search as string, mode: "insensitive" } },
+        ],
+      });
+    }
+
+    if (andConditions.length > 0) {
+      where.AND = andConditions;
     }
 
     if (role) {
-      where.roles = { has: role as PersonRole };
+      const roleStr = String(role).toUpperCase();
+      if (roleStr === "EMPLOYEE" && !canViewPrefunding) {
+        // User cannot view EMPLOYEE role, so return empty result set
+        where.id = "00000000-0000-0000-0000-000000000000";
+      } else {
+        where.roles = { has: role as PersonRole };
+      }
     }
 
     if (influence) {
@@ -186,9 +201,24 @@ export async function getPersons(req: AuthenticatedRequest, res: Response) {
 
     const totalPages = Math.ceil(totalRecords / limit);
 
+    const formattedPersons = canViewPrefunding
+      ? persons
+      : persons.map((p) => ({
+          ...p,
+          roles: Array.isArray(p.roles) ? p.roles.filter((r) => r !== PersonRole.EMPLOYEE) : p.roles,
+          jobCategory: null,
+          workLocation: null,
+          state: null,
+          dateOfJoining: null,
+          payType: null,
+          payRate: null,
+          budgetedHours: null,
+          bufferPercentage: null,
+        }));
+
     return res.status(200).json({
       message: "Persons fetched successfully.",
-      persons,
+      persons: formattedPersons,
       pagination: {
         totalRecords,
         totalPages,
@@ -449,12 +479,35 @@ export async function getPerson(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    const hasPrefundingAccess = !!req.user.hasPrefundingAccess;
+    const prefundingPerms = Array.isArray(req.user.prefundingPermissions)
+      ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
+      : [];
+    const canViewPrefunding = hasPrefundingAccess && prefundingPerms.includes("VIEW");
+
     const { hubDocumentLinks, ...personData } = person;
+
+    const formattedPerson = canViewPrefunding
+      ? personData
+      : {
+          ...personData,
+          roles: Array.isArray(personData.roles)
+            ? personData.roles.filter((r) => r !== PersonRole.EMPLOYEE)
+            : personData.roles,
+          jobCategory: null,
+          workLocation: null,
+          state: null,
+          dateOfJoining: null,
+          payType: null,
+          payRate: null,
+          budgetedHours: null,
+          bufferPercentage: null,
+        };
 
     return res.status(200).json({
       message: "Person fetched successfully.",
       person: {
-        ...personData,
+        ...formattedPerson,
         hubDocuments: serializeLinkedHubDocuments(hubDocumentLinks),
       },
     });
