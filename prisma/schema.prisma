@@ -2273,7 +2273,7 @@ model OnboardingWorkstream {
   milestones OnboardingMilestone[]
   risks      OnboardingRisk[]
 
-  @@unique([onboardingProjectId, serviceLine])
+  // @@unique([onboardingProjectId, serviceLine])
   @@index([onboardingProjectId])
   @@index([ownerUserId])
   @@index([status])

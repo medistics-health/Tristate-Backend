@@ -69,6 +69,7 @@ type PracticeBody = {
   source?: string;
   bucket?: string[];
   serviceLines?: string[];
+  templateBlueprintIds?: string[];
   companyId?: string;
   practiceGroupId?: string;
   taxIdId?: string;
@@ -650,7 +651,12 @@ export async function getPractices(req: AuthenticatedRequest, res: Response) {
             select: { persons: true, deals: true, agreements: true },
           },
           onboardingProjects: {
-            select: { goLiveTarget: true },
+            select: {
+              goLiveTarget: true,
+              workstreams: {
+                select: { id: true, serviceLine: true, notes: true },
+              },
+            },
             orderBy: { createdAt: "desc" },
             take: 1,
           },
@@ -693,6 +699,7 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       source,
       bucket,
       serviceLines,
+      templateBlueprintIds,
       companyId,
       practiceGroupId,
       taxIdId,
@@ -998,10 +1005,11 @@ export async function createPractice(req: AuthenticatedRequest, res: Response) {
       });
     });
 
-    if (parsedServiceLines?.value?.length) {
+    if (parsedServiceLines?.value?.length || (Array.isArray(templateBlueprintIds) && templateBlueprintIds.length > 0)) {
       await ensureWorkstreamsForPractice(
         practice.id,
-        parsedServiceLines.value,
+        parsedServiceLines?.value || [],
+        Array.isArray(templateBlueprintIds) ? templateBlueprintIds : undefined,
       );
     }
 
@@ -1075,7 +1083,12 @@ export async function getPractice(req: AuthenticatedRequest, res: Response) {
         audits: true,
         assessments: true,
         onboardingProjects: {
-          select: { goLiveTarget: true },
+          select: {
+            goLiveTarget: true,
+            workstreams: {
+              select: { id: true, serviceLine: true, notes: true },
+            },
+          },
           orderBy: { createdAt: "desc" },
           take: 1,
         },
@@ -1126,6 +1139,8 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       region,
       source,
       bucket,
+      serviceLines,
+      templateBlueprintIds,
       companyId,
       practiceGroupId,
       taxIdId,
@@ -1173,6 +1188,17 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       return res.status(400).json({
         message: "Invalid practice source.",
         allowedSources: Object.values(PracticeSource),
+      });
+    }
+
+    const parsedServiceLines = parseServiceLines(serviceLines);
+    if (parsedServiceLines && "error" in parsedServiceLines) {
+      return res.status(400).json({
+        message: parsedServiceLines.error,
+        allowedServiceLines:
+          "allowedServiceLines" in parsedServiceLines
+            ? parsedServiceLines.allowedServiceLines
+            : undefined,
       });
     }
 
@@ -1351,6 +1377,9 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
       region,
       source: source as PracticeSource,
       bucket,
+      ...(parsedServiceLines?.value !== undefined
+        ? { serviceLines: parsedServiceLines.value }
+        : {}),
       companyId,
       practiceGroupId,
       taxIdId,
@@ -1457,6 +1486,14 @@ export async function updatePractice(req: AuthenticatedRequest, res: Response) {
         include: practiceProfileInclude,
       });
     });
+
+    if (parsedServiceLines?.value?.length || (Array.isArray(templateBlueprintIds) && templateBlueprintIds.length > 0)) {
+      await ensureWorkstreamsForPractice(
+        practice.id,
+        parsedServiceLines?.value || [],
+        Array.isArray(templateBlueprintIds) ? templateBlueprintIds : undefined,
+      );
+    }
 
     if (parsedGoLiveTarget) {
       const ensured = await ensureProjectForPractice(practice.id, {

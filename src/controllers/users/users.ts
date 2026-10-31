@@ -94,16 +94,15 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
       role,
     };
 
-    if (role === "ADMIN") {
+    if (typeof hasPrefundingAccess === "boolean") {
+      updateData.hasPrefundingAccess = hasPrefundingAccess;
+    } else if (role === "ADMIN") {
       updateData.hasPrefundingAccess = true;
+    }
+    if (Array.isArray(prefundingPermissions)) {
+      updateData.prefundingPermissions = prefundingPermissions;
+    } else if (role === "ADMIN") {
       updateData.prefundingPermissions = ALL_PREFUNDING_PERMISSIONS;
-    } else {
-      if (typeof hasPrefundingAccess === "boolean") {
-        updateData.hasPrefundingAccess = hasPrefundingAccess;
-      }
-      if (Array.isArray(prefundingPermissions)) {
-        updateData.prefundingPermissions = prefundingPermissions;
-      }
     }
 
     if (reset2FA === true) {
@@ -151,10 +150,12 @@ export async function createUser(req: AuthenticatedRequest, res: Response) {
 
     const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-    const effectivePrefundingAccess = role === "ADMIN" ? true : (hasPrefundingAccess === true);
-    const effectivePrefundingPermissions = role === "ADMIN"
-      ? ALL_PREFUNDING_PERMISSIONS
-      : (Array.isArray(prefundingPermissions) ? prefundingPermissions : []);
+    const effectivePrefundingAccess = typeof hasPrefundingAccess === "boolean"
+      ? hasPrefundingAccess
+      : (role === "ADMIN" ? true : false);
+    const effectivePrefundingPermissions = Array.isArray(prefundingPermissions)
+      ? prefundingPermissions
+      : (role === "ADMIN" ? ALL_PREFUNDING_PERMISSIONS : []);
 
     const user = await prisma.user.create({
       data: {

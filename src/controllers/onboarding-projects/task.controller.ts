@@ -287,13 +287,12 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
           });
         }
 
-        let ws = await prisma.onboardingWorkstream.findUnique({
+        let ws = await prisma.onboardingWorkstream.findFirst({
           where: {
-            onboardingProjectId_serviceLine: {
-              onboardingProjectId: project.id,
-              serviceLine: serviceLine as OnboardingServiceLine,
-            },
+            onboardingProjectId: project.id,
+            serviceLine: serviceLine as OnboardingServiceLine,
           },
+          orderBy: { createdAt: "desc" },
         });
 
         if (!ws) {
