@@ -47,7 +47,14 @@ export function buildSnapshot(form: LoadedForm) {
       description: sanitizeRichText(section.description),
       orderIndex: section.orderIndex,
     })),
-    questions: form.questions.map((question) => ({
+    questions: [...form.questions]
+      .sort((a, b) => {
+        const sectionA = form.sections.findIndex((section) => section.id === a.sectionId);
+        const sectionB = form.sections.findIndex((section) => section.id === b.sectionId);
+        if (sectionA !== sectionB) return sectionA - sectionB;
+        return a.orderIndex - b.orderIndex;
+      })
+      .map((question) => ({
       id: question.id,
       sectionId: question.sectionId,
       key: question.key,

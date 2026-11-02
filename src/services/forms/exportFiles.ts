@@ -145,8 +145,14 @@ export function buildCsv(rows: string[][]) {
 }
 
 export function questionsFromSnapshot(snapshot: FormSnapshot): QuestionShape[] {
-  return snapshot.questions
+  const sectionOrder = new Map(snapshot.sections.map((section, index) => [section.id, section.orderIndex ?? index]));
+  return [...snapshot.questions]
     .filter((question) => question.type !== "CONTENT")
+    .sort((a, b) => {
+      const sectionDiff = (sectionOrder.get(a.sectionId) ?? 0) - (sectionOrder.get(b.sectionId) ?? 0);
+      if (sectionDiff !== 0) return sectionDiff;
+      return a.orderIndex - b.orderIndex;
+    })
     .map((question) => ({
       id: question.id,
       key: question.key,
