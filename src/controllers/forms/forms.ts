@@ -10,7 +10,8 @@ import type { AuthenticatedRequest } from "../../middleware/auth.middleware";
 import { prisma } from "../../lib/prisma";
 import { canManageAnyTemplate, canPermanentlyDelete, canReadAllForms, canReassignOwner, isAdmin } from "../../services/forms/access";
 import { dashboard, loadSubmitted, questionSummary, trends } from "../../services/forms/analytics";
-import { displayValue } from "../../services/forms/answers";
+import { displayValue, imageAnswerFiles, imageFileLabel } from "../../services/forms/answers";
+import { refreshBlobReadUrl } from "../../utils/azureBlob";
 import { questionsFromSnapshot, responseRows } from "../../services/forms/exportFiles";
 import { structuralLockMessage, publishErrors } from "../../services/forms/publish";
 import { parseEmailList, resolveRecipients } from "../../services/forms/recipients";
@@ -41,6 +42,17 @@ import { FormDeliveryStatus, FormEmailKind, FormRecipientStatus } from "../../..
 import { validateLogicRules } from "../../services/forms/logic";
 import QRCode from "qrcode";
 import { Prisma } from "../../../generated/prisma/client";
+
+function viewableImageUrl(file: { url?: string; blobName?: string }) {
+  if (file.blobName && file.url) {
+    try {
+      return refreshBlobReadUrl(file.blobName, file.url);
+    } catch {
+      return file.url;
+    }
+  }
+  return file.url || "";
+}
 
 function userId(req: AuthenticatedRequest) {
   if (!req.user?.sub) throw httpError(401, "Unauthorized.");
@@ -1436,12 +1448,19 @@ export async function getResponse(req: AuthenticatedRequest, res: Response) {
                 fileRefs: answer.fileRefs,
               })
             : "";
+          const files = answer && (question.type === "IMAGE_UPLOAD" || answer.fileRefs)
+            ? imageAnswerFiles(answer).map((file) => ({
+                name: imageFileLabel(file),
+                url: viewableImageUrl(file),
+              }))
+            : [];
           return {
             questionId: question.id,
             key: question.key,
             label: question.label,
             type: question.type,
             display: display || null,
+            files,
             value: answer || null,
           };
         }),
