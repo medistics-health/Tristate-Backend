@@ -3251,6 +3251,7 @@ model PrefundingInvoice {
   invoiceNumber          String?                     @unique @map("invoice_number")
   practiceId             String                      @map("practice_id") @db.Uuid
   cycle                  String
+  cycleCount             Int?                        @map("cycle_count")
   invoiceDate            DateTime                    @map("invoice_date")
   dueDate                DateTime                    @map("due_date")
   totalAmount            Decimal                     @map("total_amount") @db.Decimal(12, 2)

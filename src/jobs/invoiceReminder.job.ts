@@ -8,9 +8,18 @@ import { wrapPrefundingEmailLayout } from "../utils/prefundingEmailLayout";
 const DEFAULT_INTERVAL_MINUTES = 10;
 
 export async function processInvoiceReminders() {
-  const formatUTCDate = (d: Date | string) => {
+  const formatUTCDate = (d: Date | string | null | undefined) => {
+    if (!d) return "N/A";
+    if (typeof d === "string") {
+      const s = d.trim();
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        const [y, m, day] = s.slice(0, 10).split("-");
+        return `${m}/${day}/${y}`;
+      }
+    }
     const date = new Date(d);
-    return `${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}/${date.getUTCFullYear()}`;
+    if (isNaN(date.getTime())) return String(d);
+    return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
   };
 
   const settings = await prisma.systemSettings.findFirst();
@@ -234,7 +243,7 @@ export async function processInvoiceReminders() {
                 Hello ${pInv.practice.name},
               </p>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
-                This is an urgent reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${pInv.cycle}</strong>) was due on <strong style="color: #dc2626;">${formatUTCDate(dueDate)}</strong> and is now overdue.
+                This is an urgent reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${pInv.cycle}</strong>${pInv.cycleCount ? ` &bull; Cycle Count: <strong>#${pInv.cycleCount}</strong>` : ""}) was due on <strong style="color: #dc2626;">${formatUTCDate(dueDate)}</strong> and is now overdue.
               </p>
               <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
                 <span style="font-size: 11px; text-transform: uppercase; color: #991b1b; font-weight: 700; display: block; letter-spacing: 0.05em;">Total Overdue Amount</span>
@@ -283,7 +292,7 @@ export async function processInvoiceReminders() {
                 Hello ${pInv.practice.name},
               </p>
               <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
-                This is a friendly reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${pInv.cycle}</strong>) is due on <strong>${formatUTCDate(dueDate)}</strong>.
+                This is a friendly reminder that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${pInv.cycle}</strong>${pInv.cycleCount ? ` &bull; Cycle Count: <strong>#${pInv.cycleCount}</strong>` : ""}) is due on <strong>${formatUTCDate(dueDate)}</strong>.
               </p>
               <div style="background-color: #f8fbfe; border: 1px solid #dbe8f3; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
                 <span style="font-size: 11px; text-transform: uppercase; color: #0f4c81; font-weight: 700; display: block; letter-spacing: 0.05em;">Total Amount Due</span>
@@ -327,9 +336,18 @@ export async function processInvoiceReminders() {
 // Prefunding Cycle Schedule Reminders (Due On / Reminder On) sent to prefundingReminderRecipientId
 export async function processPrefundingCycleReminders() {
   try {
-    const formatUTCDate = (d: Date | string) => {
+    const formatUTCDate = (d: Date | string | null | undefined) => {
+      if (!d) return "N/A";
+      if (typeof d === "string") {
+        const s = d.trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+          const [y, m, day] = s.slice(0, 10).split("-");
+          return `${m}/${day}/${y}`;
+        }
+      }
       const date = new Date(d);
-      return `${String(date.getUTCMonth() + 1).padStart(2, '0')}/${String(date.getUTCDate()).padStart(2, '0')}/${date.getUTCFullYear()}`;
+      if (isNaN(date.getTime())) return String(d);
+      return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${date.getFullYear()}`;
     };
 
     const practices = await prisma.practice.findMany({
@@ -352,12 +370,27 @@ export async function processPrefundingCycleReminders() {
         continue;
       }
 
-      const reminderPerson = await prisma.person.findUnique({
+      let reminderRecipient: { email: string; firstName?: string | null; lastName?: string | null } | null = null;
+
+      // 1. Check if recipient is a Team Member (User)
+      const reminderUser = await prisma.user.findUnique({
         where: { id: practice.prefundingReminderRecipientId },
         select: { email: true, firstName: true, lastName: true },
       });
+      if (reminderUser?.email && reminderUser.email.includes('@')) {
+        reminderRecipient = { email: reminderUser.email, firstName: reminderUser.firstName, lastName: reminderUser.lastName };
+      } else {
+        // 2. Fallback check if recipient is a Person
+        const reminderPerson = await prisma.person.findUnique({
+          where: { id: practice.prefundingReminderRecipientId },
+          select: { email: true, firstName: true, lastName: true },
+        });
+        if (reminderPerson?.email && reminderPerson.email.includes('@')) {
+          reminderRecipient = { email: reminderPerson.email, firstName: reminderPerson.firstName, lastName: reminderPerson.lastName };
+        }
+      }
 
-      if (!reminderPerson?.email || !reminderPerson.email.includes('@')) {
+      if (!reminderRecipient?.email || !reminderRecipient.email.includes('@')) {
         continue;
       }
 
@@ -419,11 +452,37 @@ export async function processPrefundingCycleReminders() {
 
       if (shouldSendDue || shouldSendReminder) {
         const isDueDay = shouldSendDue;
+        let calculatedCycleCount = 1;
+        try {
+          const cType = (practice.prefundingCycle || "MONTHLY").toUpperCase();
+          const maxCycles = cType === "WEEKLY" ? 52 : (cType === "BI_WEEKLY" || cType === "BIWEEKLY" ? 24 : (cType === "MONTHLY" ? 12 : (cType === "QUARTERLY" ? 4 : (cType === "SEMI_ANNUALLY" || cType === "SEMIANNUALLY" ? 2 : 1))));
+          let yStart = new Date(startDate);
+          while (true) {
+            const nxtY = new Date(yStart);
+            nxtY.setUTCFullYear(nxtY.getUTCFullYear() + 1);
+            if (cycleStart >= yStart && cycleStart < nxtY) break;
+            if (cycleStart < yStart) break;
+            yStart = nxtY;
+          }
+          let cIter = new Date(yStart);
+          for (let step = 1; step <= maxCycles; step++) {
+            const nextStep = addCycle(cIter, practice.prefundingCycle);
+            const stepEnd = new Date(nextStep);
+            stepEnd.setUTCDate(stepEnd.getUTCDate() - 1);
+            stepEnd.setUTCHours(23, 59, 59, 999);
+            if (cycleStart <= stepEnd) {
+              calculatedCycleCount = step;
+              break;
+            }
+            cIter = nextStep;
+          }
+        } catch (_) {}
+
         const subject = isDueDay
           ? `Prefunding Cycle Payment Due Today: ${practice.name} (${practice.prefundingCycle})`
           : `Prefunding Upcoming Cycle Reminder: ${practice.name} (${practice.prefundingCycle})`;
 
-        const recipientName = `${reminderPerson.firstName || ''} ${reminderPerson.lastName || ''}`.trim() || 'Valued Partner';
+        const recipientName = `${reminderRecipient.firstName || ''} ${reminderRecipient.lastName || ''}`.trim() || 'Valued Team Member';
 
         const contentHtml = `
           <p style="margin: 0 0 14px 0; font-size: 16px; line-height: 24px; color: #0f2d46; font-weight: 700;">
@@ -438,6 +497,10 @@ export async function processPrefundingCycleReminders() {
               <tr>
                 <td style="padding: 6px 0; font-weight: 600;">Cycle Frequency:</td>
                 <td style="padding: 6px 0; text-align: right;">${practice.prefundingCycle}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-weight: 600;">Cycle Count:</td>
+                <td style="padding: 6px 0; text-align: right; color: #0f4c81; font-weight: 700;">#${calculatedCycleCount}</td>
               </tr>
               <tr>
                 <td style="padding: 6px 0; font-weight: 600;">Next Cycle Period Starts:</td>
@@ -466,8 +529,8 @@ export async function processPrefundingCycleReminders() {
         });
 
         try {
-          await sendOutlookEmail(reminderPerson.email.trim(), subject, body);
-          console.log(`[invoice-reminder] Sent prefunding cycle reminder to ${reminderPerson.email.trim()} for practice ${practice.name}`);
+          await sendOutlookEmail(reminderRecipient.email.trim(), subject, body);
+          console.log(`[invoice-reminder] Sent prefunding cycle reminder to ${reminderRecipient.email.trim()} for practice ${practice.name}`);
 
           // Mark as sent in DB immediately so it is sent ONLY ONCE and never repeated
           if (isDueDay) {
@@ -482,7 +545,7 @@ export async function processPrefundingCycleReminders() {
             });
           }
         } catch (mailErr) {
-          console.error(`[invoice-reminder] Failed to send cycle reminder email to ${reminderPerson.email}:`, mailErr);
+          console.error(`[invoice-reminder] Failed to send cycle reminder email to ${reminderRecipient.email}:`, mailErr);
         }
       }
     }

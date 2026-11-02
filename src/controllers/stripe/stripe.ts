@@ -1481,6 +1481,7 @@ async function processStripeWebhookEvent(event: any) {
                   invoiceDate: fullPrefundingInv.invoiceDate,
                   dueDate: fullPrefundingInv.dueDate,
                   cycle: fullPrefundingInv.cycle,
+                  cycleCount: fullPrefundingInv.cycleCount,
                   totalAmount: Number(fullPrefundingInv.totalAmount),
                   subtotalAmount: fullPrefundingInv.subtotalAmount ? Number(fullPrefundingInv.subtotalAmount) : Number(fullPrefundingInv.totalAmount),
                   processingFeeAmount: fullPrefundingInv.processingFeeAmount ? Number(fullPrefundingInv.processingFeeAmount) : 0,
@@ -1529,7 +1530,7 @@ async function processStripeWebhookEvent(event: any) {
                     Hello ${fullPrefundingInv.practice.name},
                   </p>
                   <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 22px; color: #475569;">
-                    Thank you for your payment. This email confirms that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${fullPrefundingInv.cycle}</strong>) has been successfully paid and settled.
+                    Thank you for your payment. This email confirms that Prefunding Invoice <strong>#${invNum}</strong> (Cycle: <strong>${fullPrefundingInv.cycle}</strong>${fullPrefundingInv.cycleCount ? ` &bull; Cycle Count: <strong>#${fullPrefundingInv.cycleCount}</strong>` : ""}) has been successfully paid and settled.
                   </p>
 
                   <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 18px 20px; margin: 20px 0;">
