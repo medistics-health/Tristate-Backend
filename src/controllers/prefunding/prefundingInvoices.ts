@@ -12,6 +12,25 @@ import {
   materializeProcessingFeeSettings,
 } from "../../utils/paymentProcessing";
 
+function parseDateToNoonUTC(val: any): Date {
+  if (!val) return new Date();
+  if (val instanceof Date) return val;
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  }
+  const parsed = new Date(s);
+  return isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function formatDateToISODateOnly(val: any): string {
+  if (!val) return "";
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
 function formatPaymentMethodDisplay(rawMethod?: string | null, fallbackMethod?: string | null): string {
   if (!rawMethod || rawMethod.toLowerCase() === "stripe") {
     if (fallbackMethod === "CREDIT_CARD") return "Credit Card";
@@ -40,7 +59,7 @@ export async function validatePracticePrefundingEligibility(req: AuthenticatedRe
 
 export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Response) {
   try {
-    const { practiceId, cycle, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
+    const { practiceId, cycle, cycleCount, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
 
     if (!practiceId || !cycle || !invoiceDate || !dueDate || totalAmount === undefined) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -106,8 +125,9 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
         invoiceNumber,
         practiceId,
         cycle,
-        invoiceDate: new Date(invoiceDate),
-        dueDate: new Date(dueDate),
+        cycleCount: cycleCount !== undefined && cycleCount !== null && cycleCount !== "" ? Number(cycleCount) : null,
+        invoiceDate: parseDateToNoonUTC(invoiceDate),
+        dueDate: parseDateToNoonUTC(dueDate),
         totalAmount: finalTotal,
         subtotalAmount: subtotal,
         paymentMethod,
@@ -148,7 +168,7 @@ export async function createPrefundingInvoice(req: AuthenticatedRequest, res: Re
 export async function updatePrefundingInvoice(req: AuthenticatedRequest, res: Response) {
   try {
     const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
-    const { practiceId, cycle, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
+    const { practiceId, cycle, cycleCount, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
 
     const existing = await prisma.prefundingInvoice.findUnique({
       where: { id },
@@ -230,8 +250,9 @@ export async function updatePrefundingInvoice(req: AuthenticatedRequest, res: Re
       data: {
         ...(practiceId ? { practiceId } : {}),
         ...(cycle ? { cycle } : {}),
-        ...(invoiceDate ? { invoiceDate: new Date(invoiceDate) } : {}),
-        ...(dueDate ? { dueDate: new Date(dueDate) } : {}),
+        ...(cycleCount !== undefined ? { cycleCount: cycleCount !== null && cycleCount !== "" ? Number(cycleCount) : null } : {}),
+        ...(invoiceDate ? { invoiceDate: parseDateToNoonUTC(invoiceDate) } : {}),
+        ...(dueDate ? { dueDate: parseDateToNoonUTC(dueDate) } : {}),
         ...updateAmounts,
         ...(Array.isArray(lineItems) ? {
           lineItems: {
@@ -417,6 +438,7 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         practice: inv.practice?.name || "N/A",
         practiceId: inv.practiceId,
         prefundingCycle: inv.cycle,
+        cycleCount: inv.cycleCount,
         totalAmount: Number(inv.totalAmount),
         subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
         processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
@@ -426,8 +448,8 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         paymentMethodDisplay,
         feeBearer: inv.feeBearer || "CLIENT",
         status: inv.status,
-        dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().split("T")[0] : "",
-        invoiceDate: inv.invoiceDate ? new Date(inv.invoiceDate).toISOString().split("T")[0] : "",
+        dueDate: formatDateToISODateOnly(inv.dueDate),
+        invoiceDate: formatDateToISODateOnly(inv.invoiceDate),
         recipientName,
         recipientEmail,
         recipient,
@@ -566,6 +588,7 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       practice: inv.practice?.name || "N/A",
       practiceId: inv.practiceId,
       prefundingCycle: inv.cycle,
+      cycleCount: inv.cycleCount,
       totalAmount: Number(inv.totalAmount),
       subtotalAmount: inv.subtotalAmount ? Number(inv.subtotalAmount) : Number(inv.totalAmount),
       processingFeeAmount: inv.processingFeeAmount ? Number(inv.processingFeeAmount) : 0,
@@ -575,8 +598,8 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       paymentMethodDisplay,
       feeBearer: inv.feeBearer || "CLIENT",
       status: inv.status,
-      dueDate: inv.dueDate ? new Date(inv.dueDate).toISOString().split("T")[0] : "",
-      invoiceDate: inv.invoiceDate ? new Date(inv.invoiceDate).toISOString().split("T")[0] : "",
+      dueDate: formatDateToISODateOnly(inv.dueDate),
+      invoiceDate: formatDateToISODateOnly(inv.invoiceDate),
       recipientName,
       recipientEmail,
       recipient,
@@ -682,6 +705,7 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
       cycle: inv.cycle,
+      cycleCount: inv.cycleCount,
       subtotalAmount,
       processingFeeAmount,
       processingFeeDescription,
@@ -712,7 +736,7 @@ export async function getPrefundingInvoicePdf(req: AuthenticatedRequest, res: Re
 
 export async function previewPrefundingInvoicePdf(req: AuthenticatedRequest, res: Response) {
   try {
-    const { practiceId, cycle, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
+    const { practiceId, cycle, cycleCount, invoiceDate, dueDate, totalAmount, lineItems } = req.body;
 
     if (!practiceId) {
       return res.status(400).json({ message: "Practice ID is required" });
@@ -752,11 +776,15 @@ export async function previewPrefundingInvoicePdf(req: AuthenticatedRequest, res
     const isCc = rawPaymentMethod === "CREDIT_CARD";
     const subtotalAmount = Number(totalAmount || 0);
 
+    const rawDueDate = dueDate || (invoiceDate ? new Date(invoiceDate) : new Date());
+    const rawInvoiceDate = invoiceDate || new Date();
+
     const pdfBuffer = await generatePrefundingInvoicePdfBuffer({
       invoiceNumber,
-      invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
-      dueDate: dueDate ? new Date(dueDate) : new Date(),
+      invoiceDate: rawInvoiceDate,
+      dueDate: rawDueDate,
       cycle: cycle || "Semi-Monthly",
+      cycleCount,
       subtotalAmount,
       processingFeeAmount: 0,
       totalAmount: subtotalAmount,
