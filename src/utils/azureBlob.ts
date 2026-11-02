@@ -83,6 +83,16 @@ export function createBlobReadSasUrl(params: {
   return `${params.blobUrl}?${sasToken}`;
 }
 
+export function refreshBlobReadUrl(blobName: string, blobUrl: string) {
+  const { connectionString, containerName } = getBlobConfig();
+  return createBlobReadSasUrl({
+    connectionString,
+    containerName,
+    blobName,
+    blobUrl: blobUrl.split("?")[0],
+  });
+}
+
 export async function uploadBase64ToAzureBlob(params: {
   folder: string;
   fileName: string;
