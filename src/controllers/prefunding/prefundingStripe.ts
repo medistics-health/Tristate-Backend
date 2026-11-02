@@ -281,6 +281,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
       cycle: inv.cycle,
+      cycleCount: inv.cycleCount,
       subtotalAmount,
       processingFeeAmount: clientFee,
       processingFeeDescription: feeDescription,
@@ -354,8 +355,16 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
     const practiceName = inv.practice.name;
     const formatUTCDate = (d: Date | string | null | undefined) => {
       if (!d) return "N/A";
+      if (typeof d === "string") {
+        const s = d.trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+          const [y, m, day] = s.slice(0, 10).split("-");
+          return `${m}/${day}/${y}`;
+        }
+      }
       const date = new Date(d);
-      return `${String(date.getUTCMonth() + 1).padStart(2, "0")}/${String(date.getUTCDate()).padStart(2, "0")}/${date.getUTCFullYear()}`;
+      if (isNaN(date.getTime())) return String(d);
+      return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}/${date.getFullYear()}`;
     };
 
     let recipientName = "";
@@ -580,7 +589,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
             ${practiceName}
           </h2>
           <p style="margin: 6px 0 0 0; font-size: 13px; color: #64748b; font-family: 'Google Sans', sans-serif;">
-            Prefunding Cycle: <strong style="color: #334155; font-weight: 600;">${inv.cycle}</strong>
+            Prefunding Cycle: <strong style="color: #334155; font-weight: 600;">${inv.cycle}</strong>${inv.cycleCount ? ` &bull; Cycle Count: <strong style="color: #0f4c81; font-weight: 700;">#${inv.cycleCount}</strong>` : ""}
           </p>
         </div>
 
@@ -654,7 +663,7 @@ export async function processAndEmailPrefundingInvoice(prefundingInvoiceId: stri
                   <td width="50%" style="font-size: 11px; color: #64748b; font-family: 'Google Sans', sans-serif;">
                     <span style="display: block; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">Payment Method</span>
                     <span style="display: block; font-size: 13px; font-weight: 600; color: #1e293b; margin-top: 2px;">
-                      ${paymentMethod === "CREDIT_CARD" ? "Credit Card (2.9% + $0.30)" : "Bank Transfer (ACH 0.8%)"}
+                      ${paymentMethod === "CREDIT_CARD" ? "Credit Card" : "Bank Transfer (ACH)"}
                     </span>
                   </td>
                   <td width="50%" align="right" style="vertical-align: middle;">

@@ -8,6 +8,7 @@ export interface PrefundingPdfData {
   invoiceDate: string | Date;
   dueDate: string | Date;
   cycle: string;
+  cycleCount?: number | string | null;
   totalAmount: number;
   subtotalAmount?: number;
   processingFeeAmount?: number;
@@ -40,11 +41,18 @@ export interface PrefundingPdfData {
 
 function formatDate(dateStr?: string | Date | null): string {
   if (!dateStr) return "N/A";
+  if (typeof dateStr === "string") {
+    const s = dateStr.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      const [y, m, d] = s.slice(0, 10).split("-");
+      return `${m}/${d}/${y}`;
+    }
+  }
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return String(dateStr);
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  const y = date.getUTCFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const y = date.getFullYear();
   return `${m}/${d}/${y}`;
 }
 
@@ -173,6 +181,7 @@ export async function generatePrefundingInvoicePdfBuffer(data: PrefundingPdfData
         { label: "Invoice Date:", val: formatDate(data.invoiceDate) },
         { label: "Payment Due Date:", val: formatDate(data.dueDate) },
         { label: "Prefunding Cycle:", val: data.cycle || "N/A" },
+        ...(data.cycleCount ? [{ label: "Cycle Count:", val: String(data.cycleCount) }] : []),
         ...(data.paymentMethod ? [{ label: "Payment Method:", val: data.paymentMethod, isPaymentMethod: true }] : []),
         ...(data.paidDate ? [{ label: "Paid Date:", val: formatDate(data.paidDate) }] : []),
         ...(isPaidDoc && !data.paidDate ? [{ label: "Paid Date:", val: formatDate(new Date()) }] : [])
