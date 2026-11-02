@@ -82,16 +82,16 @@ const requireInvoiceCreatePermission = (req: AuthenticatedRequest, res: Response
 };
 
 prefundingRouter.post("/invoices", requireRoles(ROLE_GROUPS.BUSINESS_WRITE), requireInvoiceCreatePermission, createPrefundingInvoice);
-// Allow users with either EDIT or CALCULATE permission to update prefunding invoices
+// Require CREATE along with (EDIT or CALCULATE) to update prefunding invoices
 const requireInvoiceEditPermission = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const perms = Array.isArray(req.user?.prefundingPermissions)
     ? req.user.prefundingPermissions.map((p) => String(p).toUpperCase())
     : [];
-  if (perms.includes("EDIT") || perms.includes("CALCULATE")) {
+  if (perms.includes("CREATE") && (perms.includes("EDIT") || perms.includes("CALCULATE"))) {
     return next();
   }
   return res.status(403).json({
-    message: "Forbidden. You do not have 'EDIT' or 'CALCULATE' permission to update invoices.",
+    message: "Forbidden. You must have both 'CREATE' and 'EDIT' permissions to update invoices.",
   });
 };
 

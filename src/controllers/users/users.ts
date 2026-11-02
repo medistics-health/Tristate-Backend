@@ -100,7 +100,11 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
       updateData.hasPrefundingAccess = true;
     }
     if (Array.isArray(prefundingPermissions)) {
-      updateData.prefundingPermissions = prefundingPermissions;
+      const perms = [...prefundingPermissions];
+      if (perms.length > 0 && !perms.includes("VIEW")) {
+        perms.push("VIEW");
+      }
+      updateData.prefundingPermissions = perms;
     } else if (role === "ADMIN") {
       updateData.prefundingPermissions = ALL_PREFUNDING_PERMISSIONS;
     }
@@ -153,9 +157,12 @@ export async function createUser(req: AuthenticatedRequest, res: Response) {
     const effectivePrefundingAccess = typeof hasPrefundingAccess === "boolean"
       ? hasPrefundingAccess
       : (role === "ADMIN" ? true : false);
-    const effectivePrefundingPermissions = Array.isArray(prefundingPermissions)
+    const rawPermissions = Array.isArray(prefundingPermissions)
       ? prefundingPermissions
       : (role === "ADMIN" ? ALL_PREFUNDING_PERMISSIONS : []);
+    const effectivePrefundingPermissions = (rawPermissions.length > 0 && !rawPermissions.includes("VIEW"))
+      ? [...rawPermissions, "VIEW"]
+      : rawPermissions;
 
     const user = await prisma.user.create({
       data: {
