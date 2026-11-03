@@ -30,7 +30,7 @@ const requireStatusChangePermission = (req: AuthenticatedRequest, res: Response,
   const { status } = req.body || {};
   const statusUpper = String(status || "").toUpperCase();
 
-  if (statusUpper === "APPROVED") {
+  if (statusUpper === "APPROVED" || statusUpper === "REJECTED") {
     return requirePrefundingPermission("APPROVE")(req, res, next);
   } else if (statusUpper === "POSTED") {
     return requirePrefundingPermission("POST")(req, res, next);
