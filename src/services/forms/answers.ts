@@ -287,6 +287,23 @@ export function validateAnswer(question: QuestionShape, stored: StoredAnswer, re
   return errors;
 }
 
+export type ImageAnswerFile = { name?: string; url?: string; blobName?: string; id?: string };
+
+export function imageAnswerFiles(stored: { valueJson?: unknown; fileRefs?: unknown }): ImageAnswerFile[] {
+  const json = stored.valueJson as { files?: unknown } | null;
+  const fromJson = json && typeof json === "object" && Array.isArray(json.files) ? json.files : [];
+  const fromRefs = Array.isArray(stored.fileRefs) ? stored.fileRefs : [];
+  const raw = fromJson.length ? fromJson : fromRefs;
+  return raw.filter((item): item is ImageAnswerFile => Boolean(item) && typeof item === "object");
+}
+
+export function imageFileLabel(file: ImageAnswerFile) {
+  if (file.name?.trim()) return file.name.trim();
+  const source = file.blobName || file.url || "";
+  const base = source.split("?")[0].split("/").pop() || "Image";
+  return base.replace(/^\d+-/, "") || "Image";
+}
+
 export function displayValue(question: QuestionShape, stored: StoredAnswer) {
   if (stored.valueText) return stored.valueText;
   if (stored.valueNumber !== null && stored.valueNumber !== undefined) {
@@ -307,6 +324,10 @@ export function displayValue(question: QuestionShape, stored: StoredAnswer) {
       (id) => question.options.find((item) => item.id === id)?.label || id,
     );
     return [...labels, json.otherText].filter(Boolean).join("; ");
+  }
+  if (question.type === "IMAGE_UPLOAD" || stored.fileRefs) {
+    const names = imageAnswerFiles(stored).map(imageFileLabel).filter(Boolean);
+    if (names.length) return names.join(", ");
   }
   if (typeof stored.valueJson === "boolean") return stored.valueJson ? "Yes" : "No";
   if (stored.fileRefs) return "file";
