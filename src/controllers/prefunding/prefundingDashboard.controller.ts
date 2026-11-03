@@ -311,6 +311,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
           overdueCount++;
           overdueAmount += amt;
           break;
+        case "rejected":
         case "cancelled":
           cancelledCount++;
           break;
@@ -324,8 +325,8 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
         const msDiff = dueD.getTime() - now.getTime();
         const daysToDue = Math.ceil(msDiff / (1000 * 60 * 60 * 24));
 
-        // Upcoming due amounts: active invoices not yet paid or cancelled
-        if (normStatus !== "paid" && normStatus !== "cancelled") {
+        // Upcoming due amounts: active invoices not yet paid, rejected or cancelled
+        if (normStatus !== "paid" && normStatus !== "cancelled" && normStatus !== "rejected") {
           upcomingDueAmountSum += amt;
 
           const invNumber = inv.invoiceNumber || inv.id.slice(0, 8);

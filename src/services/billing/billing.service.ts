@@ -1622,10 +1622,10 @@ function computeVendorAmount(
       typeof nestedModelRaw === "string" &&
       Object.values(PricingModel).includes(nestedModelRaw as PricingModel)
     ) {
-      const vendorMinFee = vendorPricing.minimumFee !== undefined && vendorPricing.minimumFee !== null && vendorPricing.minimumFee !== ""
+      const vendorMinFee = vendorPricing.minimumFee !== undefined && vendorPricing.minimumFee !== null && vendorPricing.minimumFee !== "" && Number(vendorPricing.minimumFee) > 0
         ? Number(vendorPricing.minimumFee)
         : null;
-      const vendorMaxFee = vendorPricing.maximumFee !== undefined && vendorPricing.maximumFee !== null && vendorPricing.maximumFee !== ""
+      const vendorMaxFee = vendorPricing.maximumFee !== undefined && vendorPricing.maximumFee !== null && vendorPricing.maximumFee !== "" && Number(vendorPricing.maximumFee) > 0
         ? Number(vendorPricing.maximumFee)
         : null;
 
@@ -2231,10 +2231,10 @@ export async function calculateBillingRun(
 
   const calculatedItems: CalculatedRunItem[] = runTerms.map((term) => {
     const pricingConfig = toJsonObject(term.pricingConfig);
-    const clientMinFee = pricingConfig.minimumFee !== undefined && pricingConfig.minimumFee !== null && pricingConfig.minimumFee !== ""
+    const clientMinFee = pricingConfig.minimumFee !== undefined && pricingConfig.minimumFee !== null && pricingConfig.minimumFee !== "" && Number(pricingConfig.minimumFee) > 0
       ? Number(pricingConfig.minimumFee)
       : null;
-    const clientMaxFee = pricingConfig.maximumFee !== undefined && pricingConfig.maximumFee !== null && pricingConfig.maximumFee !== ""
+    const clientMaxFee = pricingConfig.maximumFee !== undefined && pricingConfig.maximumFee !== null && pricingConfig.maximumFee !== "" && Number(pricingConfig.maximumFee) > 0
       ? Number(pricingConfig.maximumFee)
       : null;
 
