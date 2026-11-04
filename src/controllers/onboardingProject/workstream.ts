@@ -24,7 +24,7 @@ const workstreamInclude = {
   onboardingProject: {
     include: {
       practice: {
-        select: { id: true, name: true },
+        select: { id: true, practiceId: true, name: true },
       },
     },
   },
@@ -142,10 +142,16 @@ export async function getWorkstreams(
     }
 
     if (search) {
+      const searchNum = parseInt(search, 10);
+      const isNum = !isNaN(searchNum);
+
       where.onboardingProject = {
         ...(where.onboardingProject as object),
         practice: {
-          name: { contains: search, mode: "insensitive" },
+          OR: [
+            { name: { contains: search, mode: "insensitive" } },
+            ...(isNum ? [{ practiceId: { equals: searchNum } }] : []),
+          ],
         },
       };
     }

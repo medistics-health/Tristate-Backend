@@ -99,7 +99,9 @@ export async function updateUser(req: AuthenticatedRequest, res: Response) {
     } else if (role === "ADMIN") {
       updateData.hasPrefundingAccess = true;
     }
-    if (Array.isArray(prefundingPermissions)) {
+    if (updateData.hasPrefundingAccess === false) {
+      updateData.prefundingPermissions = [];
+    } else if (Array.isArray(prefundingPermissions)) {
       const perms = [...prefundingPermissions];
       if (perms.length > 0 && !perms.includes("VIEW")) {
         perms.push("VIEW");
@@ -157,9 +159,11 @@ export async function createUser(req: AuthenticatedRequest, res: Response) {
     const effectivePrefundingAccess = typeof hasPrefundingAccess === "boolean"
       ? hasPrefundingAccess
       : (role === "ADMIN" ? true : false);
-    const rawPermissions = Array.isArray(prefundingPermissions)
-      ? prefundingPermissions
-      : (role === "ADMIN" ? ALL_PREFUNDING_PERMISSIONS : []);
+    const rawPermissions = !effectivePrefundingAccess
+      ? []
+      : (Array.isArray(prefundingPermissions)
+        ? prefundingPermissions
+        : (role === "ADMIN" ? ALL_PREFUNDING_PERMISSIONS : []));
     const effectivePrefundingPermissions = (rawPermissions.length > 0 && !rawPermissions.includes("VIEW"))
       ? [...rawPermissions, "VIEW"]
       : rawPermissions;

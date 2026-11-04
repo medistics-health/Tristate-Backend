@@ -616,6 +616,9 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
   const search = query.search?.trim();
 
   if (search) {
+    const searchNum = parseInt(search, 10);
+    const isNum = !isNaN(searchNum);
+
     clauses.push({
       OR: [
       { credentialingId: { contains: search, mode: "insensitive" } },
@@ -626,7 +629,10 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
       { enrollmentId: { contains: search, mode: "insensitive" } },
       {
         practice: {
-          name: { contains: search, mode: "insensitive" },
+          OR: [
+            { name: { contains: search, mode: "insensitive" } },
+            ...(isNum ? [{ practiceId: { equals: searchNum } }] : []),
+          ],
         },
       },
       {
@@ -645,8 +651,14 @@ function buildCredentialingWhere(query: QueryParams): Prisma.CredentialingReques
 
   const practiceTerm = query.practice?.trim();
   if (practiceTerm) {
+    const practiceNum = parseInt(practiceTerm, 10);
+    const isPracticeNum = !isNaN(practiceNum);
+
     where.practice = {
-      name: { contains: practiceTerm, mode: "insensitive" },
+      OR: [
+        { name: { contains: practiceTerm, mode: "insensitive" } },
+        ...(isPracticeNum ? [{ practiceId: { equals: practiceNum } }] : []),
+      ],
     };
   }
 
