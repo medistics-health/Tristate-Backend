@@ -348,6 +348,15 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
               email: true,
             }
           },
+          rejectedByUser: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              userName: true,
+              email: true,
+            }
+          },
           practice: {
             select: {
               id: true,
@@ -428,6 +437,11 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         ? (`${approver.firstName || ""} ${approver.lastName || ""}`.trim() || approver.userName || approver.email)
         : null;
 
+      const rejector = inv.rejectedByUser;
+      const rejectedBy = rejector
+        ? (`${rejector.firstName || ""} ${rejector.lastName || ""}`.trim() || rejector.userName || rejector.email)
+        : null;
+
       const firstPaymentAlloc = inv.paymentAllocations?.[0];
       const paymentRecord = firstPaymentAlloc?.payment;
       const paymentMethodDisplay = formatPaymentMethodDisplay(paymentRecord?.paymentMethod, inv.paymentMethod);
@@ -459,6 +473,8 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
         updatedAt: inv.updatedAt ? new Date(inv.updatedAt).toISOString() : null,
         approvedBy,
         approvedAt: inv.approvedAt ? new Date(inv.approvedAt).toISOString() : null,
+        rejectedBy,
+        rejectedAt: inv.rejectedAt ? new Date(inv.rejectedAt).toISOString() : null,
         postedDate: (inv.postedAt || (inv.status.toLowerCase() === "posted" ? inv.updatedAt : null))
           ? new Date(inv.postedAt || inv.updatedAt).toISOString().split("T")[0]
           : null,
@@ -513,6 +529,15 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
           }
         },
         approvedByUser: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            userName: true,
+            email: true,
+          }
+        },
+        rejectedByUser: {
           select: {
             id: true,
             firstName: true,
@@ -578,6 +603,11 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       ? (`${approver.firstName || ""} ${approver.lastName || ""}`.trim() || approver.userName || approver.email)
       : null;
 
+    const rejector = inv.rejectedByUser;
+    const rejectedBy = rejector
+      ? (`${rejector.firstName || ""} ${rejector.lastName || ""}`.trim() || rejector.userName || rejector.email)
+      : null;
+
     const firstPaymentAlloc = inv.paymentAllocations?.[0];
     const paymentRecord = firstPaymentAlloc?.payment;
       const paymentMethodDisplay = formatPaymentMethodDisplay(paymentRecord?.paymentMethod, inv.paymentMethod);
@@ -609,6 +639,8 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
       updatedAt: inv.updatedAt ? new Date(inv.updatedAt).toISOString() : null,
       approvedBy,
       approvedAt: inv.approvedAt ? new Date(inv.approvedAt).toISOString() : null,
+      rejectedBy,
+      rejectedAt: inv.rejectedAt ? new Date(inv.rejectedAt).toISOString() : null,
       postedDate: (inv.postedAt || (inv.status.toLowerCase() === "posted" ? inv.updatedAt : null))
         ? new Date(inv.postedAt || inv.updatedAt).toISOString().split("T")[0]
         : null,
@@ -833,6 +865,7 @@ export async function updatePrefundingInvoiceStatus(req: AuthenticatedRequest, r
 
     const currentUserId = req.user?.sub || null;
     const isApproval = status.toLowerCase() === "approved";
+    const isRejection = status.toLowerCase() === "rejected";
 
     const updated = await prisma.prefundingInvoice.update({
       where: { id },
@@ -842,12 +875,17 @@ export async function updatePrefundingInvoiceStatus(req: AuthenticatedRequest, r
           approvedByUserId: currentUserId,
           approvedAt: new Date(),
         } : {}),
+        ...(isRejection ? {
+          rejectedByUserId: currentUserId,
+          rejectedAt: new Date(),
+        } : {}),
       },
       include: {
         practice: true,
         lineItems: true,
         createdByUser: true,
         approvedByUser: true,
+        rejectedByUser: true,
       }
     });
 

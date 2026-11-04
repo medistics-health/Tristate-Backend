@@ -52,6 +52,7 @@ model User {
   formExportsRequested         FormExport[]             @relation("FormExportRequestedBy")
   prefundingInvoicesCreated    PrefundingInvoice[]      @relation("PrefundingInvoiceCreatedByUser")
   prefundingInvoicesApproved   PrefundingInvoice[]      @relation("PrefundingInvoiceApprovedByUser")
+  prefundingInvoicesRejected   PrefundingInvoice[]      @relation("PrefundingInvoiceRejectedByUser")
 
   @@map("User")
 }
@@ -3275,6 +3276,9 @@ model PrefundingInvoice {
   approvedByUserId       String?                     @map("approved_by_user_id") @db.Uuid
   approvedByUser         User?                       @relation("PrefundingInvoiceApprovedByUser", fields: [approvedByUserId], references: [id])
   approvedAt             DateTime?                   @map("approved_at")
+  rejectedByUserId       String?                     @map("rejected_by_user_id") @db.Uuid
+  rejectedByUser         User?                       @relation("PrefundingInvoiceRejectedByUser", fields: [rejectedByUserId], references: [id])
+  rejectedAt             DateTime?                   @map("rejected_at")
   postedAt               DateTime?                   @map("posted_at")
   practice               Practice                    @relation(fields: [practiceId], references: [id], onDelete: Cascade)
   lineItems              PrefundingInvoiceLineItem[]
@@ -3286,6 +3290,7 @@ model PrefundingInvoice {
   @@index([practiceId])
   @@index([createdByUserId])
   @@index([approvedByUserId])
+  @@index([rejectedByUserId])
   @@index([stripeInvoiceId])
   @@map("prefunding_invoices")
 }
