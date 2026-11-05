@@ -31,7 +31,7 @@ const riskInclude = {
   onboardingProject: {
     include: {
       practice: {
-        select: { id: true, name: true },
+        select: { id: true, practiceId: true, name: true },
       },
     },
   },

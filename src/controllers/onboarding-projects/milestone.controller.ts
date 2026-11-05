@@ -28,7 +28,7 @@ export async function getMilestones(req: Request, res: Response): Promise<void> 
           include: {
             onboardingProject: {
               include: {
-                practice: { select: { name: true } },
+                practice: { select: { id: true, practiceId: true, name: true } },
               },
             },
           },
@@ -42,6 +42,7 @@ export async function getMilestones(req: Request, res: Response): Promise<void> 
       milestoneCode: m.milestoneCode,
       description: m.description,
       practiceName: m.workstream?.onboardingProject?.practice?.name || "Practice Onboarding",
+      practiceIdNum: m.workstream?.onboardingProject?.practice?.practiceId ?? null,
       serviceLine: m.workstream?.serviceLine || "RCM",
       targetWeek: m.targetWeek || "Week 1",
       targetDate: formatDateMMDDYYYY(m.targetDate),
@@ -142,7 +143,7 @@ export async function createMilestone(req: AuthenticatedRequest, res: Response):
           include: {
             onboardingProject: {
               include: {
-                practice: { select: { name: true } },
+                practice: { select: { id: true, practiceId: true, name: true } },
               },
             },
           },
@@ -157,6 +158,7 @@ export async function createMilestone(req: AuthenticatedRequest, res: Response):
         milestoneCode: created.milestoneCode,
         description: created.description,
         practiceName: created.workstream?.onboardingProject?.practice?.name || practiceName || "Practice Onboarding",
+        practiceIdNum: created.workstream?.onboardingProject?.practice?.practiceId ?? null,
         serviceLine: created.workstream?.serviceLine || serviceLine || "RCM",
         targetWeek: created.targetWeek || "Week 1",
         targetDate: formatDateMMDDYYYY(created.targetDate),
@@ -199,7 +201,7 @@ export async function updateMilestone(req: AuthenticatedRequest, res: Response):
           include: {
             onboardingProject: {
               include: {
-                practice: { select: { name: true } },
+                practice: { select: { id: true, practiceId: true, name: true } },
               },
             },
           },
@@ -214,6 +216,7 @@ export async function updateMilestone(req: AuthenticatedRequest, res: Response):
         milestoneCode: updated.milestoneCode,
         description: updated.description,
         practiceName: updated.workstream?.onboardingProject?.practice?.name || "Practice Onboarding",
+        practiceIdNum: updated.workstream?.onboardingProject?.practice?.practiceId ?? null,
         serviceLine: updated.workstream?.serviceLine || "RCM",
         targetWeek: updated.targetWeek || "Week 1",
         targetDate: formatDateMMDDYYYY(updated.targetDate),

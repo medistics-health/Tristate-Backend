@@ -70,7 +70,7 @@ const taskSelectFields = {
     include: {
       onboardingProject: {
         include: {
-          practice: { select: { id: true, name: true } },
+          practice: { select: { id: true, practiceId: true, name: true } },
         },
       },
     },
@@ -191,6 +191,7 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
         name: t.name,
         practiceId: t.workstream.onboardingProject.practiceId,
         practiceName: t.workstream.onboardingProject.practice?.name || "Unknown Practice",
+        practiceIdNum: t.workstream.onboardingProject.practice?.practiceId ?? null,
         workstreamId: t.workstreamId,
         serviceLine: t.workstream.serviceLine,
         phase: t.phase,
@@ -443,6 +444,7 @@ export async function createTask(req: AuthenticatedRequest, res: Response): Prom
         name: createdTask.name,
         practiceId: createdTask.workstream.onboardingProject.practiceId,
         practiceName: createdTask.workstream.onboardingProject.practice?.name || "Unknown Practice",
+        practiceIdNum: createdTask.workstream.onboardingProject.practice?.practiceId ?? null,
         workstreamId: createdTask.workstreamId,
         serviceLine: createdTask.workstream.serviceLine,
         phase: createdTask.phase,
@@ -724,6 +726,7 @@ export async function updateTask(req: AuthenticatedRequest, res: Response): Prom
         name: updatedTask.name,
         practiceId: updatedTask.workstream.onboardingProject.practiceId,
         practiceName: updatedTask.workstream.onboardingProject.practice?.name || "Unknown Practice",
+        practiceIdNum: updatedTask.workstream.onboardingProject.practice?.practiceId ?? null,
         workstreamId: updatedTask.workstreamId,
         serviceLine: updatedTask.workstream.serviceLine,
         phase: updatedTask.phase,

@@ -31,7 +31,7 @@ export async function getProjects(req: Request, res: Response): Promise<void> {
           notes: true,
           createdAt: true,
           updatedAt: true,
-          practice: { select: { id: true, name: true, npi: true } },
+          practice: { select: { id: true, practiceId: true, name: true, npi: true } },
           practiceManager: { select: { id: true, firstName: true, lastName: true, email: true } },
           workstreams: {
             select: {
@@ -60,6 +60,7 @@ export async function getProjects(req: Request, res: Response): Promise<void> {
         id: p.id,
         practiceId: p.practiceId,
         practiceName: p.practice?.name || "Unknown Practice",
+        practiceIdNum: p.practice?.practiceId ?? null,
         status: p.status,
         goLiveTarget: formatDateMMDDYYYY(p.goLiveTarget),
         kickoffDate: formatDateMMDDYYYY(p.kickoffDate),
@@ -110,7 +111,7 @@ export async function createProject(req: Request, res: Response): Promise<void> 
         notes: true,
         createdAt: true,
         updatedAt: true,
-        practice: { select: { id: true, name: true } },
+        practice: { select: { id: true, practiceId: true, name: true } },
       },
     });
 
@@ -157,7 +158,7 @@ export async function updateProject(req: Request, res: Response): Promise<void> 
         notes: true,
         createdAt: true,
         updatedAt: true,
-        practice: { select: { id: true, name: true } },
+        practice: { select: { id: true, practiceId: true, name: true } },
       },
     });
 
