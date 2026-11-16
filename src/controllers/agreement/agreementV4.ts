@@ -3,6 +3,7 @@ import {
     AgreementStatus,
     AgreementType,
     OnboardingStatus,
+    PracticeStatus,
   } from "../../../generated/prisma/client";
   import { Request, Response } from "express";
   import { prisma } from "../../lib/prisma";
@@ -379,6 +380,55 @@ import {
     });
   }
 
+  const AGREEMENT_STATUSES_NOT_REQUIRING_SIGNATURE = new Set<AgreementStatus>([
+    AgreementStatus.INACTIVE,
+    AgreementStatus.EXPIRED,
+    AgreementStatus.TERMINATED,
+  ]);
+
+  const AGREEMENT_STATUSES_COMPLETE = new Set<AgreementStatus>([
+    AgreementStatus.SIGNED,
+    AgreementStatus.ACTIVE,
+  ]);
+
+  async function activatePracticeWhenAllAgreementsSigned(agreementId: string) {
+    const agreement = await prisma.agreement.findUnique({
+      where: { id: agreementId },
+      select: { practiceId: true },
+    });
+
+    if (!agreement?.practiceId) {
+      return;
+    }
+
+    const practiceAgreements = await prisma.agreement.findMany({
+      where: { practiceId: agreement.practiceId },
+      select: { status: true },
+    });
+
+    const agreementsThatMustBeSigned = practiceAgreements.filter(
+      (item) => !AGREEMENT_STATUSES_NOT_REQUIRING_SIGNATURE.has(item.status),
+    );
+
+    const allSigned =
+      agreementsThatMustBeSigned.length > 0 &&
+      agreementsThatMustBeSigned.every((item) =>
+        AGREEMENT_STATUSES_COMPLETE.has(item.status),
+      );
+
+    if (!allSigned) {
+      return;
+    }
+
+    await prisma.practice.updateMany({
+      where: {
+        id: agreement.practiceId,
+        status: PracticeStatus.AGREEMENT_SENT,
+      },
+      data: { status: PracticeStatus.ACTIVE },
+    });
+  }
+
   export async function handleDocusealWebhook(req: Request, res: Response) {
     try {
       const { event_type, data } = req.body;
@@ -533,6 +583,9 @@ import {
 
           if (updated.count > 0) {
             await updateDealAfterAgreementSigned(dbSubmission.agreementId);
+            await activatePracticeWhenAllAgreementsSigned(
+              dbSubmission.agreementId,
+            );
           }
         }
       }
@@ -1704,7 +1757,11 @@ import {
           (submission) => submission.approval_status === "APPROVED",
         );
 
-      if (practice.status === "ACTIVE" && isApprovedForAutoSend) {
+      if (
+        (practice.status === "ACTIVE" ||
+          practice.status === "AGREEMENT_SENT") &&
+        isApprovedForAutoSend
+      ) {
         const eligiblePerson = await prisma.person.findFirst({
           where: {
             email: {
@@ -2318,7 +2375,8 @@ import {
 
         const hasPendingAutoSendTemplates =
           agreementForAutoSend?.status !== "SENT" &&
-          agreementForAutoSend?.practice?.status === "ACTIVE" &&
+          (agreementForAutoSend?.practice?.status === "ACTIVE" ||
+            agreementForAutoSend?.practice?.status === "AGREEMENT_SENT") &&
           (agreementForAutoSend.docusealSubmissions || []).length > 0 &&
           agreementForAutoSend.docusealSubmissions.every(
             (submission) => submission.approval_status === "APPROVED",
