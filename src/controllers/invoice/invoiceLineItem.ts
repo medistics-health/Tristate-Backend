@@ -100,7 +100,14 @@ export async function getInvoiceLineItem(
 
     const invoiceLineItem = await prisma.invoiceLineItem.findFirst({
       where: { id },
-      include: { invoice: true, service: true },
+      include: {
+        invoice: {
+          include: {
+            practice: true,
+          },
+        },
+        service: true,
+      },
     });
 
     if (!invoiceLineItem) {
@@ -310,7 +317,14 @@ export async function getAllInvoiceLineItems(
     const [lineItems, total] = await Promise.all([
       prisma.invoiceLineItem.findMany({
         where,
-        include: { invoice: true, service: true },
+        include: {
+          invoice: {
+            include: {
+              practice: true,
+            },
+          },
+          service: true,
+        },
         orderBy,
         skip,
         take: limit,

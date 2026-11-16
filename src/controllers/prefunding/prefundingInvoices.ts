@@ -360,6 +360,7 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
           practice: {
             select: {
               id: true,
+              practiceId: true,
               name: true,
               emails: true,
               phone: true,
@@ -449,7 +450,12 @@ export async function getPrefundingInvoices(req: AuthenticatedRequest, res: Resp
       return {
         id: inv.id,
         invoiceNumber,
-        practice: inv.practice?.name || "N/A",
+        practice: inv.practice?.name
+          ? (inv.practice.practiceId != null && String(inv.practice.practiceId).trim() !== ""
+              ? `${inv.practice.name} (Practice ID: ${inv.practice.practiceId})`
+              : inv.practice.name)
+          : "N/A",
+        practiceDetails: inv.practice ? { id: inv.practice.id, name: inv.practice.name, practiceId: inv.practice.practiceId ?? null } : null,
         practiceId: inv.practiceId,
         prefundingCycle: inv.cycle,
         cycleCount: inv.cycleCount,
@@ -615,7 +621,12 @@ export async function getPrefundingInvoiceById(req: AuthenticatedRequest, res: R
     const formatted = {
       id: inv.id,
       invoiceNumber,
-      practice: inv.practice?.name || "N/A",
+      practice: inv.practice?.name
+        ? (inv.practice.practiceId != null && String(inv.practice.practiceId).trim() !== ""
+            ? `${inv.practice.name} (Practice ID: ${inv.practice.practiceId})`
+            : inv.practice.name)
+        : "N/A",
+      practiceDetails: inv.practice ? { id: inv.practice.id, name: inv.practice.name, practiceId: inv.practice.practiceId ?? null } : null,
       practiceId: inv.practiceId,
       prefundingCycle: inv.cycle,
       cycleCount: inv.cycleCount,

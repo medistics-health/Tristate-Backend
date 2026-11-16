@@ -152,6 +152,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
         },
         select: {
           id: true,
+          practiceId: true,
           name: true,
           prefundingCycle: true,
           prefundingStartDate: true,
@@ -169,6 +170,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
           practice: {
             select: {
               id: true,
+              practiceId: true,
               name: true,
               prefundingDueOn: true,
               prefundingReminderOn: true,
@@ -338,7 +340,11 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
               invoiceId: inv.id,
               invoiceNumber: invNumber,
               practiceId: inv.practiceId,
-              practiceName: inv.practice?.name || "Unknown Practice",
+              practiceName: inv.practice?.name
+                ? (inv.practice.practiceId != null && String(inv.practice.practiceId).trim() !== ""
+                    ? `${inv.practice.name} (Practice ID: ${inv.practice.practiceId})`
+                    : inv.practice.name)
+                : "Unknown Practice",
               type: "overdue",
               title: "Overdue Prefunding Invoice",
               message: `Invoice #${invNumber} was due ${Math.abs(daysToDue)} day(s) ago (${dueD.toLocaleDateString()}). Total amount: $${amt.toFixed(2)}`,
@@ -354,7 +360,11 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
               invoiceId: inv.id,
               invoiceNumber: invNumber,
               practiceId: inv.practiceId,
-              practiceName: inv.practice?.name || "Unknown Practice",
+              practiceName: inv.practice?.name
+                ? (inv.practice.practiceId != null && String(inv.practice.practiceId).trim() !== ""
+                    ? `${inv.practice.name} (Practice ID: ${inv.practice.practiceId})`
+                    : inv.practice.name)
+                : "Unknown Practice",
               type: "reminder_due",
               title: "Due Soon Reminder",
               message: `Invoice #${invNumber} is due in ${daysToDue} day(s) (${dueD.toLocaleDateString()}). Total amount: $${amt.toFixed(2)}`,
@@ -382,9 +392,14 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
 
     for (const p of allEnabledPractices) {
       if (p.prefundingCycle && p.prefundingStartDate) {
+        const displayName =
+          p.practiceId != null && String(p.practiceId).trim() !== ""
+            ? `${p.name} (Practice ID: ${p.practiceId})`
+            : p.name;
+
         const cycles = calculateUpcomingCyclesForPractice(
           p.id,
-          p.name,
+          displayName,
           p.prefundingStartDate,
           p.prefundingCycle,
           12 // Full 12-cycle horizon
@@ -418,7 +433,12 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
       id: inv.id,
       invoiceNumber: inv.invoiceNumber || inv.id.slice(0, 8),
       practiceId: inv.practiceId,
-      practiceName: inv.practice?.name || "Unknown Practice",
+      practiceName: inv.practice?.name
+        ? (inv.practice.practiceId != null && String(inv.practice.practiceId).trim() !== ""
+            ? `${inv.practice.name} (Practice ID: ${inv.practice.practiceId})`
+            : inv.practice.name)
+        : "Unknown Practice",
+      practiceDetails: inv.practice ? { id: inv.practice.id, name: inv.practice.name, practiceId: inv.practice.practiceId ?? null } : null,
       cycle: inv.cycle,
       invoiceDate: inv.invoiceDate,
       dueDate: inv.dueDate,
@@ -477,6 +497,7 @@ export async function getPrefundingDashboardData(req: AuthenticatedRequest, res:
       recentInvoices,
       availablePractices: allEnabledPractices.map((p) => ({
         id: p.id,
+        practiceId: p.practiceId ?? null,
         name: p.name,
         cycle: p.prefundingCycle,
       })),
