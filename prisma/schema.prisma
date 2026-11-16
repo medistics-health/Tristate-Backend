@@ -1714,6 +1714,7 @@ enum UserRoles {
 
 enum PracticeStatus {
   LEAD
+  AGREEMENT_SENT
   ACTIVE
   INACTIVE
   CLOSED
