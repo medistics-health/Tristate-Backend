@@ -1,0 +1,1 @@
+ALTER TYPE "PracticeStatus" ADD VALUE 'AGREEMENT_SENT';
